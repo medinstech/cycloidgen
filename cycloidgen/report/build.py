@@ -158,6 +158,29 @@ def write_json(a: DesignAnalysis, path: str | Path) -> Path:
     return path
 
 
+def _letterhead():
+    """The wordmark above the title, sized off its own aspect ratio.
+
+    Falls back to nothing if the asset is missing: a report that refuses to
+    generate because a logo moved would be a poor trade.
+    """
+    from reportlab.platypus import Spacer
+
+    try:
+        from ..ui.branding import asset
+        path = asset("wordmark-blue.png")
+    except Exception:
+        return Spacer(1, 0)
+
+    from PIL import Image as PILImage
+    with PILImage.open(path) as im:
+        aspect = im.height / im.width
+    width = 32 * mm
+    logo = Image(str(path), width=width, height=width * aspect)
+    logo.hAlign = "LEFT"
+    return logo
+
+
 def _fig_png(fig, width_mm: float) -> Image:
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=150, facecolor=fig.get_facecolor())
@@ -212,6 +235,7 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
                           textColor=_INK2, leading=11)
 
     story: list = [
+        _letterhead(),
         Paragraph(f"Cycloidal drive {s.ratio}:1", h1),
         Paragraph(
             f"{s.lobes} lobes / {s.pin_count} ring pins &middot; "

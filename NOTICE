@@ -1,0 +1,22 @@
+cycloidgen
+Copyright 2026 Medinstech
+
+This product includes software developed by Medinstech (https://medinstech.com),
+licensed under the Apache License, Version 2.0.  See LICENSE.
+
+Trademarks
+----------
+The Apache License does not grant permission to use the trade names,
+trademarks, service marks, or product names of the licensor (section 6).
+
+The Medinstech name, the Medinstech logo, the puzzle-piece mark and the
+associated wordmarks under cycloidgen/ui/assets/ are trademarks of Medinstech.
+They are included so the application and its reports can identify their origin.
+They are NOT licensed under Apache-2.0 and may not be used to identify a
+modified version of this software, or to imply endorsement of, or association
+with, any derived work.
+
+If you fork or redistribute a modified cycloidgen, replace those assets with
+your own.  The code paths that load them are isolated in cycloidgen/ui/branding.py
+precisely so that this is a single, obvious change rather than an archaeology
+exercise.

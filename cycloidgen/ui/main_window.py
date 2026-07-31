@@ -15,35 +15,42 @@ from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavBar  # 
 from matplotlib.figure import Figure  # noqa: E402
 from PySide6.QtCore import QSettings, Qt, QThread, QTimer, Signal  # noqa: E402
 from PySide6.QtGui import (QAction, QColor, QKeySequence, QPalette)  # noqa: E402
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox,  # noqa: E402
-                               QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
-                               QLabel, QLineEdit, QMainWindow, QMessageBox,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox,  # noqa: E402
+                               QDoubleSpinBox, QFileDialog, QFormLayout,
+                               QFrame, QGroupBox, QHBoxLayout, QLabel,
+                               QLineEdit, QMainWindow, QMessageBox,
                                QProgressDialog, QPushButton, QScrollArea,
                                QSlider, QSpinBox, QSplitter, QStatusBar,
                                QTabWidget, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
+from .. import __version__
 from ..analysis import DesignAnalysis, analyse
 from ..core.spec import GearSpec, OffsetMode, Process, preset
 from ..core.validate import Severity
 from ..export import write_bundle
 from ..report import plots
+from . import branding
 from .fields import CODE_FIELDS, GROUPS, Field
 from .history import SpecHistory
 from .logpanel import LogPanel, install as install_logging, logger
 from .optimise_dialog import OptimiseDialog
 from .tradestudy import TradeStudyTab
 
-SEVERITY_COLOR = {
-    Severity.ERROR: QColor("#c0392b"),
-    Severity.WARNING: QColor("#b8860b"),
-    Severity.INFO: QColor("#52514e"),
-}
-
-#: Highlight left on a parameter that a selected finding points at.
-_HIGHLIGHT = "border: 1px solid #eb6834; border-radius: 3px;"
-
 _MAX_RECENT = 8
+
+
+def _severity_colours(mode: str) -> dict[Severity, QColor]:
+    """Severity ink for the current surface.
+
+    Taken from the theme rather than hard-coded, because these are read as
+    words: the equivalent chart colours are tuned for filled marks and fall
+    below the text contrast floor when used for a label.
+    """
+    p = branding.palette(mode)
+    return {Severity.ERROR: QColor(p.error),
+            Severity.WARNING: QColor(p.warning),
+            Severity.INFO: QColor(p.ink_dim)}
 
 
 class ExportWorker(QThread):
@@ -132,10 +139,19 @@ class MainWindow(QMainWindow):
         self._anim.setInterval(40)
         self._anim.timeout.connect(self._advance_crank)
 
-        # follow the desktop theme so the plots do not sit on a white slab
-        # inside a dark window
+        # Follow the desktop theme, then paint everything - chrome and plots -
+        # from the same decision, so the figures never sit on a white slab
+        # inside a dark window.
         window = self.palette().color(QPalette.Window)
-        plots.set_theme("dark" if window.lightness() < 128 else "light")
+        self.mode = "dark" if window.lightness() < 128 else "light"
+        plots.set_theme(self.mode)
+        self._severity = _severity_colours(self.mode)
+        accent = branding.palette(self.mode).accent
+        self._highlight_css = f"border: 1px solid {accent}; border-radius: 3px;"
+        self.setWindowIcon(branding.window_icon())
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(branding.stylesheet(self.mode))
 
         self._build_ui()
         self._load_spec_into_widgets()
@@ -148,13 +164,58 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self._build_view_panel())
         splitter.setStretchFactor(1, 1)
         splitter.setSizes([400, 1040])
-        self.setCentralWidget(splitter)
+
+        shell = QWidget()
+        column = QVBoxLayout(shell)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(0)
+        column.addWidget(self._build_header())
+        column.addWidget(splitter, 1)
+        self.setCentralWidget(shell)
 
         self.setStatusBar(QStatusBar())
         self._build_menu()
         geometry = self._settings.value("geometry")
         if geometry is not None:
             self.restoreGeometry(geometry)
+
+    def _build_header(self) -> QWidget:
+        """A slim brand strip: the mark, the product, and nothing else.
+
+        Deliberately thin.  A tall banner on a tool whose whole job is showing a
+        drawing and a table of numbers is space taken away from the work.
+        """
+        header = QFrame()
+        header.setObjectName("BrandHeader")
+        header.setFixedHeight(46)
+        row = QHBoxLayout(header)
+        row.setContentsMargins(14, 6, 14, 6)
+        row.setSpacing(12)
+
+        logo = QLabel()
+        logo.setPixmap(branding.logo_pixmap("wordmark", self.mode, height=24))
+        logo.setToolTip(f"{branding.COMPANY} - {branding.TAGLINE}")
+        row.addWidget(logo)
+
+        rule = QFrame()
+        rule.setFrameShape(QFrame.VLine)
+        rule.setFixedWidth(1)
+        rule.setStyleSheet(f"background: {branding.palette(self.mode).line};")
+        row.addWidget(rule)
+
+        product = QLabel("cycloidgen")
+        product.setObjectName("BrandProduct")
+        row.addWidget(product)
+
+        tagline = QLabel("parametric cycloidal drive design")
+        tagline.setObjectName("BrandTagline")
+        row.addWidget(tagline)
+        row.addStretch(1)
+
+        self._header_status = QLabel()
+        self._header_status.setObjectName("BrandTagline")
+        row.addWidget(self._header_status)
+        return header
 
     def _build_parameter_panel(self) -> QWidget:
         inner = QWidget()
@@ -172,6 +233,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(row)
 
         self._optimise_btn = QPushButton("Design for requirements...")
+        self._optimise_btn.setProperty("primary", "true")
         self._optimise_btn.setToolTip(
             "State the ratio, torque and envelope you need and let the app "
             "search for the geometry, instead of tuning it by hand.")
@@ -316,6 +378,7 @@ class MainWindow(QMainWindow):
 
         row = QHBoxLayout()
         self._export_btn = QPushButton("Export all files...")
+        self._export_btn.setProperty("primary", "true")
         self._export_btn.clicked.connect(lambda: self._export(True))
         row.addWidget(self._export_btn)
         self._export_2d_btn = QPushButton("Export drawings only")
@@ -399,6 +462,30 @@ class MainWindow(QMainWindow):
         pin.setShortcut("Ctrl+P")
         pin.triggered.connect(self._pin_reference)
         d.addAction(pin)
+
+        h = self.menuBar().addMenu("&Help")
+        about = QAction("&About cycloidgen", self)
+        about.triggered.connect(self._about)
+        h.addAction(about)
+
+    def _about(self) -> None:
+        p = branding.palette(self.mode)
+        box = QMessageBox(self)
+        box.setWindowTitle("About cycloidgen")
+        box.setIconPixmap(branding.logo_pixmap("mark", self.mode, height=72))
+        box.setTextFormat(Qt.RichText)
+        box.setText(
+            f"<h3 style='margin:0'>cycloidgen {__version__}</h3>"
+            f"<p style='color:{p.ink_dim};margin-top:2px'>"
+            f"Parametric cycloidal drive design, analysis and CAD export.</p>")
+        box.setInformativeText(
+            f"<p>A <a href='{branding.COMPANY_URL}' style='color:{p.accent}'>"
+            f"{branding.COMPANY}</a> tool. <i>{branding.TAGLINE}</i></p>"
+            f"<p style='color:{p.ink_dim}'>The numbers it produces are "
+            f"preliminary sizing estimates, not a certification. Validate "
+            f"against a physical prototype before anything load-bearing depends "
+            f"on them.</p>")
+        box.exec()
 
     # ------------------------------------------------------------------- log
     def _say(self, message: str, *, level: int = logging.INFO,
@@ -587,6 +674,11 @@ class MainWindow(QMainWindow):
             f"{e.output_power_W:.2f} W of the {e.input_power_W:.2f} W supplied. "
             f"Losses scale with the friction coefficient, so lubrication and rolling "
             f"elements move this number further than any geometry change.")
+        self._header_status.setText(
+            f"{s.ratio}:1  ·  {2 * s.housing_outer_radius:.0f} mm OD  ·  "
+            f"{a.torque_capacity_with_clearance_Nm:.1f} Nm  ·  "
+            f"{100 * a.efficiency.efficiency:.0f}%"
+            + ("" if a.report.ok else "  ·  BLOCKED"))
         self.statusBar().showMessage(
             f"{s.ratio}:1   OD {2 * s.housing_outer_radius:.1f} mm   "
             f"stack {s.stack_height:.1f} mm   {a.mass.total_mass_g:.0f} g   "
@@ -609,7 +701,7 @@ class MainWindow(QMainWindow):
                 f.severity.value.upper(), f.code, f.message,
                 f"{f.value:.4g}" if f.value is not None else "",
                 f"{f.limit:.4g}" if f.limit is not None else ""])
-            item.setForeground(0, SEVERITY_COLOR[f.severity])
+            item.setForeground(0, self._severity[f.severity])
             item.setData(0, Qt.UserRole, f.code)
             self.findings.addTopLevelItem(item)
         if not self.analysis.report.findings:
@@ -661,7 +753,7 @@ class MainWindow(QMainWindow):
             if row is None:
                 continue
             _label, widget = row
-            widget.setStyleSheet(_HIGHLIGHT)
+            widget.setStyleSheet(self._highlight_css)
             self._highlighted.append(widget)
             first = first or widget
         if first is not None:

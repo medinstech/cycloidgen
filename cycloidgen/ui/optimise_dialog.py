@@ -178,6 +178,7 @@ class OptimiseDialog(QDialog):
 
         layout.addStretch(1)
         self._run_btn = QPushButton("Search")
+        self._run_btn.setProperty("primary", "true")
         self._run_btn.setDefault(True)
         self._run_btn.clicked.connect(self._run)
         layout.addWidget(self._run_btn)

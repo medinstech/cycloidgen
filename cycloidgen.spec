@@ -33,6 +33,14 @@ for package in ("casadi", "OCP"):
 hiddenimports += collect_submodules("cycloidgen")
 hiddenimports += ["matplotlib.backends.backend_qtagg", "PySide6.QtSvg"]
 
+# Brand assets: collect_submodules only finds importable modules, so the logos
+# have to be listed as data or the frozen app starts with no icon and an empty
+# header.
+_assets = Path("cycloidgen/ui/assets")
+if _assets.is_dir():
+    datas += [(str(p), "cycloidgen/ui/assets") for p in _assets.iterdir()
+              if p.suffix in {".png", ".ico"}]
+
 a = Analysis(
     ["launcher.py"],
     pathex=["."],
@@ -44,10 +52,13 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+_icon = Path("cycloidgen/ui/assets/cycloidgen.ico")
+
 exe = EXE(
     pyz, a.scripts, [],
     exclude_binaries=True,
     name="cycloidgen",
+    icon=str(_icon) if _icon.exists() else None,
     console=True,   # keep the CLI usable and errors visible
     disable_windowed_traceback=False,
 )

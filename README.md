@@ -303,9 +303,20 @@ The bundle is about 1.2 GB, essentially all OCCT. If that matters, build with
 dropping `cadquery`, `OCP`, `casadi` and `vtkmodules` from the spec cuts the
 bundle to a fraction of the size.
 
+## Where it is going
+
+See [ROADMAP.md](ROADMAP.md). The item at the top — calibrating the model
+against measured hardware — is worth more than everything under it, and is
+listed first for that reason.
+
 ## License
 
 Apache-2.0. Copyright 2026 Medinstech. See [LICENSE](LICENSE).
+
+The Medinstech name and logos under `cycloidgen/ui/assets/` are trademarks and
+are **not** covered by that licence — see [NOTICE](NOTICE). They load through a
+single module (`cycloidgen/ui/branding.py`) so that replacing them in a fork is
+one obvious change.
 
 The numbers this produces are preliminary sizing estimates, not a certification —
 see *How far to trust the analysis* above. Apache-2.0 disclaims warranty for a

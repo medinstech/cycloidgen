@@ -47,6 +47,11 @@ cycloidgen-gui = "cycloidgen.ui.app:main"
 [tool.setuptools.packages.find]
 include = ["cycloidgen*"]
 
+# The brand assets are part of the application, not build output - without this
+# the window has no icon and the header has no logo in an installed copy.
+[tool.setuptools.package-data]
+"cycloidgen.ui" = ["assets/*.png", "assets/*.ico"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 filterwarnings = ["ignore::DeprecationWarning"]

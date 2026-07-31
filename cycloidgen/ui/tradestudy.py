@@ -104,6 +104,7 @@ class TradeStudyTab(QWidget):
         row.addWidget(self._steps)
 
         self._run_btn = QPushButton("Run")
+        self._run_btn.setProperty("primary", "true")
         self._run_btn.clicked.connect(self._run)
         row.addWidget(self._run_btn)
         return row
