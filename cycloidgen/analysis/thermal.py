@@ -44,7 +44,7 @@ from ..core.kinematics import SWEEP_STEPS, output_loads, sweep
 from ..core.spec import GearSpec
 from .efficiency import EfficiencyResult, analyse_efficiency
 
-__all__ = ["ThermalResult", "analyse_thermal", "CONVECTION_W_M2K"]
+__all__ = ["CONVECTION_W_M2K", "ThermalResult", "analyse_thermal"]
 
 #: Combined natural convection and radiation from a small housing in still air,
 #: W/m^2K.  Free convection off a palm-sized body runs about 8; grey-body

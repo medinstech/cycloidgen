@@ -11,6 +11,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      # Rules live in pyproject.toml, so this checks the same thing a developer
+      # gets locally.  `ruff format` is deliberately not run: the repository has
+      # a hand-aligned style the formatter would rewrite wholesale, and a lint
+      # that hunts bugs is worth more than one that enforces a preference.
+      - run: pipx install ruff
+      - run: ruff check --output-format=github .
+
   test:
     name: pytest (${{ matrix.os }}, py${{ matrix.python }})
     runs-on: ${{ matrix.os }}

@@ -154,5 +154,5 @@ def test_spec_derived_values():
     s = GearSpec(lobes=11, pin_circle_radius=50, pin_radius=4, eccentricity=1.5,
                  output_pin_diameter=6, hole_clearance=0.0)
     assert s.pin_count == 12 and s.ratio == 11
-    assert s.K1 == pytest.approx(1.5 * 12 / 50)
+    assert pytest.approx(1.5 * 12 / 50) == s.K1
     assert s.output_hole_diameter == pytest.approx(6 + 2 * 1.5)

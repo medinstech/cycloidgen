@@ -11,8 +11,15 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from cycloidgen.ui.branding import (BRAND_BLUE, contrast_ratio, darken,  # noqa: E402
-                                    lighten, mix, palette, stylesheet)
+from cycloidgen.ui.branding import (
+    BRAND_BLUE,
+    contrast_ratio,
+    darken,
+    lighten,
+    mix,
+    palette,
+    stylesheet,
+)
 
 MODES = ("light", "dark")
 TEXT_FLOOR = 4.5

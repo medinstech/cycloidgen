@@ -13,7 +13,7 @@ import numpy as np
 from . import profile as prof
 from .spec import PROCESS_CLEARANCE, GearSpec, Process
 
-__all__ = ["Severity", "Finding", "Report", "validate"]
+__all__ = ["Finding", "Report", "Severity", "validate"]
 
 
 class Severity(str, Enum):
@@ -81,7 +81,7 @@ def _candidate_pairs(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarr
     stride = int(c1[:, 1].max()) + 2
 
     buckets: dict[int, list[int]] = {}
-    for i, ((x0, y0), (x1, y1)) in enumerate(zip(c0, c1)):
+    for i, ((x0, y0), (x1, y1)) in enumerate(zip(c0, c1, strict=True)):
         for cx in range(x0, x1 + 1):
             base = cx * stride
             for cy in range(y0, y1 + 1):

@@ -55,8 +55,15 @@ from ..analysis.stiffness import analyse_stiffness
 from ..core.profile import critical_radius
 from ..core.spec import MATERIALS, GearSpec, OffsetMode, Process
 
-__all__ = ["Objective", "Requirements", "Candidate", "RejectionTally",
-           "OptimisationResult", "optimise", "requirements_from_spec"]
+__all__ = [
+    "Candidate",
+    "Objective",
+    "OptimisationResult",
+    "RejectionTally",
+    "Requirements",
+    "optimise",
+    "requirements_from_spec",
+]
 
 #: Shaft diameters worth cutting a bearing seat for, mm.
 _STANDARD_SHAFTS = (4, 5, 6, 8, 10, 12, 14, 16, 20, 25, 30, 35, 40)

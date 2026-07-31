@@ -6,8 +6,12 @@ import pytest
 
 from cycloidgen.analysis import analyse
 from cycloidgen.analysis.efficiency import analyse_efficiency
-from cycloidgen.analysis.mechanics import (analyse_contacts, effective_modulus,
-                                           hertz_line_pressure, torque_capacity)
+from cycloidgen.analysis.mechanics import (
+    analyse_contacts,
+    effective_modulus,
+    hertz_line_pressure,
+    torque_capacity,
+)
 from cycloidgen.core.spec import GearSpec, Process, preset
 from cycloidgen.core.validate import Severity, validate
 

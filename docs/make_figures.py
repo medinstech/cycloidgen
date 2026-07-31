@@ -8,19 +8,18 @@ actually draws.  Run it after changing anything in ``cycloidgen.report.plots``.
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import matplotlib
 
 matplotlib.use("Agg")
 
-import numpy as np                                          # noqa: E402
-from matplotlib.figure import Figure                        # noqa: E402
+import numpy as np
+from matplotlib.figure import Figure
 
-from cycloidgen.core.spec import GearSpec, Process, preset  # noqa: E402
-from cycloidgen.design.sweep import sweep_parameter         # noqa: E402
-from cycloidgen.report import plots                         # noqa: E402
+from cycloidgen.core.spec import GearSpec, Process, preset
+from cycloidgen.design.sweep import sweep_parameter
+from cycloidgen.report import plots
 
 DOCS = Path(__file__).resolve().parent
 

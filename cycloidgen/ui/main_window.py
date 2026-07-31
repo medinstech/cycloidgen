@@ -10,19 +10,38 @@ import matplotlib
 
 matplotlib.use("QtAgg")
 
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as Canvas  # noqa: E402
-from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavBar  # noqa: E402
-from matplotlib.figure import Figure  # noqa: E402
-from PySide6.QtCore import QSettings, Qt, QThread, QTimer, Signal  # noqa: E402
-from PySide6.QtGui import (QAction, QColor, QKeySequence, QPalette)  # noqa: E402
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox,  # noqa: E402
-                               QDoubleSpinBox, QFileDialog, QFormLayout,
-                               QFrame, QGroupBox, QHBoxLayout, QLabel,
-                               QLineEdit, QMainWindow, QMessageBox,
-                               QProgressDialog, QPushButton, QScrollArea,
-                               QSlider, QSpinBox, QSplitter, QStatusBar,
-                               QTabWidget, QTreeWidget, QTreeWidgetItem,
-                               QVBoxLayout, QWidget)
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as Canvas
+from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavBar
+from matplotlib.figure import Figure
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QAction, QColor, QKeySequence, QPalette
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
+    QFileDialog,
+    QFormLayout,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+    QProgressDialog,
+    QPushButton,
+    QScrollArea,
+    QSlider,
+    QSpinBox,
+    QSplitter,
+    QStatusBar,
+    QTabWidget,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from .. import __version__
 from ..analysis import DesignAnalysis, analyse
@@ -33,8 +52,10 @@ from ..report import plots
 from . import branding
 from .fields import CODE_FIELDS, GROUPS, Field
 from .history import SpecHistory
-from .logpanel import LogPanel, install as install_logging, logger
+from .logpanel import LogPanel, logger
+from .logpanel import install as install_logging
 from .optimise_dialog import OptimiseDialog
+from .settings import app_settings
 from .tradestudy import TradeStudyTab
 
 _MAX_RECENT = 8
@@ -113,7 +134,7 @@ class MainWindow(QMainWindow):
         install_logging(self.log)
         logger.info("cycloidgen starting")
 
-        self._settings = QSettings("cycloidgen", "cycloidgen")
+        self._settings = app_settings()
         self.spec = self._restore_spec()
         self.analysis: DesignAnalysis | None = None
         self._pinned: GearSpec | None = None
@@ -126,6 +147,7 @@ class MainWindow(QMainWindow):
         self._generation = 0
         self._last_codes: set[str] | None = None
         self._log_badge = 0
+        self._splitter_restored = False
         self._workers: list[AnalysisWorker] = []
         self._history = SpecHistory(self.spec)
         self._highlighted: list[QWidget] = []
@@ -139,19 +161,17 @@ class MainWindow(QMainWindow):
         self._anim.setInterval(40)
         self._anim.timeout.connect(self._advance_crank)
 
-        # Follow the desktop theme, then paint everything - chrome and plots -
-        # from the same decision, so the figures never sit on a white slab
-        # inside a dark window.
-        window = self.palette().color(QPalette.Window)
-        self.mode = "dark" if window.lightness() < 128 else "light"
-        plots.set_theme(self.mode)
-        self._severity = _severity_colours(self.mode)
-        accent = branding.palette(self.mode).accent
-        self._highlight_css = f"border: 1px solid {accent}; border-radius: 3px;"
         self.setWindowIcon(branding.window_icon())
-        app = QApplication.instance()
-        if app is not None:
-            app.setStyleSheet(branding.stylesheet(self.mode))
+        # Read the desktop's own theme once, before anything of ours is applied.
+        # Asking again later reads back our stylesheet, so "follow system" would
+        # answer with whatever we last painted and could never return to light.
+        window = self.palette().color(QPalette.Window)
+        self._system_mode = "dark" if window.lightness() < 128 else "light"
+        self.appearance = self._settings.value("appearance", "system")
+        if self.appearance not in ("system", "light", "dark"):
+            self.appearance = "system"
+        self.mode = self._resolve_mode(self.appearance)
+        self._apply_theme_colours()
 
         self._build_ui()
         self._load_spec_into_widgets()
@@ -159,25 +179,87 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ build
     def _build_ui(self) -> None:
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.addWidget(self._build_parameter_panel())
-        splitter.addWidget(self._build_view_panel())
-        splitter.setStretchFactor(1, 1)
-        splitter.setSizes([400, 1040])
+        self._splitter = QSplitter(Qt.Horizontal)
+        self._splitter.addWidget(self._build_parameter_panel())
+        self._splitter.addWidget(self._build_view_panel())
+        self._splitter.setStretchFactor(1, 1)
+        self._splitter.setSizes([400, 1040])
 
         shell = QWidget()
         column = QVBoxLayout(shell)
         column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(0)
         column.addWidget(self._build_header())
-        column.addWidget(splitter, 1)
+        column.addWidget(self._splitter, 1)
         self.setCentralWidget(shell)
 
         self.setStatusBar(QStatusBar())
         self._build_menu()
-        geometry = self._settings.value("geometry")
+        self._restore_workspace()
+
+    # ----------------------------------------------------------- workspace
+    def _restore_workspace(self) -> None:
+        """Reopen on the layout the last session left.
+
+        Each piece is restored independently and defensively: a stored value
+        from an older build that no longer makes sense should cost a default,
+        not a window that will not open.
+        """
+        settings = self._settings
+        geometry = settings.value("geometry")
         if geometry is not None:
             self.restoreGeometry(geometry)
+
+        try:
+            index = int(settings.value("tab", 0))
+            if 0 <= index < self.tabs.count():
+                self.tabs.setCurrentIndex(index)
+        except (TypeError, ValueError):
+            pass
+
+        try:
+            crank = int(settings.value("crank", 0))
+        except (TypeError, ValueError):
+            crank = 0
+        self._crank_slider.setValue(max(0, min(359, crank)))
+
+    def showEvent(self, event) -> None:
+        """Restore the split once the window actually has a size.
+
+        Two things make this awkward, and both are worth knowing.  Applying it
+        during construction cannot work - the splitter has not been laid out, so
+        Qt rescales to a width the window does not have yet and then
+        redistributes by stretch factor as soon as it is shown.  And a *pixel*
+        split is the wrong thing to store anyway: reopen the window on a
+        narrower screen and a remembered 600 px panel is most of it.
+
+        So the split is stored as a fraction and reapplied on a zero timer,
+        which runs after Qt has finished the layout pass this event belongs to.
+        """
+        super().showEvent(event)
+        if self._splitter_restored:
+            return
+        self._splitter_restored = True
+        QTimer.singleShot(0, self._restore_split)
+
+    def _restore_split(self) -> None:
+        try:
+            fraction = float(self._settings.value("splitter_fraction", 0.0))
+        except (TypeError, ValueError):
+            return
+        total = self._splitter.width()
+        if not 0.05 <= fraction <= 0.95 or total <= 0:
+            return
+        left = round(fraction * total)
+        self._splitter.setSizes([left, total - left])
+
+    def _save_workspace(self) -> None:
+        self._settings.setValue("geometry", self.saveGeometry())
+        sizes = self._splitter.sizes()
+        if sum(sizes) > 0:
+            self._settings.setValue("splitter_fraction", sizes[0] / sum(sizes))
+        self._settings.setValue("tab", self.tabs.currentIndex())
+        self._settings.setValue("crank", self._crank_slider.value())
 
     def _build_header(self) -> QWidget:
         """A slim brand strip: the mark, the product, and nothing else.
@@ -192,16 +274,17 @@ class MainWindow(QMainWindow):
         row.setContentsMargins(14, 6, 14, 6)
         row.setSpacing(12)
 
-        logo = QLabel()
-        logo.setPixmap(branding.logo_pixmap("wordmark", self.mode, height=24))
-        logo.setToolTip(f"{branding.COMPANY} - {branding.TAGLINE}")
-        row.addWidget(logo)
+        self._logo = QLabel()
+        self._logo.setPixmap(branding.logo_pixmap("wordmark", self.mode, height=24))
+        self._logo.setToolTip(f"{branding.COMPANY} - {branding.TAGLINE}")
+        row.addWidget(self._logo)
 
-        rule = QFrame()
-        rule.setFrameShape(QFrame.VLine)
-        rule.setFixedWidth(1)
-        rule.setStyleSheet(f"background: {branding.palette(self.mode).line};")
-        row.addWidget(rule)
+        self._header_rule = QFrame()
+        self._header_rule.setFrameShape(QFrame.VLine)
+        self._header_rule.setFixedWidth(1)
+        self._header_rule.setStyleSheet(
+            f"background: {branding.palette(self.mode).line};")
+        row.addWidget(self._header_rule)
 
         product = QLabel("cycloidgen")
         product.setObjectName("BrandProduct")
@@ -364,6 +447,8 @@ class MainWindow(QMainWindow):
         self.tabs.currentChanged.connect(self._tab_changed)
         layout.addWidget(self.tabs, 1)
 
+        layout.addLayout(self._build_findings_filter())
+
         self.findings = QTreeWidget()
         self.findings.setHeaderLabels(["", "Check", "Detail", "Value", "Limit"])
         self.findings.setRootIsDecorated(False)
@@ -392,6 +477,61 @@ class MainWindow(QMainWindow):
         row.addWidget(self._pin_btn)
         layout.addLayout(row)
         return panel
+
+    def _build_findings_filter(self) -> QHBoxLayout:
+        """Severity toggles carrying their own counts.
+
+        A design routinely produces a dozen findings of which ten are notes, and
+        the two that block an export sit somewhere in the middle of them.  The
+        counts are on the toggles rather than in a summary line so that the
+        answer to "is anything wrong" is legible without reading the list.
+        """
+        row = QHBoxLayout()
+        row.setContentsMargins(2, 2, 2, 0)
+        row.addWidget(QLabel("Checks"))
+
+        self._severity_filters: dict[Severity, QCheckBox] = {}
+        for severity, label in ((Severity.ERROR, "Errors"),
+                                (Severity.WARNING, "Warnings"),
+                                (Severity.INFO, "Notes")):
+            box = QCheckBox(label)
+            box.setChecked(bool(self._settings.value(
+                f"show_{severity.value}", True, type=bool)))
+            colour = self._severity[severity].name()
+            box.setStyleSheet(f"QCheckBox {{ color: {colour}; }}")
+            box.toggled.connect(
+                lambda checked, s=severity: self._toggle_severity(s, checked))
+            row.addWidget(box)
+            self._severity_filters[severity] = box
+
+        row.addStretch(1)
+        self._findings_summary = QLabel()
+        self._findings_summary.setObjectName("BrandTagline")
+        row.addWidget(self._findings_summary)
+        return row
+
+    def _toggle_severity(self, severity: Severity, checked: bool) -> None:
+        self._settings.setValue(f"show_{severity.value}", checked)
+        self._apply_findings_filter()
+
+    def _apply_findings_filter(self) -> None:
+        """Hide rather than rebuild, so the current selection survives."""
+        shown = total = 0
+        for i in range(self.findings.topLevelItemCount()):
+            item = self.findings.topLevelItem(i)
+            stored = item.data(1, Qt.UserRole)
+            if stored is None:                         # the "no findings" row
+                continue
+            severity = Severity(stored)
+            total += 1
+            show = self._severity_filters[severity].isChecked()
+            item.setHidden(not show)
+            shown += show
+        current = self.findings.currentItem()
+        if current is not None and current.isHidden():
+            self.findings.setCurrentItem(None)
+        self._findings_summary.setText(
+            "" if shown == total else f"showing {shown} of {total}")
 
     def _build_compare_tab(self) -> QWidget:
         page = QWidget()
@@ -463,6 +603,20 @@ class MainWindow(QMainWindow):
         pin.triggered.connect(self._pin_reference)
         d.addAction(pin)
 
+        v = self.menuBar().addMenu("&View")
+        appearance = v.addMenu("&Appearance")
+        self._appearance_actions: dict[str, QAction] = {}
+        for key, label in (("system", "Follow &system"),
+                           ("light", "&Light"),
+                           ("dark", "&Dark")):
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setChecked(self.appearance == key)
+            action.triggered.connect(
+                lambda _checked=False, k=key: self._choose_appearance(k))
+            appearance.addAction(action)
+            self._appearance_actions[key] = action
+
         h = self.menuBar().addMenu("&Help")
         about = QAction("&About cycloidgen", self)
         about.triggered.connect(self._about)
@@ -486,6 +640,62 @@ class MainWindow(QMainWindow):
             f"against a physical prototype before anything load-bearing depends "
             f"on them.</p>")
         box.exec()
+
+    # --------------------------------------------------------------- theme
+    def _resolve_mode(self, appearance: str) -> str:
+        """Turn a preference into the mode to actually paint."""
+        if appearance in ("light", "dark"):
+            return appearance
+        return self._system_mode
+
+    def _apply_theme_colours(self) -> None:
+        """Paint chrome and plots from one decision.
+
+        They have to move together: a figure drawn on the light surface inside a
+        dark window is the exact thing following the desktop theme was meant to
+        avoid, and it is what happens if only half of this runs.
+        """
+        plots.set_theme(self.mode)
+        self._severity = _severity_colours(self.mode)
+        accent = branding.palette(self.mode).accent
+        self._highlight_css = f"border: 1px solid {accent}; border-radius: 3px;"
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(branding.stylesheet(self.mode))
+
+    def _choose_appearance(self, appearance: str) -> None:
+        """Menu handler: keep the three entries behaving as one radio group."""
+        for key, action in self._appearance_actions.items():
+            action.setChecked(key == appearance)
+        self._set_appearance(appearance)
+
+    def _set_appearance(self, appearance: str) -> None:
+        """Switch theme live, without a restart."""
+        self.appearance = appearance
+        self._settings.setValue("appearance", appearance)
+        mode = self._resolve_mode(appearance)
+        if mode == self.mode:
+            return
+        self.mode = mode
+        self._apply_theme_colours()
+
+        # Matplotlib bakes its colours in at draw time, so every figure has to
+        # be rebuilt - restyling the canvas would leave the old ink on it.
+        self._logo.setPixmap(branding.logo_pixmap("wordmark", self.mode, height=24))
+        self._header_rule.setStyleSheet(
+            f"background: {branding.palette(self.mode).line};")
+        for severity, box in self._severity_filters.items():
+            box.setStyleSheet(f"QCheckBox {{ color: {self._severity[severity].name()}; }}")
+        self._draw_profile()
+        if self.analysis is not None:
+            plots.force_figure(self.spec, self._fig_force)
+            self._canvas_force.draw_idle()
+            plots.loss_figure(self.analysis, self._fig_loss)
+            self._canvas_loss.draw_idle()
+            self._fill_findings()
+            self._fill_compare()
+        self._trade.refresh_theme()
+        self._say(f"appearance: {appearance}", seconds=3)
 
     # ------------------------------------------------------------------- log
     def _say(self, message: str, *, level: int = logging.INFO,
@@ -696,6 +906,7 @@ class MainWindow(QMainWindow):
     def _fill_findings(self) -> None:
         self.findings.clear()
         assert self.analysis is not None
+        counts = {Severity.ERROR: 0, Severity.WARNING: 0, Severity.INFO: 0}
         for f in self.analysis.report.findings:
             item = QTreeWidgetItem([
                 f.severity.value.upper(), f.code, f.message,
@@ -703,9 +914,23 @@ class MainWindow(QMainWindow):
                 f"{f.limit:.4g}" if f.limit is not None else ""])
             item.setForeground(0, self._severity[f.severity])
             item.setData(0, Qt.UserRole, f.code)
+            # The value, not the enum member: Qt stores this in a QVariant and
+            # hands back a plain str.  Severity is a str enum so a dict lookup
+            # would happen to work anyway - which is exactly the kind of
+            # accident that stops working when the enum stops being a str.
+            item.setData(1, Qt.UserRole, f.severity.value)
             self.findings.addTopLevelItem(item)
+            counts[f.severity] += 1
         if not self.analysis.report.findings:
             self.findings.addTopLevelItem(QTreeWidgetItem(["", "", "No findings.", "", ""]))
+
+        for severity, label in ((Severity.ERROR, "Errors"),
+                                (Severity.WARNING, "Warnings"),
+                                (Severity.INFO, "Notes")):
+            box = self._severity_filters[severity]
+            box.setText(f"{label} ({counts[severity]})")
+            box.setEnabled(counts[severity] > 0)
+        self._apply_findings_filter()
 
     def _log_findings(self) -> None:
         """Record checks that appear or clear, at their own severity.
@@ -1019,7 +1244,7 @@ class MainWindow(QMainWindow):
     # ---------------------------------------------------------------- close
     def closeEvent(self, event) -> None:
         self._settings.setValue("last_design", self.spec.model_dump_json())
-        self._settings.setValue("geometry", self.saveGeometry())
+        self._save_workspace()
         for worker in list(self._workers):
             worker.wait(2000)
         super().closeEvent(event)

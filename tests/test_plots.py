@@ -10,13 +10,13 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import numpy as np                                   # noqa: E402
-import pytest                                        # noqa: E402
-from matplotlib.figure import Figure                 # noqa: E402
+import numpy as np
+import pytest
+from matplotlib.figure import Figure
 
-from cycloidgen.core.spec import preset               # noqa: E402
-from cycloidgen.design.sweep import sweep_parameter   # noqa: E402
-from cycloidgen.report import plots                   # noqa: E402
+from cycloidgen.core.spec import preset
+from cycloidgen.design.sweep import sweep_parameter
+from cycloidgen.report import plots
 
 
 def test_a_nearly_flat_series_is_anchored_at_zero():

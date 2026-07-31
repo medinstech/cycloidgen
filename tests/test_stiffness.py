@@ -9,11 +9,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cycloidgen.analysis.stiffness import (analyse_stiffness,
-                                           line_contact_approach)
+from cycloidgen.analysis.stiffness import analyse_stiffness, line_contact_approach
 from cycloidgen.core.kinematics import mesh_gaps
 from cycloidgen.core.spec import OffsetMode, Process, preset
-
 
 # ------------------------------------------------------------------- clearance
 
@@ -69,7 +67,8 @@ def test_line_contact_matches_palmgrens_roller_formula():
 
 
 def test_approach_grows_with_load_and_shrinks_with_stiffness():
-    args = dict(length_mm=10.0, R1_mm=4.0, R2_mm=-12.0, nu1=0.3, nu2=0.3)
+    args = {"length_mm": 10.0, "R1_mm": 4.0, "R2_mm": -12.0,
+            "nu1": 0.3, "nu2": 0.3}
     soft = float(line_contact_approach(force_N=500, E1_GPa=3.5, E2_GPa=210, **args))
     stiff = float(line_contact_approach(force_N=500, E1_GPa=210, E2_GPa=210, **args))
     heavy = float(line_contact_approach(force_N=1500, E1_GPa=210, E2_GPa=210, **args))
@@ -78,8 +77,9 @@ def test_approach_grows_with_load_and_shrinks_with_stiffness():
 
 
 def test_a_conforming_face_deflects_less_than_a_flat_one():
-    args = dict(force_N=800.0, length_mm=8.0, R1_mm=4.0,
-                E1_GPa=210, nu1=0.3, E2_GPa=210, nu2=0.3, reference_mm=50.0)
+    args = {"force_N": 800.0, "length_mm": 8.0, "R1_mm": 4.0,
+            "E1_GPa": 210, "nu1": 0.3, "E2_GPa": 210, "nu2": 0.3,
+            "reference_mm": 50.0}
     conforming = float(line_contact_approach(R2_mm=-5.0, **args))
     flat = float(line_contact_approach(R2_mm=1e6, **args))
     assert conforming < flat

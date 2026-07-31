@@ -5,15 +5,22 @@ space.  This answers the question that point cannot: *which way should I go?*
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QThread, Signal
-from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QHBoxLayout, QLabel,
-                               QProgressBar, QPushButton, QSpinBox, QVBoxLayout,
-                               QWidget)
+import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as Canvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavBar
 from matplotlib.figure import Figure
-
-import numpy as np
+from PySide6.QtCore import QThread, Signal
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDoubleSpinBox,
+    QHBoxLayout,
+    QLabel,
+    QProgressBar,
+    QPushButton,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..core.spec import GearSpec
 from ..design.sweep import SWEEPABLE, SweepResult, suggested_range, sweep_parameter
@@ -90,17 +97,29 @@ class TradeStudyTab(QWidget):
         self._field = QComboBox()
         for name, (label, unit) in SWEEPABLE.items():
             self._field.addItem(f"{label}" + (f" ({unit})" if unit else ""), name)
+        # Without this the combo demands room for its longest entry, and the
+        # whole tab inherits that as a minimum width the window can never go
+        # below.
+        self._field.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self._field.setMinimumContentsLength(16)
+        self._field.setMinimumWidth(150)
         self._field.currentIndexChanged.connect(self._reset_range)
         row.addWidget(self._field, 1)
 
+        # Every sweepable quantity is a positive length, count, speed or torque.
+        # The old +/-1e6 range was not reachable by any of them and cost 210 px
+        # per box, because Qt sizes a spin box to fit "-1000000.000".
         row.addWidget(QLabel("from"))
-        self._lo = QDoubleSpinBox(); self._lo.setRange(-1e6, 1e6); self._lo.setDecimals(3)
+        self._lo = self._range_box()
         row.addWidget(self._lo)
         row.addWidget(QLabel("to"))
-        self._hi = QDoubleSpinBox(); self._hi.setRange(-1e6, 1e6); self._hi.setDecimals(3)
+        self._hi = self._range_box()
         row.addWidget(self._hi)
         row.addWidget(QLabel("steps"))
-        self._steps = QSpinBox(); self._steps.setRange(3, 81); self._steps.setValue(21)
+        self._steps = QSpinBox()
+        self._steps.setRange(3, 81)
+        self._steps.setValue(21)
+        self._steps.setMaximumWidth(70)
         row.addWidget(self._steps)
 
         self._run_btn = QPushButton("Run")
@@ -108,6 +127,24 @@ class TradeStudyTab(QWidget):
         self._run_btn.clicked.connect(self._run)
         row.addWidget(self._run_btn)
         return row
+
+    @staticmethod
+    def _range_box() -> QDoubleSpinBox:
+        box = QDoubleSpinBox()
+        box.setRange(0.0, 100_000.0)
+        box.setDecimals(3)
+        box.setMaximumWidth(120)
+        return box
+
+    def refresh_theme(self) -> None:
+        """Redraw the last sweep after an appearance change.
+
+        The figure's colours were fixed when it was drawn, so a live theme
+        switch has to rebuild it or the panel keeps the old surface.
+        """
+        if self._result is not None:
+            plots.sweep_figure(self._result, self._figure)
+            self._canvas.draw_idle()
 
     # ------------------------------------------------------------------ state
     def set_spec(self, spec: GearSpec) -> None:

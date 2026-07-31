@@ -317,14 +317,14 @@ class GearSpec(BaseModel):
 
     # ---------------------------------------------------------------- helpers --
     @model_validator(mode="after")
-    def _check_materials(self) -> "GearSpec":
+    def _check_materials(self) -> GearSpec:
         for field in ("disc_material", "pin_material", "housing_material",
                       "shaft_material"):
             if getattr(self, field) not in MATERIALS:
                 raise ValueError(f"unknown material {getattr(self, field)!r}")
         return self
 
-    def apply_process_defaults(self) -> "GearSpec":
+    def apply_process_defaults(self) -> GearSpec:
         """Reset the two clearances to the design guide for the selected process."""
         prof, hole = PROCESS_CLEARANCE[self.process]
         self.profile_clearance = prof
@@ -335,18 +335,12 @@ class GearSpec(BaseModel):
 def preset(ratio: int) -> GearSpec:
     """Sensible starting points for prototype gearboxes, ratios 10:1 to 59:1."""
     table = {
-        10: dict(pin_circle_radius=45.0, pin_radius=4.5, eccentricity=2.0,
-                 output_bolt_circle_radius=27.0, center_bore_diameter=22.0),
-        15: dict(pin_circle_radius=50.0, pin_radius=4.0, eccentricity=1.6,
-                 output_bolt_circle_radius=30.0, center_bore_diameter=24.0),
-        21: dict(pin_circle_radius=55.0, pin_radius=3.8, eccentricity=1.4,
-                 output_bolt_circle_radius=33.0, center_bore_diameter=26.0),
-        29: dict(pin_circle_radius=60.0, pin_radius=3.5, eccentricity=1.1,
-                 output_bolt_circle_radius=36.0, center_bore_diameter=28.0),
-        39: dict(pin_circle_radius=65.0, pin_radius=3.2, eccentricity=0.9,
-                 output_bolt_circle_radius=39.0, center_bore_diameter=30.0),
-        59: dict(pin_circle_radius=70.0, pin_radius=3.0, eccentricity=0.7,
-                 output_bolt_circle_radius=42.0, center_bore_diameter=32.0),
+        10: {"pin_circle_radius": 45.0, "pin_radius": 4.5, "eccentricity": 2.0, "output_bolt_circle_radius": 27.0, "center_bore_diameter": 22.0},
+        15: {"pin_circle_radius": 50.0, "pin_radius": 4.0, "eccentricity": 1.6, "output_bolt_circle_radius": 30.0, "center_bore_diameter": 24.0},
+        21: {"pin_circle_radius": 55.0, "pin_radius": 3.8, "eccentricity": 1.4, "output_bolt_circle_radius": 33.0, "center_bore_diameter": 26.0},
+        29: {"pin_circle_radius": 60.0, "pin_radius": 3.5, "eccentricity": 1.1, "output_bolt_circle_radius": 36.0, "center_bore_diameter": 28.0},
+        39: {"pin_circle_radius": 65.0, "pin_radius": 3.2, "eccentricity": 0.9, "output_bolt_circle_radius": 39.0, "center_bore_diameter": 30.0},
+        59: {"pin_circle_radius": 70.0, "pin_radius": 3.0, "eccentricity": 0.7, "output_bolt_circle_radius": 42.0, "center_bore_diameter": 32.0},
     }
     closest = min(table, key=lambda k: abs(k - ratio))
     return GearSpec(lobes=ratio, **table[closest]).apply_process_defaults()

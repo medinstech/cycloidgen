@@ -18,8 +18,16 @@ from ..core import profile as prof
 from ..core.kinematics import contacts
 from ..core.spec import GearSpec
 
-__all__ = ["set_theme", "theme", "light_theme", "profile_figure", "force_figure",
-           "loss_figure", "sweep_figure", "style_axes"]
+__all__ = [
+    "force_figure",
+    "light_theme",
+    "loss_figure",
+    "profile_figure",
+    "set_theme",
+    "style_axes",
+    "sweep_figure",
+    "theme",
+]
 
 _THEMES = {
     "light": {
@@ -124,7 +132,8 @@ def profile_figure(spec: GearSpec, fig: Figure | None = None,
                               spec.pin_radius, series[1], 1.2))
 
     for i, (phase, hole_phase) in enumerate(zip(spec.disc_phases,
-                                                spec.disc_hole_phases)):
+                                                spec.disc_hole_phases,
+                                                strict=True)):
         cx = spec.eccentricity * np.cos(phi + phase)
         cy = -spec.eccentricity * np.sin(phi + phase)
         d = (phi + phase) / spec.lobes
@@ -232,7 +241,7 @@ def sweep_figure(result, fig: Figure | None = None) -> Figure:
     axes = fig.subplots(2, 2).ravel()
 
     blocked = [p.value for p in result.blocked]
-    for ax, (name, ylabel, higher_better) in zip(axes, _SWEEP_PANELS):
+    for ax, (name, ylabel, higher_better) in zip(axes, _SWEEP_PANELS, strict=True):
         x, y = result.series(name)
         if name == "efficiency":
             y = 100.0 * y
@@ -304,7 +313,7 @@ def loss_figure(analysis, fig: Figure | None = None) -> Figure:
     y = np.arange(len(labels))
 
     ax.barh(y, values, height=0.5, color=t["series"], zorder=3)
-    for yi, v in zip(y, values):
+    for yi, v in zip(y, values, strict=True):
         ax.text(v, yi, f"  {v:.2f} W", va="center", ha="left",
                 color=t["ink"], fontsize=9)
 

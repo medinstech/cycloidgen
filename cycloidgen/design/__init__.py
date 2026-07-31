@@ -5,8 +5,22 @@ The rest of the app answers "is this design any good?".  This package answers
 manufacturing process, and it searches for the geometry that satisfies every
 check with the most margin.
 """
-from .optimize import (Candidate, Objective, Requirements, RejectionTally,
-                       OptimisationResult, optimise, requirements_from_spec)
+from .optimize import (
+                       Candidate,
+                       Objective,
+                       OptimisationResult,
+                       RejectionTally,
+                       Requirements,
+                       optimise,
+                       requirements_from_spec,
+)
 
-__all__ = ["Candidate", "Objective", "Requirements", "RejectionTally",
-           "OptimisationResult", "optimise", "requirements_from_spec"]
+__all__ = [
+                       "Candidate",
+                       "Objective",
+                       "OptimisationResult",
+                       "RejectionTally",
+                       "Requirements",
+                       "optimise",
+                       "requirements_from_spec",
+]

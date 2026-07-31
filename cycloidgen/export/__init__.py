@@ -6,7 +6,7 @@ from pathlib import Path
 from ..core.spec import GearSpec
 from . import bom, dxf, solid, svg
 
-__all__ = ["dxf", "svg", "solid", "bom", "write_bundle"]
+__all__ = ["bom", "dxf", "solid", "svg", "write_bundle"]
 
 
 def write_bundle(spec: GearSpec, directory: str | Path,

@@ -8,7 +8,7 @@ import numpy as np
 from ..core import profile as prof
 from ..core.spec import GearSpec
 
-__all__ = ["write_svg", "svg_document"]
+__all__ = ["svg_document", "write_svg"]
 
 _STROKE = 'fill="none" stroke-width="0.35"'
 

@@ -209,6 +209,13 @@ suggests it.
   the noise look like a decision.
 - **Compare** — pin a design, change things, and see exactly what moved and by
   how much. Running the optimiser pins the design it replaced automatically.
+- **Appearance** follows the desktop and can be overridden per user
+  (View ▸ Appearance). Both palettes are contrast-tested rather than asserted,
+  and chrome and figures switch together — a chart on a white slab inside a dark
+  window is the thing following the desktop theme was meant to prevent.
+- **Checks filter** — severity toggles carrying their own counts, because a
+  design routinely produces a dozen findings of which ten are notes and the two
+  that block an export sit somewhere in the middle.
 - **Log** — everything the app would otherwise print to a terminal you do not
   have. Checks as they appear and clear, searches with their shortlists, sweeps,
   exports, plus every Python warning, stray stderr write, and any exception that
@@ -217,9 +224,15 @@ suggests it.
   keep immediately: the first run surfaced a `RuntimeWarning` from a negative
   log term in the contact-stiffness solver that had been silently producing NaNs
   on degenerate geometry.
-- Undo/redo, recent files, a parameter filter box, and the session reopens on the
-  design you left. The analysis runs off the GUI thread with generation
+- Undo/redo, recent files, a parameter filter box, and the session reopens on
+  the design, tab, crank angle and panel split you left. The split is stored as
+  a *proportion*: remembering pixels hands a narrower screen most of its width
+  to the parameter panel. The analysis runs off the GUI thread with generation
   numbering, so a slow result can never overwrite a newer one.
+
+Preferences live wherever the platform puts them, or in a file of your choosing
+via `CYCLOIDGEN_SETTINGS` — which is what makes a portable install possible, and
+what lets the test suite run without rearranging your actual application.
 
 ## How far to trust the analysis
 
@@ -246,7 +259,7 @@ cycloidgen/
 ├── report/     plots (shared by UI and PDF), build
 └── ui/         PySide6 window, declarative field table, optimiser dialog,
                 trade-study tab, undo/redo history, log panel
-tests/          219 tests; the envelope, pin-in-hole and clearance-sign tests
+tests/          256 tests; the envelope, pin-in-hole and clearance-sign tests
                 matter most
 ```
 
@@ -256,14 +269,19 @@ tests/          219 tests; the envelope, pin-in-hole and clearance-sign tests
 .venv\Scripts\python -m pytest -q
 ```
 
-219 tests, about 70 s. Most of that is CadQuery writing solids; the pure
+256 tests, about 110 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in under a second. The log-panel tests need Qt and run
 headless (`QT_QPA_PLATFORM=offscreen`, set by the test module itself).
 
-CI runs the suite on Linux and Windows, on the oldest and newest supported
-Python, and separately exports a full bundle and runs a design search from the
-command line — the tests cover the pieces, that job proves the whole thing still
-runs end to end.
+CI runs `ruff`, then the suite on Linux and Windows across the oldest and newest
+supported Python, then separately exports a full bundle and runs a design search
+from the command line — the tests cover the pieces, that job proves the whole
+thing still runs end to end.
+
+Lint rules live in `pyproject.toml` so they mean the same thing locally and in
+CI. `ruff format` is deliberately not part of it: the repository has a
+hand-aligned style the formatter would rewrite wholesale, and a lint that hunts
+bug shapes is worth more than one that enforces a preference.
 
 The README figures come out of the same plotting code the app and the PDF use,
 so they cannot drift from what it actually draws:

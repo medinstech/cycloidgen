@@ -22,8 +22,13 @@ import numpy as np
 from ..analysis import analyse
 from ..core.spec import GearSpec
 
-__all__ = ["SWEEPABLE", "SweepPoint", "SweepResult", "sweep_parameter",
-           "suggested_range"]
+__all__ = [
+    "SWEEPABLE",
+    "SweepPoint",
+    "SweepResult",
+    "suggested_range",
+    "sweep_parameter",
+]
 
 #: Parameters worth sweeping, with the label and unit the plots should use.
 #: Only continuous geometry and duty - sweeping a material or an enum is a

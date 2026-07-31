@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cycloidgen"
-version = "2.0.0"
+version = "2.1.0"
 description = "Parametric cycloidal drive generator with engineering analysis and CAD export"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
@@ -55,3 +55,41 @@ include = ["cycloidgen*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 filterwarnings = ["ignore::DeprecationWarning"]
+
+# Committed so that lint means the same thing here, on another machine and in
+# CI.  Without a config in the repository, ruff answers to whatever settings a
+# developer's machine happens to carry - which is not a check, it is a
+# coincidence.
+[tool.ruff]
+line-length = 95
+target-version = "py310"
+extend-exclude = ["build", "dist", ".venv"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # import order
+    "UP",       # outdated idioms
+    "B",        # bugbear: real bug shapes, not style
+    "C4",       # comprehensions
+    "SIM",      # obvious simplifications
+    "RUF",      # ruff's own
+]
+ignore = [
+    # The material tables and the check messages read better as one line each
+    # than wrapped to satisfy a column count.
+    "E501",
+    # `except Exception` is deliberate at the worker-thread and export
+    # boundaries: the alternative is a traceback the GUI user never sees.
+    "BLE001",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# matplotlib's backend has to be selected before its pyplot-adjacent imports,
+# and the Qt platform before PySide6 is imported at all, so these modules
+# genuinely cannot put every import at the top.
+"cycloidgen/ui/main_window.py" = ["E402"]
+"cycloidgen/report/plots.py" = ["E402"]
+"tests/*" = ["E402"]
+"docs/make_figures.py" = ["E402"]

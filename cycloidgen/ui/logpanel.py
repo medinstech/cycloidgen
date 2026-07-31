@@ -18,6 +18,7 @@ corrupt it in ways that look like anything but the real cause.
 """
 from __future__ import annotations
 
+import contextlib
 import datetime as _dt
 import logging
 import sys
@@ -26,11 +27,19 @@ import warnings
 
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QTextCursor
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QHBoxLayout,
-                               QLabel, QPlainTextEdit, QPushButton, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QPlainTextEdit,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
-__all__ = ["LogPanel", "logger", "install"]
+__all__ = ["LogPanel", "install", "logger"]
 
 #: The application's own logger.  Library loggers are left alone; their noise
 #: arrives through the stderr tee instead.
@@ -85,10 +94,8 @@ class _StderrTee:
 
     def write(self, text: str) -> int:
         if self._original is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._original.write(text)
-            except Exception:
-                pass
         self._buffer += text
         while "\n" in self._buffer:
             line, self._buffer = self._buffer.split("\n", 1)
@@ -99,10 +106,8 @@ class _StderrTee:
 
     def flush(self) -> None:
         if self._original is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._original.flush()
-            except Exception:
-                pass
 
     def isatty(self) -> bool:
         return False

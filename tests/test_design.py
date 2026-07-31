@@ -8,21 +8,21 @@ from cycloidgen.analysis import analyse
 from cycloidgen.core.profile import critical_radius, locus_curvature
 from cycloidgen.core.spec import Process, preset
 from cycloidgen.design import Objective, Requirements, optimise
-from cycloidgen.design.optimize import _shaft_diameter, _latin_hypercube
-from cycloidgen.design.sweep import (SWEEPABLE, suggested_range, sweep_parameter)
+from cycloidgen.design.optimize import _latin_hypercube, _shaft_diameter
+from cycloidgen.design.sweep import SWEEPABLE, suggested_range, sweep_parameter
 from cycloidgen.ui.history import SpecHistory
 
 
 def _steel_requirements(**overrides) -> Requirements:
     """A duty a steel drive can comfortably meet, so the search has something
     to find."""
-    base = dict(
-        ratio=29, output_torque_Nm=20.0, input_rpm=1500,
-        max_outer_diameter_mm=120.0, max_length_mm=60.0,
-        process=Process.CNC, disc_material="Steel 4140 (hardened)",
-        pin_material="Bearing steel 100Cr6",
-        housing_material="Aluminium 7075-T6", shaft_material="Steel 1045",
-        ring_pins_are_rollers=True, output_pins_are_rollers=True)
+    base = {
+        "ratio": 29, "output_torque_Nm": 20.0, "input_rpm": 1500,
+        "max_outer_diameter_mm": 120.0, "max_length_mm": 60.0,
+        "process": Process.CNC, "disc_material": "Steel 4140 (hardened)",
+        "pin_material": "Bearing steel 100Cr6",
+        "housing_material": "Aluminium 7075-T6", "shaft_material": "Steel 1045",
+        "ring_pins_are_rollers": True, "output_pins_are_rollers": True}
     base.update(overrides)
     return Requirements(**base)
 

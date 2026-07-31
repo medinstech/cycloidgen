@@ -31,9 +31,19 @@ from pathlib import Path
 
 from PySide6.QtGui import QIcon, QPixmap
 
-__all__ = ["BRAND_BLUE", "Palette", "palette", "stylesheet", "asset",
-           "window_icon", "logo_pixmap", "contrast_ratio", "COMPANY",
-           "COMPANY_URL", "TAGLINE"]
+__all__ = [
+    "BRAND_BLUE",
+    "COMPANY",
+    "COMPANY_URL",
+    "TAGLINE",
+    "Palette",
+    "asset",
+    "contrast_ratio",
+    "logo_pixmap",
+    "palette",
+    "stylesheet",
+    "window_icon",
+]
 
 COMPANY = "Medinstech"
 COMPANY_URL = "https://medinstech.com"
@@ -61,19 +71,19 @@ def _to_hex(rgb: tuple[float, float, float]) -> str:
 
 def lighten(colour: str, amount: float) -> str:
     """Move a colour toward white in HLS, keeping its hue and saturation."""
-    h, l, s = colorsys.rgb_to_hls(*_to_rgb(colour))
-    return _to_hex(colorsys.hls_to_rgb(h, min(1.0, l + amount), s))
+    hue, lightness, sat = colorsys.rgb_to_hls(*_to_rgb(colour))
+    return _to_hex(colorsys.hls_to_rgb(hue, min(1.0, lightness + amount), sat))
 
 
 def darken(colour: str, amount: float) -> str:
-    h, l, s = colorsys.rgb_to_hls(*_to_rgb(colour))
-    return _to_hex(colorsys.hls_to_rgb(h, max(0.0, l - amount), s))
+    hue, lightness, sat = colorsys.rgb_to_hls(*_to_rgb(colour))
+    return _to_hex(colorsys.hls_to_rgb(hue, max(0.0, lightness - amount), sat))
 
 
 def mix(colour: str, other: str, weight: float) -> str:
     """``weight`` of ``other`` blended into ``colour``."""
     a, b = _to_rgb(colour), _to_rgb(other)
-    return _to_hex(tuple(x + (y - x) * weight for x, y in zip(a, b)))
+    return _to_hex(tuple(x + (y - x) * weight for x, y in zip(a, b, strict=True)))
 
 
 def _relative_luminance(colour: str) -> float:

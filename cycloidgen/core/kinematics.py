@@ -14,9 +14,20 @@ import numpy as np
 from . import profile as prof
 from .spec import GearSpec
 
-__all__ = ["disc_pose", "to_world", "to_disc_frame", "ContactState", "contacts",
-           "contacts_at", "sweep", "sweep_angles", "SWEEP_STEPS", "mesh_gaps",
-           "OutputLoads", "output_loads"]
+__all__ = [
+    "SWEEP_STEPS",
+    "ContactState",
+    "OutputLoads",
+    "contacts",
+    "contacts_at",
+    "disc_pose",
+    "mesh_gaps",
+    "output_loads",
+    "sweep",
+    "sweep_angles",
+    "to_disc_frame",
+    "to_world",
+]
 
 #: Steps per lobe pitch for every sweep in the app.  One shared value means the
 #: checks, the contact study and the efficiency study all reuse a single cached

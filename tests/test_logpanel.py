@@ -17,9 +17,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import QApplication            # noqa: E402
+from PySide6.QtWidgets import QApplication
 
-from cycloidgen.ui.logpanel import LogPanel, install, logger   # noqa: E402
+from cycloidgen.ui.logpanel import LogPanel, install, logger
 
 
 @pytest.fixture(scope="module")
@@ -116,7 +116,7 @@ def test_install_captures_warnings_and_stderr(app):
     original_hook = sys.excepthook
     try:
         install(p)
-        warnings.warn("a library grumbling")
+        warnings.warn("a library grumbling", stacklevel=1)
         sys.stderr.write("something wrote to stderr\n")
         _pump(app)
         text = p.text()
@@ -133,6 +133,7 @@ def test_install_captures_warnings_and_stderr(app):
 def test_the_stderr_tee_still_writes_to_the_real_stream(app):
     """Mirroring stderr must not swallow it - the CLI still needs it."""
     import io
+
     from cycloidgen.ui.logpanel import _StderrTee
 
     p = LogPanel()

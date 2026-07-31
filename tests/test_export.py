@@ -11,11 +11,11 @@ import pytest
 
 matplotlib.use("Agg")
 
-from cycloidgen.analysis import analyse                       # noqa: E402
-from cycloidgen.core import profile as prof                   # noqa: E402
-from cycloidgen.core.spec import preset                       # noqa: E402
-from cycloidgen.export import dxf, solid, svg                  # noqa: E402
-from cycloidgen.report import build                            # noqa: E402
+from cycloidgen.analysis import analyse
+from cycloidgen.core import profile as prof
+from cycloidgen.core.spec import preset
+from cycloidgen.export import dxf, solid, svg
+from cycloidgen.report import build
 
 
 @pytest.fixture(scope="module")
@@ -210,6 +210,7 @@ def test_bom_mass_agrees_with_the_analysis(spec):
 
 def test_bom_csv_round_trips(spec, tmp_path):
     import csv
+
     from cycloidgen.export.bom import write_bom_csv
     path = write_bom_csv(analyse(spec), tmp_path / "bom.csv")
     rows = list(csv.reader(path.open(encoding="utf-8")))

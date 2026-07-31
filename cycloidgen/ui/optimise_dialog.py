@@ -12,15 +12,34 @@ this worse than tuning by hand.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-                               QDoubleSpinBox, QFormLayout, QGroupBox,
-                               QHBoxLayout, QLabel, QProgressBar, QPushButton,
-                               QSpinBox, QTreeWidget, QTreeWidgetItem,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QProgressBar,
+    QPushButton,
+    QSpinBox,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..core.spec import MATERIALS, GearSpec, OffsetMode, Process
-from ..design import (Candidate, Objective, OptimisationResult, Requirements,
-                      optimise, requirements_from_spec)
+from ..design import (
+    Candidate,
+    Objective,
+    OptimisationResult,
+    Requirements,
+    optimise,
+    requirements_from_spec,
+)
 from .logpanel import logger
 
 __all__ = ["OptimiseDialog"]
@@ -103,11 +122,17 @@ class OptimiseDialog(QDialog):
 
         duty = QGroupBox("Duty")
         f = QFormLayout(duty)
-        self._ratio = QSpinBox(); self._ratio.setRange(3, 200); self._ratio.setSuffix(" :1")
-        self._torque = QDoubleSpinBox(); self._torque.setRange(0.01, 10000)
-        self._torque.setDecimals(2); self._torque.setSuffix(" Nm")
-        self._rpm = QDoubleSpinBox(); self._rpm.setRange(1, 30000)
-        self._rpm.setDecimals(0); self._rpm.setSuffix(" rpm")
+        self._ratio = QSpinBox()
+        self._ratio.setRange(3, 200)
+        self._ratio.setSuffix(" :1")
+        self._torque = QDoubleSpinBox()
+        self._torque.setRange(0.01, 10000)
+        self._torque.setDecimals(2)
+        self._torque.setSuffix(" Nm")
+        self._rpm = QDoubleSpinBox()
+        self._rpm.setRange(1, 30000)
+        self._rpm.setDecimals(0)
+        self._rpm.setSuffix(" rpm")
         f.addRow("Reduction", self._ratio)
         f.addRow("Output torque", self._torque)
         f.addRow("Input speed", self._rpm)
@@ -115,12 +140,18 @@ class OptimiseDialog(QDialog):
 
         env = QGroupBox("Envelope")
         f = QFormLayout(env)
-        self._max_od = QDoubleSpinBox(); self._max_od.setRange(10, 2000)
-        self._max_od.setDecimals(1); self._max_od.setSuffix(" mm")
-        self._max_len = QDoubleSpinBox(); self._max_len.setRange(5, 2000)
-        self._max_len.setDecimals(1); self._max_len.setSuffix(" mm")
-        self._wall = QDoubleSpinBox(); self._wall.setRange(1, 100)
-        self._wall.setDecimals(1); self._wall.setSuffix(" mm")
+        self._max_od = QDoubleSpinBox()
+        self._max_od.setRange(10, 2000)
+        self._max_od.setDecimals(1)
+        self._max_od.setSuffix(" mm")
+        self._max_len = QDoubleSpinBox()
+        self._max_len.setRange(5, 2000)
+        self._max_len.setDecimals(1)
+        self._max_len.setSuffix(" mm")
+        self._wall = QDoubleSpinBox()
+        self._wall.setRange(1, 100)
+        self._wall.setDecimals(1)
+        self._wall.setSuffix(" mm")
         self._discs = QComboBox()
         self._discs.addItem("Let the search choose", 0)
         for n in (1, 2, 3):
@@ -133,12 +164,18 @@ class OptimiseDialog(QDialog):
 
         build = QGroupBox("Build")
         f = QFormLayout(build)
-        self._process = QComboBox(); self._process.addItems([p.value for p in Process])
-        self._offset = QComboBox(); self._offset.addItems([m.value for m in OffsetMode])
-        self._disc_mat = QComboBox(); self._disc_mat.addItems(list(MATERIALS))
-        self._pin_mat = QComboBox(); self._pin_mat.addItems(list(MATERIALS))
-        self._house_mat = QComboBox(); self._house_mat.addItems(list(MATERIALS))
-        self._shaft_mat = QComboBox(); self._shaft_mat.addItems(list(MATERIALS))
+        self._process = QComboBox()
+        self._process.addItems([p.value for p in Process])
+        self._offset = QComboBox()
+        self._offset.addItems([m.value for m in OffsetMode])
+        self._disc_mat = QComboBox()
+        self._disc_mat.addItems(list(MATERIALS))
+        self._pin_mat = QComboBox()
+        self._pin_mat.addItems(list(MATERIALS))
+        self._house_mat = QComboBox()
+        self._house_mat.addItems(list(MATERIALS))
+        self._shaft_mat = QComboBox()
+        self._shaft_mat.addItems(list(MATERIALS))
         self._ring_rollers = QCheckBox("Ring pins are rollers")
         self._out_rollers = QCheckBox("Output pins carry rollers")
         f.addRow("Process", self._process)
@@ -156,14 +193,20 @@ class OptimiseDialog(QDialog):
         self._objective = QComboBox()
         for o in Objective:
             self._objective.addItem(o.value, o)
-        self._sf = QDoubleSpinBox(); self._sf.setRange(0.5, 10.0)
-        self._sf.setSingleStep(0.1); self._sf.setDecimals(2)
+        self._sf = QDoubleSpinBox()
+        self._sf.setRange(0.5, 10.0)
+        self._sf.setSingleStep(0.1)
+        self._sf.setDecimals(2)
         self._sf.setToolTip("Required margin on ring contact stress, after "
                             "clearance is allowed to concentrate the load.")
-        self._min_eff = QDoubleSpinBox(); self._min_eff.setRange(0, 99)
-        self._min_eff.setDecimals(0); self._min_eff.setSuffix(" %")
-        self._max_lost = QDoubleSpinBox(); self._max_lost.setRange(0, 600)
-        self._max_lost.setDecimals(0); self._max_lost.setSuffix(" arcmin")
+        self._min_eff = QDoubleSpinBox()
+        self._min_eff.setRange(0, 99)
+        self._min_eff.setDecimals(0)
+        self._min_eff.setSuffix(" %")
+        self._max_lost = QDoubleSpinBox()
+        self._max_lost.setRange(0, 600)
+        self._max_lost.setDecimals(0)
+        self._max_lost.setSuffix(" arcmin")
         self._max_lost.setToolTip("0 = no limit")
         self._effort = QComboBox()
         for label, key in _EFFORTS:

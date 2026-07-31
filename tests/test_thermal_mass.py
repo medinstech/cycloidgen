@@ -9,7 +9,6 @@ from cycloidgen.analysis.mass import analyse_mass
 from cycloidgen.analysis.thermal import CONVECTION_W_M2K, analyse_thermal
 from cycloidgen.core.spec import MATERIALS, preset
 
-
 # ---------------------------------------------------------------------- PV
 
 
@@ -43,8 +42,10 @@ def test_pv_uses_the_projected_area_convention():
 
 def test_pv_climbs_with_speed_and_torque():
     base = analyse_thermal(preset(15))
-    fast = preset(15); fast.input_rpm = 3000
-    heavy = preset(15); heavy.output_torque_Nm = 20
+    fast = preset(15)
+    fast.input_rpm = 3000
+    heavy = preset(15)
+    heavy.output_torque_Nm = 20
     assert analyse_thermal(fast).pv_ring_MPa_m_s > base.pv_ring_MPa_m_s
     assert analyse_thermal(heavy).pv_ring_MPa_m_s > base.pv_ring_MPa_m_s
 

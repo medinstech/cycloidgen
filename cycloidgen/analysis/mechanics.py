@@ -25,8 +25,13 @@ from ..core import profile as prof
 from ..core.kinematics import SWEEP_STEPS, output_loads, sweep
 from ..core.spec import GearSpec
 
-__all__ = ["effective_modulus", "hertz_line_pressure", "ContactResult",
-           "analyse_contacts", "torque_capacity"]
+__all__ = [
+    "ContactResult",
+    "analyse_contacts",
+    "effective_modulus",
+    "hertz_line_pressure",
+    "torque_capacity",
+]
 
 
 def effective_modulus(E1_GPa: float, nu1: float, E2_GPa: float, nu2: float) -> float:

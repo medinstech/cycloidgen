@@ -13,9 +13,17 @@ import cadquery as cq
 from ..core import profile as prof
 from ..core.spec import GearSpec
 
-__all__ = ["disc_solid", "ring_housing", "eccentric_shaft", "output_flange",
-           "build_assembly", "parts", "write_step", "write_part_steps",
-           "write_stls"]
+__all__ = [
+    "build_assembly",
+    "disc_solid",
+    "eccentric_shaft",
+    "output_flange",
+    "parts",
+    "ring_housing",
+    "write_part_steps",
+    "write_step",
+    "write_stls",
+]
 
 #: Solid modelling uses a coarser sampling than DXF; OCCT slows sharply with
 #: vertex count and the mesh tolerance dominates the result anyway.
@@ -112,7 +120,8 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
 
     z = 0.0
     for i, (phase, hole_phase) in enumerate(zip(spec.disc_phases,
-                                                spec.disc_hole_phases)):
+                                                spec.disc_hole_phases,
+                                                strict=True)):
         cx = spec.eccentricity * math.cos(phase)
         cy = -spec.eccentricity * math.sin(phase)
         rot = math.degrees(phase / spec.lobes)

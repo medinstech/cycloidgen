@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from ..core.spec import GearSpec
 
-__all__ = ["Bearing", "BearingChoice", "CATALOGUE", "select_bearings"]
+__all__ = ["CATALOGUE", "Bearing", "BearingChoice", "select_bearings"]
 
 
 @dataclass(frozen=True)

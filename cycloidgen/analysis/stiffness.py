@@ -49,8 +49,12 @@ from ..core.kinematics import SWEEP_STEPS, mesh_gaps, output_loads, sweep
 from ..core.spec import GearSpec
 from .mechanics import effective_modulus
 
-__all__ = ["line_contact_approach", "StiffnessResult", "analyse_stiffness",
-           "RAD_PER_ARCMIN"]
+__all__ = [
+    "RAD_PER_ARCMIN",
+    "StiffnessResult",
+    "analyse_stiffness",
+    "line_contact_approach",
+]
 
 RAD_PER_ARCMIN = math.pi / (180.0 * 60.0)
 

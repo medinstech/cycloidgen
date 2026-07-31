@@ -26,10 +26,19 @@ import numpy as np
 from .spec import GearSpec
 
 __all__ = [
-    "pin_locus", "pin_locus_derivatives", "locus_curvature", "critical_radius",
-    "disc_profile", "profile_normal", "profile_curvature", "moment_arm",
-    "profile_from_spec", "sample_count_for_chord_tolerance", "sampled_profile",
-    "distance_to_polyline", "DiscProfile",
+    "DiscProfile",
+    "critical_radius",
+    "disc_profile",
+    "distance_to_polyline",
+    "locus_curvature",
+    "moment_arm",
+    "pin_locus",
+    "pin_locus_derivatives",
+    "profile_curvature",
+    "profile_from_spec",
+    "profile_normal",
+    "sample_count_for_chord_tolerance",
+    "sampled_profile",
 ]
 
 
