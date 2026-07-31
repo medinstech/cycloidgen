@@ -1,0 +1,288 @@
+# cycloidgen
+
+Parametric cycloidal drive (cycloidal gearbox) generator: a desktop app that
+takes a handful of parameters — or a set of requirements — draws the drive live,
+checks it, sizes it, and writes DXF, SVG, STEP, STL, a bill of materials and a
+PDF dossier.
+
+![overview](docs/drawing.png)
+
+## Run it
+
+```bash
+py -3.12 -m venv .venv
+.venv\Scripts\python -m pip install -e ".[dev]"
+.venv\Scripts\python -m cycloidgen
+```
+
+Headless, without opening the window:
+
+```bash
+python -m cycloidgen --ratio 29 --out ./my_gearbox
+python -m cycloidgen --design saved.json --out ./x --no-solids
+```
+
+Or state what you need and let it find the geometry:
+
+```bash
+python -m cycloidgen --optimise --ratio 29 --torque 20 --rpm 1500 \
+    --max-od 120 --process "CNC machined" \
+    --disc-material "Steel 4140 (hardened)" --rollers --out ./x
+```
+
+## Two ways to use it
+
+**Give it a design.** Set the twenty-odd parameters and the app tells you what
+is wrong with them — this is the original mode and everything below still
+applies to it.
+
+**Give it requirements.** Ratio, torque, speed, envelope, process, materials, and
+what to optimise for; the search returns a shortlist of geometries that pass
+every check, with the trade-offs side by side. `Ctrl+R` in the app, or
+`--optimise` on the command line.
+
+Nine free dimensions is too many to grid, so most of them are *derived* from the
+relationships good cycloidal geometry actually obeys — eccentricity from the
+shortening coefficient, pin radius from the undercut limit, bore from the shaft,
+bolt circle as a fraction of the band that is genuinely available. What is left
+is six continuous knobs and two discrete ones, screened in closed form before
+anything expensive runs. A search that finds nothing reports *why*: `1,400 of
+1,500 candidates were over your diameter limit` is a usable answer, an empty
+list is not.
+
+## What it produces
+
+| File | Contents |
+|---|---|
+| `disc.dxf` | Drawing of the whole drive: disc profile as a closed LWPOLYLINE sampled to the chord tolerance, plus bore, output holes, ring pins and housing, on separate layers |
+| `disc.svg` | Same drawing, 1 unit = 1 mm |
+| `dxf/*.dxf` | One cutting file per part — each disc on its own, the ring plate, and a carrier drilling template |
+| `assembly.step` | Full gearbox: housing, ring pins, phased discs, eccentric shaft, output flange |
+| `step/*.step` | Each part as its own solid |
+| `stl/*.stl` | Each part separately — STL has no assembly structure. A multi-disc stack gets `disc_1.stl`, `disc_2.stl`, ... because **the discs are not the same part** (see below) |
+| `bom.csv` | Every part: quantity, material, size, mass, make or buy, and the bearing designations the sizing study picked |
+| `report.json` | Every parameter, derived value, load, stiffness, temperature, mass and finding as plain data |
+| `report.pdf` | Drawing, geometry, checks, contact stress, stiffness and backlash, PV and temperature, mass, bill of materials, bearings, and a build order |
+
+## The geometry
+
+With `R` the ring-pin circle radius, `Rr` the pin radius, `E` the eccentricity,
+`N` the lobe count, `Np = N+1` pins and `K1 = E*Np/R`:
+
+```
+D(t) = sqrt(1 + K1² − 2·K1·cos(N·t))
+x(t) =  R·cos(t) − E·cos(Np·t) − Rr·(cos(t) − K1·cos(Np·t)) / D(t)
+y(t) = −R·sin(t) + E·sin(Np·t) + Rr·(sin(t) − K1·sin(Np·t)) / D(t)
+```
+
+The reduction is the lobe count, `i = N = Np − 1`, and the output pin holes are
+the pin diameter plus twice the eccentricity.
+
+> **Sign warning.** The equivalent `psi` formulation needs a *leading minus*:
+> `psi(t) = -atan2(sin(N·t), R/(E·Np) - cos(N·t))`. The positive-sign variant is
+> widespread online and is wrong - it deviates by millimetres and the disc
+> interferes with the pins by about 1 mm, which seizes the drive. `tests/test_profile.py`
+> pins both the correct form and the trap.
+
+Everything above is verified numerically rather than trusted:
+
+- **Envelope property** - every profile point sits exactly `Rr` from the
+  pin-centre locus (deviation 0.0000 µm). This is what makes the disc roll
+  instead of dig in.
+- **Meshing sweep** - a full input revolution runs with under 2 µm residual
+  interference, while a ratio one tooth away jams by 450-730 µm. That proves the
+  profile and the motion law together.
+- **Undercut limit** - `Rr < 1/max(-kappa)` of the locus. The locus curvature
+  collapses to `(A + B·u)/(C − D·u)^1.5` with `u = cos(N·t)`, so the extreme is a
+  closed-form root rather than a 40 000-point scan — which is what makes the
+  design search affordable. Cross-checked against the brute-force result.
+- **Assembly fit** - every output pin stays inside its hole through a full
+  revolution, on every disc; the disc clears the housing bore.
+
+## Clearance: which way the offset goes
+
+Both clearance levers have to *shrink* the disc. It reaches `R − Rr + E` from its
+own centre, so growing the generating roller (`equidistant`) and shrinking the
+generating pin circle (`pin_circle`) each pull the profile inward. Two of the
+three modes originally had the pin-circle sign backwards and cut a ~200 µm
+*interference* instead of a clearance; `both` cancelled itself out to almost
+exactly zero. Nothing noticed, because every other test ran on the default mode.
+
+So the clearance is no longer assumed — it is **measured**, as the distance from
+each pin centre to the manufactured profile less the pin radius
+(`core.kinematics.mesh_gaps`). `PROFILE_INTERFERENCE` is an error and
+`CLEARANCE_NOT_DELIVERED` a warning, and every mode is tested to open a real gap.
+
+That measured gap then feeds the load model, which answers the question the old
+`README` could only flag as a limitation:
+
+- an **equidistant** offset gives every pin the same normal gap, so a contact
+  only comes into mesh once the disc has turned far enough to close it. Contacts
+  with a short moment arm need much more rotation than the long ones — so at low
+  torque a handful of pins carry everything, and the peak force is several times
+  the ideal share. Capacity is derated accordingly.
+- more torque pulls more pins in; a tighter process pulls more pins in. Both are
+  visible in the datasheet as *pins carrying load*, and both are tested.
+
+## Multi-disc stacks: the discs are different parts
+
+A disc sitting on crank phase `p` has to rotate by `p/N` to stay meshed with the
+ring. But every disc is coupled to the *same* output carrier, so every disc must
+also share the carrier's rotation. Both can only hold if each disc's output-hole
+pattern is turned back against its lobes by `-p/N`.
+
+So in a two-disc drive the second disc is the first one with its holes moved half
+a lobe pitch. They are **not interchangeable** — swapping them jams the drive.
+They would only be identical with `2*N` output pins, which is normally far too
+many, and the app tells you (`DISCS_DIFFER`) when that is not the case. The
+per-part files, the STLs and the bill of materials all keep them apart.
+
+This was wrong in the first version and is now pinned by `tests/test_assembly.py`.
+The visible symptom is worth knowing: in the drawing, the green output pin must
+stay inside its blue hole at every crank angle. When it pokes out, the hole
+pattern is at the wrong angle.
+
+## What it tells you
+
+Beyond the geometry checks, every design gets a datasheet:
+
+- **Torque capacity**, both on the ideal load share and derated for what
+  clearance actually does to it.
+- **Torsional stiffness** in Nm/arcmin and **lost motion** in arcmin, from
+  Hertzian line-contact springs (Johnson's elastic approach) on the ring and
+  output stages in series. A ground steel drive comes out in the single-digit
+  arcmin and hundreds of Nm/arcmin band that commercial reducers of that size
+  quote. Housing, shaft and carrier are taken as rigid, so it is an upper bound.
+- **PV and running temperature.** PV is the wear limit, and it is what actually
+  finishes a printed drive — a PLA disc can sit well inside its stress allowable
+  and still wear round in an afternoon. Quoted on the projected-area convention
+  the published limits use, *not* the Hertzian peak; the two differ by several
+  times and are not interchangeable.
+- **Mass, inertia, unbalance.** Off the real lobed section, not a cylinder.
+  Reflected inertia at the input, and the shaking force a single disc throws —
+  which goes as the square of speed. Evenly phased discs cancel the force and
+  leave a couple.
+- **Disc web stress.** The ligament beside the output holes is the thinnest
+  structural member in the drive and nothing else was looking at it.
+
+## Checks
+
+Errors block export; warnings do not.
+
+`UNDERCUT` · `K1_TOO_HIGH` · `PROFILE_SELF_INTERSECT` · `PROFILE_INTERFERENCE` ·
+`CLEARANCE_NOT_DELIVERED` · `PIN_OVERLAP` · `HOLE_HITS_BORE` · `HOLE_BREAKS_RIM` ·
+`OUTPUT_HOLES_OVERLAP` · `THIN_INNER_WEB` · `THIN_OUTER_WEB` · `WEB_SHEAR` ·
+`CLEARANCE_DEFICIT` · `SINGLE_DISC_UNBALANCE` · `UNBALANCE_FORCE` ·
+`PRESSURE_ANGLE` · `HERTZ_STRESS_RING` · `HERTZ_STRESS_OUTPUT` ·
+`LOAD_CONCENTRATION` · `LOST_MOTION` · `TORSIONAL_STIFFNESS` · `PV_LIMIT_RING` ·
+`PV_LIMIT_OUTPUT` · `OVERTEMP` · `RUNNING_HOT` · `LOW_EFFICIENCY` ·
+`SHORT_BEARING_LIFE` · `PIN_RADIUS_SUGGESTION` · `MASS` · `DISCS_DIFFER`
+
+Selecting a check in the app highlights the parameters it is actually about, so
+you are not left guessing which of twenty-odd numbers it wants you to change.
+
+`PIN_RADIUS_SUGGESTION` is worth knowing about: the equivalent contact radius
+works out to `R_eq = Rr·(1 − Rr/rho_c)`, a parabola peaking at `Rr = rho_c/2`.
+Contact stress is therefore lowest at half the critical pin radius, and the app
+suggests it.
+
+## In the app
+
+- **Drawing** with a crank slider and animation; a pinned reference design shows
+  underneath as a ghost outline.
+- **Loads**, **Efficiency**, and a **Datasheet** tab with everything above.
+- **Trade study** — sweep any one parameter and watch torque capacity,
+  efficiency, lost motion and mass move together, on their own real units, with
+  the infeasible band shaded rather than silently dropped.
+- **Compare** — pin a design, change things, and see exactly what moved and by
+  how much. Running the optimiser pins the design it replaced automatically.
+- **Log** — everything the app would otherwise print to a terminal you do not
+  have. Checks as they appear and clear, searches with their shortlists, sweeps,
+  exports, plus every Python warning, stray stderr write, and any exception that
+  escapes a worker thread. Timestamped, level-filtered, copyable. The tab marks
+  itself when something arrives while you are looking elsewhere. It earned its
+  keep immediately: the first run surfaced a `RuntimeWarning` from a negative
+  log term in the contact-stiffness solver that had been silently producing NaNs
+  on degenerate geometry.
+- Undo/redo, recent files, a parameter filter box, and the session reopens on the
+  design you left. The analysis runs off the GUI thread with generation
+  numbering, so a slow result can never overwrite a newer one.
+
+## How far to trust the analysis
+
+The ideal load model treats the disc as rigid and each contact as a linear
+spring, so force is proportional to moment arm and only the pushing half of the
+pins carries load — the classical Kudryavtsev/Lehmann assumption. The stiffness
+model *does* see clearance and is what the capacity derating comes from, but it
+still assumes a rigid housing, shaft and carrier. The thermal model is a single
+lumped body in still air with no conduction into whatever the gearbox is bolted
+to. Bearing catalogue values are nominal metric-series figures. PV limits are
+dry-against-steel design-guide values.
+
+**These are preliminary sizing numbers, not a certification.** Calibrate against
+a physical prototype before committing to a design.
+
+## Layout
+
+```
+cycloidgen/
+├── core/       spec (the one source of truth), profile, kinematics, validate
+├── analysis/   mechanics (Hertz), stiffness, thermal, mass, efficiency, bearings
+├── design/     optimise (requirements -> geometry), sweep (trade studies)
+├── export/     dxf, svg, solid (CadQuery/OCCT), bom
+├── report/     plots (shared by UI and PDF), build
+└── ui/         PySide6 window, declarative field table, optimiser dialog,
+                trade-study tab, undo/redo history, log panel
+tests/          210 tests; the envelope, pin-in-hole and clearance-sign tests
+                matter most
+```
+
+## Tests
+
+```bash
+.venv\Scripts\python -m pytest -q
+```
+
+210 tests, about 70 s. Most of that is CadQuery writing solids; the pure
+analysis tests run in under a second. The log-panel tests need Qt and run
+headless (`QT_QPA_PLATFORM=offscreen`, set by the test module itself).
+
+## Performance
+
+A full re-analysis is about 50 ms, down from 106 ms while doing considerably
+more work. Three things did it: the mesh sweep is computed once and shared
+instead of three modules each running their own, the profile and the undercut
+limit are cached, and the self-intersection test uses a uniform-grid broad phase
+instead of sampling every other segment against all the rest — which was also
+skipping over crossings it should have caught.
+
+## Standalone build
+
+```bash
+.venv\Scripts\python -m PyInstaller cycloidgen.spec --noconfirm
+dist\cycloidgen\cycloidgen.exe
+```
+
+Verified working, GUI and CLI, including STEP/STL export. Two things about that
+spec are load-bearing and easy to break:
+
+- The entry point is `launcher.py`, not `cycloidgen/__main__.py`. PyInstaller
+  runs its entry script as a top-level module, which breaks relative imports.
+- `_casadi.pyd` (pulled in by CadQuery's assembly solver) gets relocated to the
+  bundle root while the DLLs it links against stay in `casadi/`, so the spec
+  copies those DLLs to the root as well. Without it the exe dies with
+  `DLL load failed while importing _casadi`.
+
+The bundle is about 1.2 GB, essentially all OCCT. If that matters, build with
+`--no-solids` in mind: the drawings-and-report path does not need CadQuery, and
+dropping `cadquery`, `OCP`, `casadi` and `vtkmodules` from the spec cuts the
+bundle to a fraction of the size.
+
+## License
+
+Apache-2.0. Copyright 2026 Medinstech. See [LICENSE](LICENSE).
+
+The numbers this produces are preliminary sizing estimates, not a certification —
+see *How far to trust the analysis* above. Apache-2.0 disclaims warranty for a
+reason, and that disclaimer is meant literally here: validate against a physical
+prototype before anything load-bearing depends on it.

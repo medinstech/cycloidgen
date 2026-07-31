@@ -1,0 +1,164 @@
+"""DXF output, laid out for CAM rather than for looking at.
+
+The profile goes out as a closed LWPOLYLINE sampled to the chord tolerance in the
+spec.  Splines are more compact but far less portable between CAM packages.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+import ezdxf
+import numpy as np
+
+from ..core import profile as prof
+from ..core.spec import GearSpec
+
+__all__ = ["write_dxf", "write_part_dxfs"]
+
+LAYERS = {
+    "DISC_PROFILE": 3,
+    "DISC_BORE": 1,
+    "OUTPUT_HOLES": 5,
+    "RING_PINS": 2,
+    "HOUSING": 7,
+    "PITCH": 8,
+}
+
+
+def _new_doc() -> tuple:
+    doc = ezdxf.new("R2010", setup=True)
+    doc.header["$INSUNITS"] = 4  # millimetres
+    for name, color in LAYERS.items():
+        doc.layers.add(name=name, color=color)
+    return doc, doc.modelspace()
+
+
+def _title(msp, spec: GearSpec, text: str, radius: float) -> None:
+    msp.add_text(text, height=max(radius / 30.0, 1.2),
+                 dxfattribs={"layer": "HOUSING"}
+                 ).set_placement((-radius, -radius - radius / 12.0))
+
+
+def write_dxf(spec: GearSpec, path: str | Path) -> Path:
+    """Write disc, ring and housing geometry to a single DXF."""
+    path = Path(path)
+    doc, msp = _new_doc()
+
+    p = prof.profile_from_spec(spec)
+    msp.add_lwpolyline(p.points, close=True, dxfattribs={"layer": "DISC_PROFILE"})
+
+    bore_r = (spec.center_bore_diameter + spec.hole_clearance) / 2.0
+    msp.add_circle((0, 0), bore_r, dxfattribs={"layer": "DISC_BORE"})
+
+    # Each disc in a stack carries its hole pattern at a different angle, so a
+    # multi-disc drive needs one layer per disc - they are different parts.
+    hole_r = spec.output_hole_diameter / 2.0
+    for disc_index, hole_phase in enumerate(spec.disc_hole_phases):
+        layer = ("OUTPUT_HOLES" if spec.discs_are_identical
+                 else f"OUTPUT_HOLES_DISC{disc_index + 1}")
+        if layer not in doc.layers:
+            doc.layers.add(name=layer, color=LAYERS["OUTPUT_HOLES"] + disc_index)
+        for k in range(spec.output_pin_count):
+            a = 2.0 * np.pi * k / spec.output_pin_count + hole_phase
+            c = (spec.output_bolt_circle_radius * np.cos(a),
+                 spec.output_bolt_circle_radius * np.sin(a))
+            msp.add_circle(c, hole_r, dxfattribs={"layer": layer})
+        if spec.discs_are_identical:
+            break
+
+    for k in range(spec.pin_count):
+        a = 2.0 * np.pi * k / spec.pin_count
+        c = (spec.pin_circle_radius * np.cos(a), spec.pin_circle_radius * np.sin(a))
+        msp.add_circle(c, spec.pin_radius, dxfattribs={"layer": "RING_PINS"})
+
+    msp.add_circle((0, 0), spec.pin_circle_radius,
+                   dxfattribs={"layer": "PITCH", "linetype": "DASHED"})
+    msp.add_circle((0, 0), spec.housing_outer_radius, dxfattribs={"layer": "HOUSING"})
+
+    msp.add_text(
+        f"cycloidal drive  i={spec.ratio}:1  N={spec.lobes} lobes / {spec.pin_count} pins  "
+        f"R={spec.pin_circle_radius} Rr={spec.pin_radius} E={spec.eccentricity}  "
+        f"clearance={spec.profile_clearance} ({spec.offset_mode.value})",
+        height=2.0,
+        dxfattribs={"layer": "HOUSING"},
+    ).set_placement((-spec.housing_outer_radius, -spec.housing_outer_radius - 8))
+
+    doc.saveas(path)
+    return path
+
+
+def write_part_dxfs(spec: GearSpec, directory: str | Path) -> list[Path]:
+    """One DXF per part, each on its own origin and nothing else in the file.
+
+    ``disc.dxf`` is a drawing: every part of the drive on separate layers, for
+    reading.  These are for cutting - a laser, waterjet or CAM job wants one
+    closed outline and its holes, not the assembly it belongs to.  Each disc in
+    a stack gets its own file, because their hole patterns differ.
+    """
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+
+    p = prof.profile_from_spec(spec)
+    bore_r = (spec.center_bore_diameter + spec.hole_clearance) / 2.0
+    hole_r = spec.output_hole_diameter / 2.0
+
+    identical = spec.discs_are_identical
+    phases = spec.disc_hole_phases[:1] if identical else spec.disc_hole_phases
+    for index, hole_phase in enumerate(phases, start=1):
+        doc, msp = _new_doc()
+        msp.add_lwpolyline(p.points, close=True, dxfattribs={"layer": "DISC_PROFILE"})
+        msp.add_circle((0, 0), bore_r, dxfattribs={"layer": "DISC_BORE"})
+        for k in range(spec.output_pin_count):
+            a = 2.0 * np.pi * k / spec.output_pin_count + hole_phase
+            msp.add_circle((spec.output_bolt_circle_radius * np.cos(a),
+                            spec.output_bolt_circle_radius * np.sin(a)),
+                           hole_r, dxfattribs={"layer": "OUTPUT_HOLES"})
+        name = "disc" if identical else f"disc_{index}"
+        _title(msp, spec, f"{name}  i={spec.ratio}:1  holes at "
+                          f"{np.degrees(hole_phase):+.3f} deg", p.outer_radius)
+        out = directory / f"{name}.dxf"
+        doc.saveas(out)
+        written.append(out)
+
+    # ---- ring plate: the housing bore and its pin pockets -------------------
+    doc, msp = _new_doc()
+    msp.add_circle((0, 0), spec.housing_outer_radius, dxfattribs={"layer": "HOUSING"})
+    msp.add_circle((0, 0), spec.pin_circle_radius, dxfattribs={"layer": "DISC_BORE"})
+    for k in range(spec.pin_count):
+        a = 2.0 * np.pi * k / spec.pin_count
+        msp.add_circle((spec.pin_circle_radius * np.cos(a),
+                        spec.pin_circle_radius * np.sin(a)),
+                       spec.pin_radius, dxfattribs={"layer": "RING_PINS"})
+    _title(msp, spec, f"ring plate  {spec.pin_count} pins  "
+                      f"BC {2 * spec.pin_circle_radius:g}",
+           spec.housing_outer_radius)
+    out = directory / "ring_plate.dxf"
+    doc.saveas(out)
+    written.append(out)
+
+    # ---- carrier drilling template -----------------------------------------
+    doc, msp = _new_doc()
+    plate_r = spec.output_bolt_circle_radius + spec.output_pin_diameter
+    msp.add_circle((0, 0), plate_r, dxfattribs={"layer": "HOUSING"})
+    msp.add_circle((0, 0), (spec.input_shaft_diameter + 1.0) / 2.0,
+                   dxfattribs={"layer": "DISC_BORE"})
+    msp.add_circle((0, 0), spec.output_bolt_circle_radius,
+                   dxfattribs={"layer": "PITCH", "linetype": "DASHED"})
+    for k in range(spec.output_pin_count):
+        a = 2.0 * np.pi * k / spec.output_pin_count
+        c = (spec.output_bolt_circle_radius * np.cos(a),
+             spec.output_bolt_circle_radius * np.sin(a))
+        # the pin is a press fit in the carrier, so this is the pin size, not
+        # the running hole in the disc
+        msp.add_circle(c, spec.output_pin_diameter / 2.0,
+                       dxfattribs={"layer": "OUTPUT_HOLES"})
+        msp.add_line((c[0] - 2, c[1]), (c[0] + 2, c[1]), dxfattribs={"layer": "PITCH"})
+        msp.add_line((c[0], c[1] - 2), (c[0], c[1] + 2), dxfattribs={"layer": "PITCH"})
+    _title(msp, spec, f"output carrier  {spec.output_pin_count} x "
+                      f"{spec.output_pin_diameter:g} press fit  "
+                      f"BC {2 * spec.output_bolt_circle_radius:g}", plate_r)
+    out = directory / "output_carrier.dxf"
+    doc.saveas(out)
+    written.append(out)
+    return written

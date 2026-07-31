@@ -1,0 +1,9 @@
+# Normalise to LF in the repository; Git checks out native line endings on
+# Windows.  Without this a Windows-authored file lands in the repo with CRLF and
+# every later diff from a Linux machine rewrites the whole file.
+* text=auto eol=lf
+
+*.png binary
+*.dxf text eol=lf
+*.svg text eol=lf
+*.bat text eol=crlf

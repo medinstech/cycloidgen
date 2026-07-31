@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cycloidgen"
+version = "2.0.0"
+description = "Parametric cycloidal drive generator with engineering analysis and CAD export"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Medinstech" }]
+keywords = ["cycloidal", "gearbox", "reducer", "cad", "mechanical-design",
+            "dxf", "step", "hertz", "backlash"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Manufacturing",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "pydantic>=2.6",
+    "ezdxf>=1.1",
+    "matplotlib>=3.8",
+    "reportlab>=4.0",
+    "PySide6>=6.6",
+    "cadquery>=2.4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pyinstaller>=6.5"]
+
+[project.urls]
+Homepage = "https://github.com/medinstech/cycloidgen"
+Issues = "https://github.com/medinstech/cycloidgen/issues"
+
+[project.scripts]
+cycloidgen = "cycloidgen.__main__:main"
+
+[project.gui-scripts]
+cycloidgen-gui = "cycloidgen.ui.app:main"
+
+[tool.setuptools.packages.find]
+include = ["cycloidgen*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
