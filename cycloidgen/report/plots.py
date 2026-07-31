@@ -241,6 +241,7 @@ def sweep_figure(result, fig: Figure | None = None) -> Figure:
             ax.plot(x, y, color=t["series"][0], linewidth=1.8, zorder=3)
             ax.plot([result.current], [np.interp(result.current, x, y)],
                     marker="o", markersize=5, color=t["series"][1], zorder=4)
+            _anchor_axis(ax, y)
         for v in blocked:
             ax.axvspan(v - _half_step(result), v + _half_step(result),
                        color=t["muted"], alpha=0.18, linewidth=0, zorder=1)
@@ -263,6 +264,30 @@ def _half_step(result) -> float:
     if len(values) < 2:
         return 0.5
     return abs(values[1] - values[0]) / 2.0
+
+
+#: Below this relative span, a metric is treated as flat and its axis is
+#: anchored at zero.
+_FLAT_FRACTION = 0.10
+
+
+def _anchor_axis(ax, y: np.ndarray) -> None:
+    """Start a nearly-flat series at zero instead of magnifying its noise.
+
+    Matplotlib's default is to fill the axis with whatever range it is given, so
+    a quantity that moves by a tenth of a percent across the sweep arrives
+    looking like a decisive trend.  On a chart whose entire purpose is reading
+    off trade-offs, that is not a cosmetic problem - it is the chart telling the
+    reader something untrue.  ``force_figure`` already refuses to do it; so does
+    this.
+    """
+    if not len(y) or not np.all(np.isfinite(y)):
+        return
+    lo, hi = float(np.min(y)), float(np.max(y))
+    if lo < 0 or hi <= 0:
+        return
+    if (hi - lo) / hi < _FLAT_FRACTION:
+        ax.set_ylim(0.0, hi * 1.15)
 
 
 def loss_figure(analysis, fig: Figure | None = None) -> Figure:

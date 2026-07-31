@@ -1,5 +1,9 @@
 # cycloidgen
 
+[![tests](https://github.com/medinstech/cycloidgen/actions/workflows/tests.yml/badge.svg)](https://github.com/medinstech/cycloidgen/actions/workflows/tests.yml)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![python](https://img.shields.io/badge/python-3.10%20%E2%80%93%203.12-blue.svg)](pyproject.toml)
+
 Parametric cycloidal drive (cycloidal gearbox) generator: a desktop app that
 takes a handful of parameters — or a set of requirements — draws the drive live,
 checks it, sizes it, and writes DXF, SVG, STEP, STL, a bill of materials and a
@@ -194,6 +198,15 @@ suggests it.
 - **Trade study** — sweep any one parameter and watch torque capacity,
   efficiency, lost motion and mass move together, on their own real units, with
   the infeasible band shaded rather than silently dropped.
+
+  ![trade study](docs/tradestudy.png)
+
+  Read off that chart: pin radius buys torque capacity up to a genuine optimum
+  and then gives it back — the `PIN_RADIUS_SUGGESTION` check in closed form —
+  while costing mass the whole way and doing essentially nothing for efficiency
+  or backlash. Note the flat panels start at zero. A quantity that moves by a
+  tenth of a percent gets an axis that says so, rather than one scaled to make
+  the noise look like a decision.
 - **Compare** — pin a design, change things, and see exactly what moved and by
   how much. Running the optimiser pins the design it replaced automatically.
 - **Log** — everything the app would otherwise print to a terminal you do not
@@ -233,7 +246,7 @@ cycloidgen/
 ├── report/     plots (shared by UI and PDF), build
 └── ui/         PySide6 window, declarative field table, optimiser dialog,
                 trade-study tab, undo/redo history, log panel
-tests/          210 tests; the envelope, pin-in-hole and clearance-sign tests
+tests/          219 tests; the envelope, pin-in-hole and clearance-sign tests
                 matter most
 ```
 
@@ -243,9 +256,21 @@ tests/          210 tests; the envelope, pin-in-hole and clearance-sign tests
 .venv\Scripts\python -m pytest -q
 ```
 
-210 tests, about 70 s. Most of that is CadQuery writing solids; the pure
+219 tests, about 70 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in under a second. The log-panel tests need Qt and run
 headless (`QT_QPA_PLATFORM=offscreen`, set by the test module itself).
+
+CI runs the suite on Linux and Windows, on the oldest and newest supported
+Python, and separately exports a full bundle and runs a design search from the
+command line — the tests cover the pieces, that job proves the whole thing still
+runs end to end.
+
+The README figures come out of the same plotting code the app and the PDF use,
+so they cannot drift from what it actually draws:
+
+```bash
+.venv\Scripts\python docs\make_figures.py
+```
 
 ## Performance
 
