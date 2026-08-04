@@ -59,6 +59,11 @@ rewrite 46 files to remove that alignment. Match the file you are editing.
 **One reason per change.** A pull request that fixes a bug, renames three things
 and adds a feature is three reviews wearing a trench coat.
 
+**Say when a number moves.** The pull request template asks whether your change
+alters a computed value, and it is the question that matters most here: someone
+may already have cut metal from the old answer. [RELEASING.md](RELEASING.md) has
+the version policy, which is built around the same question.
+
 ## Where things live
 
 ```

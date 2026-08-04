@@ -72,6 +72,32 @@ jobs:
           MPLBACKEND: Agg
         run: python -m pytest -q --durations=10
 
+  # The real installer takes half an hour, almost all of it compressing a
+  # 1.2 GB CAD kernel, so it only runs on a tag.  Compiling the script against
+  # a stub folder takes seconds and catches everything that is actually likely
+  # to break: a page order, a missing translation, a path that moved, or the
+  # version no longer being where !searchparse looks for it.
+  installer:
+    name: installer script
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: choco install nsis --no-progress -y
+      - name: Compile against a stub bundle
+        shell: pwsh
+        run: |
+          $stub = "$env:RUNNER_TEMP\stub"
+          New-Item -ItemType Directory -Force $stub | Out-Null
+          Set-Content "$stub\cycloidgen.exe" "stub"
+          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" /V2 /DFASTPACK "/DBUILD_DIR=$stub" packaging\cycloidgen.nsi
+          if ($LASTEXITCODE -ne 0) { throw "makensis failed" }
+          $setup = Get-ChildItem releases\*.exe
+          "built $($setup.Name)"
+          $version = (Select-String -Path cycloidgen\__init__.py -Pattern '__version__ = "(.+)"').Matches[0].Groups[1].Value
+          if ($setup.Name -ne "cycloidgen_v${version}_Setup.exe") {
+            throw "installer is named $($setup.Name) but the source says $version"
+          }
+
   cli:
     name: headless run
     runs-on: ubuntu-latest

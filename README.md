@@ -325,7 +325,7 @@ cycloidgen/
 ├── report/     plots (shared by UI and PDF), build
 └── ui/         PySide6 window, 3D viewer, outputs tab, declarative field table,
                 optimiser dialog, trade-study tab, undo/redo history, log panel
-tests/          294 tests; the envelope, pin-in-hole, clearance-sign and
+tests/          300 tests; the envelope, pin-in-hole, clearance-sign and
                 mesh-versus-solid tests matter most
 ```
 
@@ -341,7 +341,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-294 tests, about 145 s. Most of that is CadQuery writing solids; the pure
+300 tests, about 165 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in under a second. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own
@@ -396,15 +396,36 @@ sorting in numpy, and the rest painting. Neither view is redrawn while its tab
 is hidden; a hidden matplotlib canvas will still honour `draw_idle` with a full
 render, which is ten milliseconds a frame spent on something nobody can see.
 
-## Standalone build
+## Standalone build and installer
+
+```powershell
+.\packaging\release.ps1                        # lint, tests, bundle, installer
+.\packaging\release.ps1 -FastPack -SkipTests    # quick internal build
+```
+
+Or the two steps by hand:
 
 ```bash
 .venv\Scripts\python -m PyInstaller cycloidgen.spec --noconfirm
 dist\cycloidgen\cycloidgen.exe
+makensis packaging\cycloidgen.nsi               # needs NSIS 3.x
 ```
 
-Verified working, GUI and CLI, including STEP/STL export. Two things about that
-spec are load-bearing and easy to break:
+The installer upgrades in place — it clears the previous version first, because
+unpacking a PyInstaller bundle *over* another one leaves modules and DLLs from
+the old version that load in preference to the new ones and then fail in ways
+that look like an application bug. It waits if the application is running,
+registers properly with Add/Remove Programs, and leaves your preferences and
+last design alone when uninstalled. English and Turkish.
+
+Versions come from one line in `cycloidgen/__init__.py`: the wheel, the About
+box, the executable's file properties, the installer's filename and the release
+workflow all read that one, and `tests/test_version.py` fails if a second copy
+appears or if the changelog has no section for it. See
+[RELEASING.md](RELEASING.md).
+
+Verified working, GUI and CLI, including STEP/STL export. Two things about the
+PyInstaller spec are load-bearing and easy to break:
 
 - The entry point is `launcher.py`, not `cycloidgen/__main__.py`. PyInstaller
   runs its entry script as a top-level module, which breaks relative imports.
@@ -434,8 +455,8 @@ build.
 The most valuable contribution needs no code at all — **build one of these and
 measure it**. That is the item at the top of the roadmap.
 
-Also: [CHANGELOG.md](CHANGELOG.md) · [SECURITY.md](SECURITY.md) ·
-[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+Also: [CHANGELOG.md](CHANGELOG.md) · [RELEASING.md](RELEASING.md) ·
+[SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
 ## License
 

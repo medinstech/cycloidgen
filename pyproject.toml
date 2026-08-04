@@ -4,7 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cycloidgen"
-version = "2.2.0"
+# The version lives in cycloidgen/__init__.py and nowhere else.  The wheel
+# reads it from there, the About box shows it, the PyInstaller spec stamps it
+# into the executable and the NSIS script parses it out of the same line - so
+# there is no second copy to forget.  See RELEASING.md.
+dynamic = ["version"]
 description = "Parametric cycloidal drive generator with engineering analysis and CAD export"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
@@ -43,6 +47,9 @@ cycloidgen = "cycloidgen.__main__:main"
 
 [project.gui-scripts]
 cycloidgen-gui = "cycloidgen.ui.app:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "cycloidgen.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["cycloidgen*"]

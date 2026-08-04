@@ -1,0 +1,118 @@
+name: release
+
+# Tag-driven, and the tag is checked against the version in the source rather
+# than trusted.  A `v2.3.0` tag on a tree that still says 2.2.0 would otherwise
+# publish an installer that disagrees with its own file properties, and nothing
+# downstream would notice.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build the installer but do not publish a release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows installer
+    runs-on: windows-latest
+    # The bundle is about 1.2 GB, essentially all OCCT, and LZMA over that is
+    # most of the wall clock here.
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Check the tag against the source
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          source_version=$(python -c "import cycloidgen; print(cycloidgen.__version__)")
+          tag_version="${GITHUB_REF_NAME#v}"
+          echo "tag $tag_version, source $source_version"
+          if [ "$source_version" != "$tag_version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match cycloidgen.__version__ ($source_version)"
+            exit 1
+          fi
+          grep -q "^## $source_version\$" CHANGELOG.md \
+            || { echo "::error::CHANGELOG.md has no section for $source_version"; exit 1; }
+
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+          MPLBACKEND: Agg
+        run: |
+          python -m ruff check .
+          python -m pytest -q
+
+      - name: Build the bundle
+        run: python -m PyInstaller cycloidgen.spec --noconfirm
+
+      # Not just "did a file appear": the executable is asked what version it
+      # thinks it is, which is the one thing that catches packaging a stale
+      # dist\ from an earlier run.
+      - name: Check the bundle
+        shell: bash
+        run: |
+          ./dist/cycloidgen/cycloidgen.exe --version
+          ./dist/cycloidgen/cycloidgen.exe --ratio 21 --list-outputs > /dev/null
+
+      - name: Install NSIS
+        run: choco install nsis --no-progress -y
+
+      - name: Build the installer
+        shell: bash
+        run: |
+          mkdir -p releases
+          "/c/Program Files (x86)/NSIS/makensis.exe" packaging/cycloidgen.nsi
+          ls -lh releases/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cycloidgen-windows-installer
+          path: releases/*.exe
+          retention-days: 14
+
+      # The release notes are the changelog section for this version, so the
+      # two cannot say different things about what shipped.
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/') && !inputs.dry_run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY' > notes.md
+          import pathlib, re
+          import cycloidgen
+          text = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
+          section = re.split(rf"^## {re.escape(cycloidgen.__version__)}$",
+                             text, maxsplit=1, flags=re.MULTILINE)[1]
+          print(re.split(r"^## ", section, maxsplit=1, flags=re.MULTILINE)[0].strip())
+          PY
+          cat >> notes.md <<'EOF'
+
+          ---
+          The installer is unsigned, so Windows SmartScreen will warn on first
+          run: **More info -> Run anyway**. A signed build is on the roadmap.
+
+          The numbers this produces are preliminary sizing estimates, not a
+          certification. Validate against a physical prototype before anything
+          load-bearing depends on them.
+          EOF
+          gh release create "$GITHUB_REF_NAME" releases/*.exe \
+            --title "cycloidgen $GITHUB_REF_NAME" --notes-file notes.md

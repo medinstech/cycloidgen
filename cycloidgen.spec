@@ -41,6 +41,56 @@ if _assets.is_dir():
     datas += [(str(p), "cycloidgen/ui/assets") for p in _assets.iterdir()
               if p.suffix in {".png", ".ico"}]
 
+# Stamp the version into the executable, read from the one place it is written
+# (see RELEASING.md).  Windows shows this in the file's Properties and the
+# installer's Add/Remove entry is generated from the same string, so a stale
+# copy here would be a build that lies about itself.
+import re
+import sys
+
+_source = Path("cycloidgen/__init__.py").read_text(encoding="utf-8")
+_version = re.search(r'^__version__ = "([^"]+)"$', _source, re.MULTILINE).group(1)
+# VS_FIXEDFILEINFO wants exactly four integers; the fourth is a build number we
+# do not use, and a pre-release suffix has nowhere to go in it.
+_parts = tuple(int(n) for n in re.findall(r"\d+", _version)[:3]) + (0,)
+
+_version_file = None
+if sys.platform == "win32":
+    from PyInstaller.utils.win32.versioninfo import (
+        FixedFileInfo,
+        StringFileInfo,
+        StringStruct,
+        StringTable,
+        VarFileInfo,
+        VarStruct,
+        VSVersionInfo,
+    )
+
+    _info = VSVersionInfo(
+        ffi=FixedFileInfo(filevers=_parts, prodvers=_parts, mask=0x3F, flags=0x0,
+                          OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
+        kids=[
+            StringFileInfo([StringTable("040904B0", [
+                StringStruct("CompanyName", "Medinstech"),
+                StringStruct("FileDescription",
+                             "cycloidgen - parametric cycloidal drive generator"),
+                StringStruct("FileVersion", _version),
+                StringStruct("InternalName", "cycloidgen"),
+                StringStruct("LegalCopyright",
+                             "Copyright 2026 Medinstech. Apache-2.0."),
+                StringStruct("OriginalFilename", "cycloidgen.exe"),
+                StringStruct("ProductName", "cycloidgen"),
+                StringStruct("ProductVersion", _version),
+            ])]),
+            VarFileInfo([VarStruct("Translation", [0x0409, 1200])]),
+        ],
+    )
+    # Written out rather than passed as an object: older PyInstaller releases
+    # only accept a path here, and this costs one file in the build directory.
+    Path("build").mkdir(exist_ok=True)
+    _version_file = "build/version_info.txt"
+    Path(_version_file).write_text(str(_info), encoding="utf-8")
+
 a = Analysis(
     ["launcher.py"],
     pathex=["."],
@@ -59,6 +109,7 @@ exe = EXE(
     exclude_binaries=True,
     name="cycloidgen",
     icon=str(_icon) if _icon.exists() else None,
+    version=_version_file,
     console=True,   # keep the CLI usable and errors visible
     disable_windowed_traceback=False,
 )

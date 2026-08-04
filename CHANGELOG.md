@@ -33,6 +33,29 @@ design somebody already built.
   bore, and an animation speed control.
 - The PDF report now carries the 3D assembly beside the drawing on page one, and
   an exploded view above the build order.
+- **A Windows installer** (`packaging/cycloidgen.nsi`, NSIS): upgrades in place
+  by clearing the previous version first, waits if the application is running,
+  registers with Add/Remove Programs, and leaves preferences and the last design
+  alone when uninstalled. English and Turkish. `packaging/release.ps1` builds
+  the bundle and the installer in the right order and refuses to package a
+  bundle that reports a different version.
+- **A release workflow** on `v*` tags: checks the tag against the source, runs
+  lint and the suite, builds and verifies the bundle, builds the installer, and
+  publishes a GitHub release with this file's section as the notes. A second CI
+  job compiles the installer script against a stub on every push, which takes
+  seconds instead of the half hour the real one needs.
+- `--version` on the command line.
+
+**Versioning**
+
+The version now lives in exactly one line, `cycloidgen/__init__.py`. The wheel
+reads it (`dynamic = ["version"]`), the executable's file properties are stamped
+from it, the installer parses it, and the release workflow refuses a tag that
+disagrees with it. `tests/test_version.py` fails if a second copy appears, if
+the line stops being statically readable, or if this file has no section for the
+current version. See [RELEASING.md](RELEASING.md), which also says what makes a
+release major, minor or patch — the question being what the change does to a
+design somebody has already built.
 
 **Changed**
 

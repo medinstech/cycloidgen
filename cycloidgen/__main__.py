@@ -106,8 +106,12 @@ def _search(args) -> tuple[int, object | None]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from . import __version__
+
     parser = argparse.ArgumentParser(prog="cycloidgen",
                                      description="Cycloidal drive generator")
+    parser.add_argument("--version", action="version",
+                        version=f"cycloidgen {__version__}")
     parser.add_argument("--ratio", type=int, help="generate a preset and exit")
     parser.add_argument("--design", type=Path, help="load a saved design JSON")
     parser.add_argument("--out", type=Path, help="output folder for a headless run")
