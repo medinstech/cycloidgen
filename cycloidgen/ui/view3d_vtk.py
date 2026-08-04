@@ -117,9 +117,12 @@ class VtkAssemblyView(QWidget):
         v = _imports()
         self._vtk = v
 
+        from vtkmodules.vtkCommonDataModel import vtkPlane
+
         self._spec: GearSpec | None = None
         self._mesh: Mesh | None = None
-        self._actors: dict[str, object] = {}
+        self._actors: dict[str, dict] = {}
+        self._world_plane = vtkPlane()
         self._crank = 0.0
         self._explode = 0.0
         self._hidden: set[str] = set()
@@ -197,23 +200,60 @@ class VtkAssemblyView(QWidget):
         self._render()
 
     def _build_actors(self) -> None:
-        from ..viz.vtkbridge import part_polydata
+        from vtkmodules.vtkCommonDataModel import vtkPlane, vtkPlaneCollection
+        from vtkmodules.vtkFiltersGeneral import vtkClipClosedSurface
+
+        from ..viz.vtkbridge import feature_edges, part_polydata
 
         v, mesh = self._vtk, self._mesh
         assert mesh is not None
-        for actor in self._actors.values():
-            self._renderer.RemoveActor(actor)
+        for record in self._actors.values():
+            self._renderer.RemoveActor(record["actor"])
+            self._renderer.RemoveActor(record["edges"])
         self._actors.clear()
 
+        # How far the drawn edges stand off the surface.  Scaled to the drive
+        # so it is the same fraction of a pixel whatever the design: a couple
+        # of tenths of a millimetre on a 160 mm gearbox, which is under half a
+        # line width at any zoom anyone reads numbers at.
+        lo, hi = mesh.bounds()
+        lift = 0.0018 * float(np.linalg.norm(hi - lo))
+
         for part in mesh.parts:
+            colour = [c / 255.0 for c in part.colour]
+            polydata = part_polydata(mesh, part)
+
+            # The section is a real cut, not a hole in a shell.  A clipping
+            # plane on the mapper is per-fragment and free, and it is also
+            # wrong for this: it removes the front of the surface and leaves
+            # you looking into a hollow casting.  `vtkClipClosedSurface` caps
+            # the opening, so the cut reads as solid material - which for a
+            # tool whose job is showing where metal is, is the whole point.
+            # It costs CPU, so it only sits in the pipeline while the section
+            # slider is off zero.
+            plane = vtkPlane()
+            planes = vtkPlaneCollection()
+            planes.AddItem(plane)
+            clipper = vtkClipClosedSurface()
+            clipper.SetInputData(polydata)
+            clipper.SetClippingPlanes(planes)
+            clipper.GenerateFacesOn()
+            clipper.GenerateOutlineOff()
+            clipper.SetScalarModeToColors()
+            clipper.SetBaseColor(*colour)
+            # Cut faces a shade darker than the part.  Section drawings have
+            # marked the cut surface differently for a century, and here it is
+            # what separates "you are seeing inside" from "this part is dark".
+            clipper.SetClipColor(*[c * 0.62 for c in colour])
+
             mapper = v["vtkPolyDataMapper"]()
-            mapper.SetInputData(part_polydata(mesh, part))
+            mapper.SetInputData(polydata)
             mapper.ScalarVisibilityOff()
 
             actor = v["vtkActor"]()
             actor.SetMapper(mapper)
             prop = actor.GetProperty()
-            prop.SetColor(*[c / 255.0 for c in part.colour])
+            prop.SetColor(*colour)
             prop.SetInterpolationToPhong()
             prop.SetAmbient(0.16)
             prop.SetDiffuse(0.82)
@@ -222,9 +262,26 @@ class VtkAssemblyView(QWidget):
             # supposed to be showing.
             prop.SetSpecular(0.30)
             prop.SetSpecularPower(28)
-            actor.SetUserTransform(v["vtkTransform"]())
+            transform = v["vtkTransform"]()
+            actor.SetUserTransform(transform)
             self._renderer.AddActor(actor)
-            self._actors[part.name] = actor
+
+            edge_mapper = v["vtkPolyDataMapper"]()
+            edge_mapper.SetInputData(feature_edges(polydata, lift))
+            edge_mapper.ScalarVisibilityOff()
+            edge_actor = v["vtkActor"]()
+            edge_actor.SetMapper(edge_mapper)
+            edge_actor.SetUserTransform(transform)      # rides with the part
+            edge_actor.GetProperty().SetLighting(False)
+            edge_actor.GetProperty().SetLineWidth(1.0)
+            edge_actor.VisibilityOff()
+            self._renderer.AddActor(edge_actor)
+
+            self._actors[part.name] = {
+                "part": part, "actor": actor, "mapper": mapper,
+                "polydata": polydata, "clipper": clipper, "plane": plane,
+                "edges": edge_actor, "edge_mapper": edge_mapper,
+            }
 
         self._apply_visibility()
         self._apply_edges()
@@ -236,21 +293,30 @@ class VtkAssemblyView(QWidget):
         mesh = self._mesh
         if mesh is None:
             return
-        from ..viz.vtkbridge import pose_matrix
+        from ..viz.vtkbridge import local_plane, pose_matrix
 
         phi = np.radians(self._crank)
+        cut = self._section_plane()
         for part in mesh.parts:
-            actor = self._actors.get(part.name)
-            if actor is None:
+            record = self._actors.get(part.name)
+            if record is None:
                 continue
-            angle, dx, dy, dz = pose_matrix(mesh, part, phi, self._explode)
-            transform = actor.GetUserTransform()
+            pose = pose_matrix(mesh, part, phi, self._explode)
+            angle, dx, dy, dz = pose
+            transform = record["actor"].GetUserTransform()
             transform.Identity()
             # VTK applies these in reverse, so this rotates about the axis and
             # then carries the part out to the eccentric - not the other way
             # round, which would swing it round the housing.
             transform.Translate(dx, dy, dz)
             transform.RotateZ(angle)
+
+            if cut is not None:
+                # The cut is stated in the world and the geometry is stored
+                # unposed, so the plane travels backwards through the pose.
+                origin, normal = local_plane(pose, *cut)
+                record["plane"].SetOrigin(*origin)
+                record["plane"].SetNormal(*normal)
         self._render()
 
     def set_explode(self, fraction: float) -> None:
@@ -264,56 +330,81 @@ class VtkAssemblyView(QWidget):
         self._render()
 
     def _apply_visibility(self) -> None:
-        if self._mesh is None:
-            return
-        for part in self._mesh.parts:
-            actor = self._actors.get(part.name)
-            if actor is not None:
-                actor.SetVisibility(part.group not in self._hidden)
+        for record in self._actors.values():
+            shown = record["part"].group not in self._hidden
+            record["actor"].SetVisibility(shown)
+            record["edges"].SetVisibility(shown and self._edges)
 
     def set_edges(self, on: bool) -> None:
         self._edges = bool(on)
         self._apply_edges()
+        self._apply_visibility()
         self._render()
 
     def _apply_edges(self) -> None:
+        """Draw the part's *features*, not its triangulation.
+
+        Every cell edge is what `SetEdgeVisibility` gives you, and on this mesh
+        that means the long thin triangles the cap triangulator produced, drawn
+        across the face of every disc.  These are separate actors carrying only
+        the edges above the feature angle - rims, hole lips, the join between a
+        cylinder and its end - which is the set a drawing would have.
+        """
         line = branding.palette(self._mode).ink
         rgb = [int(line[i:i + 2], 16) / 255.0 for i in (1, 3, 5)]
-        for actor in self._actors.values():
-            prop = actor.GetProperty()
-            prop.SetEdgeVisibility(self._edges)
-            prop.SetEdgeColor(*rgb)
-            prop.SetLineWidth(1.0)
+        for record in self._actors.values():
+            record["edges"].GetProperty().SetColor(*rgb)
 
     def set_section(self, fraction: float) -> None:
-        """Cut the assembly on a plane through the axis.
-
-        A clipping plane on the mapper rather than a boolean on the geometry:
-        the GPU does it per fragment, so the slider is live at any frame rate,
-        and the design being cut is untouched.  The cut faces are open, which
-        is what a clipping plane gives you - capping them means re-cutting the
-        surface on the CPU every time the slider moves.
-        """
+        """Cut the assembly on a plane through the axis, and cap the cut."""
         self._section = float(fraction)
         self._apply_section()
+        self.set_crank(self._crank)      # the plane moves with the parts
         self._render()
 
-    def _apply_section(self) -> None:
-        v = self._vtk
-        for actor in self._actors.values():
-            actor.GetMapper().RemoveAllClippingPlanes()
+    def _section_plane(self):
+        """``(origin, normal)`` in world coordinates, or ``None`` when off."""
         if self._section <= 0.0 or self._mesh is None:
-            return
-        from vtkmodules.vtkCommonDataModel import vtkPlane
-
+            return None
         lo, hi = self._mesh.bounds(self._explode)
         span = float(hi[1] - lo[1])
-        plane = vtkPlane()
-        plane.SetOrigin(0.0, lo[1] + span * (1.0 - self._section), 0.0)
-        plane.SetNormal(0.0, -1.0, 0.0)
-        for actor in self._actors.values():
-            actor.GetMapper().AddClippingPlane(plane)
-        self._clip = (plane, v)
+        return (0.0, lo[1] + span * (1.0 - self._section), 0.0), (0.0, -1.0, 0.0)
+
+    def _apply_section(self) -> None:
+        """Swap the capping filter in and out of each part's pipeline.
+
+        It is only in circuit while the slider is off zero.  Capping is CPU
+        work that has to be redone whenever the plane moves against the part -
+        which, for anything that turns, is every frame - and paying for it when
+        nothing is being cut would be paying for nothing.
+
+        The edge actors keep a plain mapper clipping plane instead: lines have
+        nothing to cap, and cutting them on the GPU is free.
+        """
+        cut = self._section_plane()
+        cutting = cut is not None
+        if cutting:
+            self._world_plane.SetOrigin(*cut[0])
+            self._world_plane.SetNormal(*cut[1])
+        for record in self._actors.values():
+            mapper = record["mapper"]
+            if cutting:
+                mapper.SetInputConnection(record["clipper"].GetOutputPort())
+                mapper.ScalarVisibilityOn()
+            else:
+                mapper.RemoveAllInputConnections(0)
+                mapper.SetInputData(record["polydata"])
+                mapper.ScalarVisibilityOff()
+
+            # A mapper clipping plane is stated in *world* coordinates - VTK
+            # carries it through the actor's matrix itself - which is the
+            # opposite of what the capping filter needs, since that one works
+            # on the stored geometry.  Two planes, and mixing them up puts the
+            # cut somewhere else on every part that turns.
+            edge_mapper = record["edge_mapper"]
+            edge_mapper.RemoveAllClippingPlanes()
+            if cutting:
+                edge_mapper.AddClippingPlane(self._world_plane)
 
     def set_theme(self, mode: str) -> None:
         self._mode = mode

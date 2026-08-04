@@ -239,8 +239,11 @@ suggests it.
 
 - **3D** — the assembled drive on the same crank. Drag to orbit, right-drag to
   pan, wheel to zoom, standard viewpoints, an explode slider, per-group
-  visibility so you can take the housing off and watch the mesh, and a section
-  plane to cut through it.
+  visibility so you can take the housing off and watch the mesh, and a capped
+  section plane — the cut reads as solid material with the cut faces a shade
+  darker, not as a hollow casting. Turning **Edges** on draws the part's
+  features — rims, hole lips, the join between a cylinder and its end — and not
+  the triangulation underneath them.
 
   ![exploded](docs/exploded.png)
 
@@ -336,7 +339,7 @@ cycloidgen/
 ├── report/     plots (shared by UI and PDF), build
 └── ui/         PySide6 window, 3D viewer, outputs tab, declarative field table,
                 optimiser dialog, trade-study tab, undo/redo history, log panel
-tests/          334 tests; the envelope, pin-in-hole, clearance-sign and
+tests/          337 tests; the envelope, pin-in-hole, clearance-sign and
                 mesh-versus-solid tests matter most
 ```
 
@@ -352,7 +355,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-334 tests, about 155 s. Most of that is CadQuery writing solids; the pure
+337 tests, about 180 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in under a second. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

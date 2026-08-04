@@ -300,6 +300,82 @@ def test_the_vtk_faces_cover_the_same_area_as_the_loops(mesh):
             part.name
 
 
+def test_the_drawn_edges_are_features_and_not_the_triangulation(mesh):
+    """"Edges" must not mean "every triangle".
+
+    The end faces are triangulated to get their holes, so drawing every cell
+    edge covers a disc in the long thin triangles the triangulator happened to
+    produce - none of which are edges of the part.  Stated exactly: a drawn
+    edge has to be an edge of one of the mesh's own loops.  A triangulation
+    edge joins two loop vertices that are not neighbours, and is caught here.
+    """
+    from cycloidgen.viz.vtkbridge import feature_edges, part_polydata
+
+    part = next(p for p in mesh.parts if p.group == "discs")
+    edges = feature_edges(part_polydata(mesh, part))
+    assert edges.GetNumberOfCells() > 0
+
+    def key(point):
+        return tuple(np.round(point, 6))
+
+    real = set()
+    for index in range(part.facets.start, part.facets.stop):
+        for loop in mesh.loops[index]:
+            points = mesh.vertices[loop]
+            for a, b in zip(points, np.roll(points, -1, axis=0), strict=True):
+                real.add(frozenset((key(a), key(b))))
+
+    for cell in range(edges.GetNumberOfCells()):
+        points = edges.GetCell(cell).GetPoints()
+        pair = frozenset((key(points.GetPoint(0)), key(points.GetPoint(1))))
+        assert pair in real, "an edge that is not an edge of the part"
+
+
+def test_lifting_the_edges_pushes_them_outward(mesh):
+    """The lift is what stops the lines sinking into the surface they came from.
+
+    Outward along the normal, not toward the camera: a depth-buffer offset big
+    enough to show them at all also shows the ones on the far side, straight
+    through the part.
+    """
+    from cycloidgen.viz.vtkbridge import feature_edges, part_polydata
+
+    part = next(p for p in mesh.parts if p.group == "ring_pins")
+    polydata = part_polydata(mesh, part)
+    flat = np.array(feature_edges(polydata, 0.0).GetBounds())
+    lifted = np.array(feature_edges(polydata, 0.5).GetBounds())
+    # The box grows on every side: mins fall, maxima rise.
+    assert np.all(lifted[0::2] < flat[0::2] + 1e-9)
+    assert np.all(lifted[1::2] > flat[1::2] - 1e-9)
+
+
+def test_a_section_plane_survives_the_trip_into_a_part_frame(mesh):
+    """The cut is stated in the world; the geometry is stored unposed.
+
+    Cutting the stored geometry means carrying the plane backwards through the
+    pose.  Getting that inverse wrong puts the cut somewhere else on every part
+    that turns, and only on the ones that turn - which is exactly the kind of
+    bug that looks fine at crank zero.
+    """
+    from cycloidgen.viz.vtkbridge import local_plane, pose_matrix
+
+    origin, normal = (0.0, 3.0, 0.0), (0.0, -1.0, 0.0)
+    phi = 1.1
+    for part in mesh.parts:
+        pose = pose_matrix(mesh, part, phi, explode=0.3)
+        local_origin, local_normal = local_plane(pose, origin, normal)
+
+        angle, dx, dy, dz = pose
+        c, s = np.cos(np.radians(angle)), np.sin(np.radians(angle))
+        forward = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
+        # A point on the plane in the part's frame must land on the plane
+        # again once the part is placed.
+        world = forward @ local_origin + np.array([dx, dy, dz])
+        assert np.dot(np.array(normal), world - np.array(origin)) == \
+            pytest.approx(0.0, abs=1e-9), part.name
+        assert np.allclose(forward @ local_normal, normal, atol=1e-9), part.name
+
+
 def test_the_vtk_pose_is_the_same_motion_law_as_the_mesh(spec, mesh):
     """Two ways of placing a part; they have to agree exactly.
 

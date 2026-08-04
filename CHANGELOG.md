@@ -11,7 +11,7 @@ design somebody already built.
 
 - **3D view.** The assembled drive, turning under the same crank as the drawing:
   orbit, pan, zoom, standard viewpoints, an explode slider, per-group visibility
-  and a section plane. Built from the same closed-form profile the drawing uses
+  and a capped section plane. Built from the same closed-form profile the drawing uses
   rather than tessellated from the solids, so it cannot drift from what gets
   exported, and verified against the volume of that solid part by part.
 
@@ -81,6 +81,21 @@ design somebody has already built.
 
 **Fixed**
 
+- **The section shows solid material, not a hollow shell.** A clipping plane
+  removes the front of a surface and leaves you looking into the inside of a
+  casting; the cut is now capped, with the cut faces a shade darker than the
+  part, which is how a section drawing has marked them for a century.
+- **"Edges" draws the part's edges, not its triangulation.** It was drawing
+  every cell edge, and since the end faces are triangulated to get their holes,
+  a disc arrived covered in whatever long thin triangles the triangulator had
+  produced. Now only the features - rims, hole lips, the join between a cylinder
+  and its end - lifted a fraction of a millimetre along the surface normal so
+  they do not sink into the face they came from. A depth-buffer offset was the
+  obvious fix and is the wrong one here: large enough to show the lines at all
+  is large enough to show the ones on the far side, straight through the part.
+- The VTK pipeline keeps points in double precision. At 50 mm, 32-bit floats
+  resolve about 3 nm, which sounds like plenty until you remember this geometry
+  carries clearances of a few tens of micrometres.
 - **The rotation animation no longer jumps when it loops.** It was wrapping the
   crank at 360 degrees, but one input revolution does not put the drive back
   where it started - the disc and the carrier have advanced by 360/lobes. The
