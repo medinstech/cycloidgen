@@ -742,3 +742,36 @@ def test_the_unit_preference_survives_a_restart(app):
     finally:
         w2._choose_units("mm")
         w2.close()
+
+
+def test_the_preset_box_says_which_preset_this_actually_is(app):
+    """It is read as much as it is used.  A chooser still claiming 15:1 over a
+    21:1 design is not a small lie, and matching on the ratio alone would be the
+    same lie one step quieter: a 21:1 with its pin radius changed is no longer
+    the 21:1 preset."""
+    from cycloidgen.core.spec import preset
+
+    w = _window(app)
+    try:
+        # Start from a known preset: the window reopens on whatever design the
+        # last session left, which is quite properly Custom more often than not.
+        w._replace_spec(preset(15))
+        _pump(app, 0.3)
+        assert w._preset_box.currentText() == "15:1"
+
+        w._replace_spec(preset(29))
+        _pump(app, 0.3)
+        assert w._preset_box.currentText() == "29:1"
+
+        w._widgets["pin_radius"].setValue(w.spec.pin_radius + 0.5)
+        _pump(app, 0.3)
+        assert w._preset_box.currentText() == "Custom"
+
+        # and choosing Custom does nothing rather than loading a preset
+        before = w.spec.model_dump_json()
+        w._preset_box.setCurrentIndex(0)
+        w._apply_preset()
+        _pump(app, 0.2)
+        assert w.spec.model_dump_json() == before
+    finally:
+        w.close()

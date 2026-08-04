@@ -255,6 +255,7 @@ class MainWindow(QMainWindow):
         self._apply_theme_colours()
 
         self._build_ui()
+        self._sync_preset_box()
         self._load_spec_into_widgets()
         self._recompute()
 
@@ -405,9 +406,13 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout()
         row.addWidget(QLabel("PRESET"))
         self._preset_box = QComboBox()
+        # A "custom" entry, because this box is read as much as it is used.
+        # Loading a design, running the optimiser or nudging any parameter
+        # leaves a drive that is no longer the preset the box last showed, and a
+        # chooser that keeps claiming 15:1 over a 21:1 design is not a small lie.
+        self._preset_box.addItem("Custom", None)
         for r in (10, 15, 21, 29, 39, 59):
             self._preset_box.addItem(f"{r}:1", r)
-        self._preset_box.setCurrentIndex(1)
         self._preset_box.activated.connect(self._apply_preset)
         row.addWidget(self._preset_box, 1)
         layout.addLayout(row)
@@ -1141,6 +1146,7 @@ class MainWindow(QMainWindow):
             return
         self._history.push(self.spec)
         self._update_history_actions()
+        self._sync_preset_box()
         self._debounce.start()
 
     def _replace_spec(self, spec: GearSpec, *, record: bool = True) -> None:
@@ -1149,11 +1155,32 @@ class MainWindow(QMainWindow):
         if record:
             self._history.push(spec)
         self._update_history_actions()
+        self._sync_preset_box()
         self._load_spec_into_widgets()
         self._recompute()
 
     def _apply_preset(self) -> None:
-        self._replace_spec(preset(int(self._preset_box.currentData())))
+        ratio = self._preset_box.currentData()
+        if ratio is None:                             # the "custom" entry
+            return
+        self._replace_spec(preset(int(ratio)))
+
+    def _sync_preset_box(self) -> None:
+        """Point the box at the preset this design *is*, or at Custom.
+
+        Matched on the whole preset rather than on the ratio alone: a 21:1 that
+        has had its pin radius changed is not the 21:1 preset any more, and
+        saying it is would be the same lie one step quieter.
+        """
+        index = 0
+        for i in range(1, self._preset_box.count()):
+            ratio = self._preset_box.itemData(i)
+            if ratio == self.spec.lobes and preset(ratio) == self.spec:
+                index = i
+                break
+        blocked = self._preset_box.blockSignals(True)
+        self._preset_box.setCurrentIndex(index)
+        self._preset_box.blockSignals(blocked)
 
     def _apply_process_defaults(self) -> None:
         self.spec.apply_process_defaults()
