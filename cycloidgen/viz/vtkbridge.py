@@ -34,8 +34,8 @@ from .mesh import Mesh, Part
 #: what lets a test compare a VTK point against the mesh vertex it came from.
 _DOUBLE = vtkAlgorithm.DOUBLE_PRECISION
 
-__all__ = ["FEATURE_ANGLE", "feature_edges", "local_plane", "part_polydata",
-           "pose_matrix"]
+__all__ = ["FEATURE_ANGLE", "feature_edges", "local_plane", "local_point",
+           "part_polydata", "pose_matrix", "toward_eye"]
 
 #: Edges sharper than this stay sharp; everything flatter is smoothed across.
 #: A cylinder sampled at 24 sides has 15-degree creases and should read as
@@ -132,7 +132,7 @@ def part_polydata(mesh: Mesh, part: Part) -> vtkPolyData:
     return normals.GetOutput()
 
 
-def feature_edges(polydata, lift: float = 0.0):
+def feature_edges(polydata):
     """The edges worth drawing: silhouettes and creases, not the triangulation.
 
     Turning on "edges" in a renderer normally means *every* edge of every cell,
@@ -146,17 +146,9 @@ def feature_edges(polydata, lift: float = 0.0):
     of it.  ``vtkFeatureEdges`` above :data:`FEATURE_ANGLE` is exactly that
     set, and it is computed once per design because the part does not deform.
 
-    ``lift`` moves the result a little way along the surface normal.  Lines
-    that sit exactly on the surface they came from disappear into it, and the
-    usual cure - a depth-buffer offset - does not reliably bite here: the
-    offset needed to make them show at all is large enough that they start
-    showing *through* the part, which is worse than not seeing them.  Lifting
-    along the outward normal is view-independent: an edge on the near side
-    comes forward, an edge on the far side moves further away and stays
-    correctly hidden.
+    Drawing the result is a separate problem - see :func:`toward_eye`.
     """
     from vtkmodules.vtkFiltersCore import vtkFeatureEdges
-    from vtkmodules.vtkFiltersGeneral import vtkWarpVector
 
     edges = vtkFeatureEdges()
     edges.SetInputData(polydata)
@@ -167,17 +159,47 @@ def feature_edges(polydata, lift: float = 0.0):
     edges.ManifoldEdgesOff()
     edges.ColoringOff()
     edges.Update()
+    return edges.GetOutput()
 
-    out = edges.GetOutput()
-    normals = out.GetPointData().GetNormals()
-    if lift <= 0.0 or normals is None:
-        return out
-    out.GetPointData().SetActiveVectors(normals.GetName())
-    warp = vtkWarpVector()
-    warp.SetInputData(out)
-    warp.SetScaleFactor(lift)
-    warp.Update()
-    return warp.GetOutput()
+
+#: How far the drawn edges are moved toward the viewer, as a fraction of their
+#: own distance from it.  A thousandth is far more than enough to settle the
+#: depth test and far less than the thinnest wall the mesh contains, which is
+#: what keeps a far-side edge from surfacing through a near one.
+EDGE_SHIFT = 0.001
+
+
+def toward_eye(points: np.ndarray, eye, fraction: float = EDGE_SHIFT) -> np.ndarray:
+    """Slide points along their own view rays, toward ``eye``.
+
+    An edge lies exactly on the surface it came from, so the depth test cannot
+    separate them and the lines vanish into the shading.  The obvious cures are
+    both wrong here, and were both tried:
+
+    * A **depth-buffer offset** is fixed in depth units while zooming magnifies
+      only the screen, so a value that makes the lines visible from across the
+      drive shows every hidden edge through the part once you lean in.
+    * **Lifting along the surface normal** moves a line on a vertical wall
+      *sideways*, and the rim of a disc ends up drawn beside the disc rather
+      than on it - a halo, plainly visible at any real zoom.
+
+    Moving a point toward the eye has neither problem, because a point slid
+    along the ray it is already on **projects to exactly the same pixel**.  The
+    picture does not move; only the depth does.  And because the shift is a
+    fraction of the distance, it scales itself: closer in, the camera is nearer
+    and the shift is smaller in the same proportion.
+    """
+    eye = np.asarray(eye, float)
+    return points + fraction * (eye - points)
+
+
+def local_point(pose, point) -> np.ndarray:
+    """Carry a world-space point into a part's own frame."""
+    angle, dx, dy, dz = pose
+    a = np.radians(angle)
+    c, s = np.cos(a), np.sin(a)
+    inverse = np.array([[c, s, 0.0], [-s, c, 0.0], [0.0, 0.0, 1.0]])
+    return inverse @ (np.asarray(point, float) - np.array([dx, dy, dz]))
 
 
 def local_plane(pose, origin, normal):
@@ -187,14 +209,13 @@ def local_plane(pose, origin, normal):
     is what keeps a frame cheap.  A section plane, though, is stated in the
     world - so to cut the *stored* geometry the plane has to be brought back
     through the same transform rather than the geometry pushed forward through
-    it.
+    it.  The normal rotates but does not translate.
     """
-    angle, dx, dy, dz = pose
+    angle = pose[0]
     a = np.radians(angle)
     c, s = np.cos(a), np.sin(a)
     inverse = np.array([[c, s, 0.0], [-s, c, 0.0], [0.0, 0.0, 1.0]])
-    shifted = np.asarray(origin, float) - np.array([dx, dy, dz])
-    return inverse @ shifted, inverse @ np.asarray(normal, float)
+    return local_point(pose, origin), inverse @ np.asarray(normal, float)
 
 
 def pose_matrix(mesh: Mesh, part: Part, phi: float, explode: float = 0.0):

@@ -331,22 +331,46 @@ def test_the_drawn_edges_are_features_and_not_the_triangulation(mesh):
         assert pair in real, "an edge that is not an edge of the part"
 
 
-def test_lifting_the_edges_pushes_them_outward(mesh):
-    """The lift is what stops the lines sinking into the surface they came from.
+def test_shifting_an_edge_toward_the_eye_leaves_its_picture_alone(mesh):
+    """The property the whole edge-drawing approach rests on.
 
-    Outward along the normal, not toward the camera: a depth-buffer offset big
-    enough to show them at all also shows the ones on the far side, straight
-    through the part.
+    An edge lies exactly on the surface it came from, so it has to be moved to
+    win the depth test - and any move that changes where it *projects* draws
+    the line beside the edge instead of on it, which is what a lift along the
+    surface normal does to a vertical wall.  Sliding along the view ray cannot:
+    the point stays on the ray, so it stays on its pixel.
     """
-    from cycloidgen.viz.vtkbridge import feature_edges, part_polydata
+    from vtkmodules.util.numpy_support import vtk_to_numpy
+
+    from cycloidgen.viz.vtkbridge import feature_edges, part_polydata, toward_eye
 
     part = next(p for p in mesh.parts if p.group == "ring_pins")
-    polydata = part_polydata(mesh, part)
-    flat = np.array(feature_edges(polydata, 0.0).GetBounds())
-    lifted = np.array(feature_edges(polydata, 0.5).GetBounds())
-    # The box grows on every side: mins fall, maxima rise.
-    assert np.all(lifted[0::2] < flat[0::2] + 1e-9)
-    assert np.all(lifted[1::2] > flat[1::2] - 1e-9)
+    edges = feature_edges(part_polydata(mesh, part))
+    points = vtk_to_numpy(edges.GetPoints().GetData())
+    eye = np.array([180.0, -240.0, 160.0])
+
+    shifted = toward_eye(points, eye, 0.02)
+    to_eye = eye - points
+    # Collinear with the ray to the eye: same direction, so same pixel.
+    assert np.allclose(np.cross(to_eye, shifted - points), 0.0, atol=1e-9)
+    # ...and nearer the eye than it was, which is the point of the exercise.
+    assert np.all(np.linalg.norm(eye - shifted, axis=1)
+                  < np.linalg.norm(to_eye, axis=1))
+
+
+def test_a_point_round_trips_through_a_part_frame(mesh):
+    """`local_point` is the inverse of the pose the actor is given."""
+    from cycloidgen.viz.vtkbridge import local_point, pose_matrix
+
+    world = np.array([37.0, -12.0, 5.5])
+    for part in mesh.parts:
+        pose = pose_matrix(mesh, part, 0.8, explode=0.25)
+        angle, dx, dy, dz = pose
+        c, s = np.cos(np.radians(angle)), np.sin(np.radians(angle))
+        forward = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
+        back = local_point(pose, world)
+        assert np.allclose(forward @ back + [dx, dy, dz], world, atol=1e-9), \
+            part.name
 
 
 def test_a_section_plane_survives_the_trip_into_a_part_frame(mesh):

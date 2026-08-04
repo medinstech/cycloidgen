@@ -88,11 +88,20 @@ design somebody has already built.
 - **"Edges" draws the part's edges, not its triangulation.** It was drawing
   every cell edge, and since the end faces are triangulated to get their holes,
   a disc arrived covered in whatever long thin triangles the triangulator had
-  produced. Now only the features - rims, hole lips, the join between a cylinder
-  and its end - lifted a fraction of a millimetre along the surface normal so
-  they do not sink into the face they came from. A depth-buffer offset was the
-  obvious fix and is the wrong one here: large enough to show the lines at all
-  is large enough to show the ones on the far side, straight through the part.
+  produced. Now only the features: rims, hole lips, the join between a cylinder
+  and its end.
+
+  Getting those to *land on the edges* took three attempts, and the two that
+  failed are worth writing down. A **depth-buffer offset** is fixed in depth
+  units while zooming magnifies only the screen, so a value that shows the
+  lines from across the drive shows every hidden edge through the part once you
+  lean in. **Lifting along the surface normal** moves a line on a vertical wall
+  sideways, and the rim of a disc ends up drawn beside the disc - a halo,
+  plainly visible at any real zoom. What works is sliding each line vertex
+  along its own view ray toward the camera, by a thousandth of its distance: a
+  point moved along the ray it is already on projects to exactly the same
+  pixel, so the picture does not move and only the depth does, and because the
+  shift is a fraction of the distance it scales itself as you zoom.
 - The VTK pipeline keeps points in double precision. At 50 mm, 32-bit floats
   resolve about 3 nm, which sounds like plenty until you remember this geometry
   carries clearances of a few tens of micrometres.

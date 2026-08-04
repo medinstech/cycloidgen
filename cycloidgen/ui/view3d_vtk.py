@@ -21,6 +21,7 @@ import traceback
 
 import numpy as np
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
+from vtkmodules.util.numpy_support import numpy_to_vtk, vtk_to_numpy
 
 from ..core.spec import GearSpec
 from ..viz.mesh import Mesh, mesh_for_spec
@@ -169,6 +170,13 @@ class VtkAssemblyView(QWidget):
         self._marker.EnabledOn()
         self._marker.InteractiveOff()
 
+        # The edge shift depends on where the camera is, so it cannot be baked
+        # in when the geometry is built: orbiting and zooming both change it.
+        # Recomputing it immediately before each frame is the only place that
+        # catches every way the view can move, including the interactor's own
+        # drag handling, which never comes back through our code.
+        window.AddObserver("StartEvent", self._before_render)
+
         self._clip = None
         self._apply_background()
         # VTK starts looking straight down the Z axis, which on a gearbox is the
@@ -211,13 +219,6 @@ class VtkAssemblyView(QWidget):
             self._renderer.RemoveActor(record["actor"])
             self._renderer.RemoveActor(record["edges"])
         self._actors.clear()
-
-        # How far the drawn edges stand off the surface.  Scaled to the drive
-        # so it is the same fraction of a pixel whatever the design: a couple
-        # of tenths of a millimetre on a 160 mm gearbox, which is under half a
-        # line width at any zoom anyone reads numbers at.
-        lo, hi = mesh.bounds()
-        lift = 0.0018 * float(np.linalg.norm(hi - lo))
 
         for part in mesh.parts:
             colour = [c / 255.0 for c in part.colour]
@@ -266,8 +267,9 @@ class VtkAssemblyView(QWidget):
             actor.SetUserTransform(transform)
             self._renderer.AddActor(actor)
 
+            edge_polydata = feature_edges(polydata)
             edge_mapper = v["vtkPolyDataMapper"]()
-            edge_mapper.SetInputData(feature_edges(polydata, lift))
+            edge_mapper.SetInputData(edge_polydata)
             edge_mapper.ScalarVisibilityOff()
             edge_actor = v["vtkActor"]()
             edge_actor.SetMapper(edge_mapper)
@@ -281,6 +283,13 @@ class VtkAssemblyView(QWidget):
                 "part": part, "actor": actor, "mapper": mapper,
                 "polydata": polydata, "clipper": clipper, "plane": plane,
                 "edges": edge_actor, "edge_mapper": edge_mapper,
+                "edge_polydata": edge_polydata,
+                # The pristine line vertices.  Every frame writes a shifted
+                # copy back; keeping the original means the shift is applied
+                # to the geometry and never to a previous shift.
+                "edge_points": vtk_to_numpy(
+                    edge_polydata.GetPoints().GetData()).copy(),
+                "pose": (0.0, 0.0, 0.0, 0.0),
             }
 
         self._apply_visibility()
@@ -302,6 +311,7 @@ class VtkAssemblyView(QWidget):
             if record is None:
                 continue
             pose = pose_matrix(mesh, part, phi, self._explode)
+            record["pose"] = pose
             angle, dx, dy, dz = pose
             transform = record["actor"].GetUserTransform()
             transform.Identity()
@@ -476,6 +486,28 @@ class VtkAssemblyView(QWidget):
     def set_camera_angles(self, azimuth: float, elevation: float) -> None:
         self._place_camera(azimuth, elevation)
         self._render()
+
+    def _before_render(self, *_args) -> None:
+        """Put the drawn edges back on their own view rays.
+
+        Only when they are being drawn, and only a few thousand points, so it
+        is well under a millisecond - and it is what makes the lines land on
+        the edges from every direction and at every zoom rather than beside
+        them.
+        """
+        if not self._edges or not self._actors:
+            return
+        from ..viz.vtkbridge import local_point, toward_eye
+
+        eye = np.array(self._renderer.GetActiveCamera().GetPosition())
+        for record in self._actors.values():
+            if not record["edges"].GetVisibility():
+                continue
+            local_eye = local_point(record["pose"], eye)
+            shifted = toward_eye(record["edge_points"], local_eye)
+            points = record["edge_polydata"].GetPoints()
+            points.SetData(numpy_to_vtk(np.ascontiguousarray(shifted), deep=1))
+            points.Modified()
 
     def _render(self) -> None:
         if self.isVisible():
