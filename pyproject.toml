@@ -30,6 +30,10 @@ dependencies = [
     "pydantic>=2.6",
     "ezdxf>=1.1",
     "matplotlib>=3.8",
+    # Arrives behind matplotlib anyway, but the animation export imports it
+    # directly and needs the palette enums, so it is declared rather than
+    # borrowed.
+    "pillow>=9.1",
     "reportlab>=4.0",
     "PySide6>=6.6",
     "cadquery>=2.4",

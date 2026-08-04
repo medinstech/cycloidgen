@@ -33,7 +33,9 @@ def _write(out: Output, spec: GearSpec, directory: Path, analysis) -> list[Path]
     """Produce one manifest entry.
 
     ``report.build`` is imported here rather than at the top because it imports
-    ``export.bom``; at module level the two would close a cycle.
+    ``export.bom``; at module level the two would close a cycle.  ``animation``
+    is deferred for a different reason: it pulls matplotlib in, and listing a
+    bundle has to stay cheap enough to do before deciding to write one.
     """
     target = directory / out.where.rstrip("/")
     if out.key == "assembly_dxf":
@@ -50,6 +52,9 @@ def _write(out: Output, spec: GearSpec, directory: Path, analysis) -> list[Path]
         return solid.write_stls(spec, target)
     if out.key == "bom":
         return [bom.write_bom_csv(analysis, target)]
+    if out.key == "gif":
+        from . import animation
+        return [animation.write_gif(spec, target)]
 
     from ..report import build
     if out.key == "json":

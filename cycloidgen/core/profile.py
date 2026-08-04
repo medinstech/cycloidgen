@@ -168,6 +168,15 @@ def sample_count_for_chord_tolerance(R: float, Rr: float, E: float, lobes: int,
     Sampling is uniform in the parameter, not in arc length, so the binding point
     is where ``speed^2 * curvature`` peaks - not simply where the curve is
     tightest.  Solving ``(speed*dt)^2 * kappa / 8 <= tol`` for dt gives the count.
+
+    Then rounded *up* onto a whole number of samples per lobe, which can only
+    reduce the chord error and buys a property worth more than the handful of
+    points it costs: the sampled polygon then has the disc's own symmetry.
+    ``q(t + 2*pi/lobes) = rot(-2*pi/lobes) . q(t)`` holds for the curve, and with
+    a count that divides by the lobe count it holds for the *vertices* too - so
+    turning the drawn disc by one lobe pitch gives back the same polygon rather
+    than one sampled a fraction of a step along.  ``hi`` is a ceiling on the
+    expensive part and is allowed to be passed by less than one lobe.
     """
     t = np.linspace(0.0, 2.0 * np.pi, 8192, endpoint=False)
     h = 1e-6
@@ -177,9 +186,10 @@ def sample_count_for_chord_tolerance(R: float, Rr: float, E: float, lobes: int,
     kappa = np.abs(profile_curvature(t, R, Rr, E, lobes))
     worst = float((speed ** 2 * kappa).max())
     if worst <= 0.0:
-        return lo
+        return lo + (-lo) % lobes
     dt = np.sqrt(8.0 * tol / worst)
-    return int(np.clip(np.ceil(2.0 * np.pi / dt), lo, hi))
+    count = int(np.clip(np.ceil(2.0 * np.pi / dt), lo, hi))
+    return count + (-count) % lobes
 
 
 def distance_to_polyline(points: np.ndarray, poly: np.ndarray) -> np.ndarray:

@@ -8,8 +8,11 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 datas, binaries, hiddenimports = [], [], []
 # casadi backs cadquery's assembly solver and ships loose DLLs beside its .pyd,
 # which PyInstaller's dependency walker does not follow on its own.
+# PIL comes in behind matplotlib, but the animation export reaches the GIF
+# writer by name at run time; collect_all is what guarantees the image plugins
+# travel with it rather than only the ones matplotlib happens to touch.
 for package in ("cadquery", "OCP", "casadi", "vtkmodules", "ezdxf", "matplotlib",
-                "reportlab", "pydantic"):
+                "reportlab", "pydantic", "PIL"):
     try:
         d, b, h = collect_all(package)
         datas += d

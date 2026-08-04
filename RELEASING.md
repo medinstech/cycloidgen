@@ -6,7 +6,7 @@ In exactly one place:
 
 ```python
 # cycloidgen/__init__.py
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 ```
 
 Everything else reads it from there and nothing copies it:

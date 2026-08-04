@@ -69,7 +69,7 @@ list is not.
 
 ## What it produces
 
-Three groups, chosen together or separately — in the app's **Outputs** tab, on
+Four groups, chosen together or separately — in the app's **Outputs** tab, on
 the command line with `--only`, or with the two quick export buttons.
 
 | File | Group | Contents |
@@ -83,6 +83,7 @@ the command line with `--only`, or with the two quick export buttons.
 | `bom.csv` | data | Every part: quantity, material, size, mass, make or buy, and the bearing designations the sizing study picked |
 | `report.json` | data | Every parameter, derived value, load, stiffness, temperature, mass and finding as plain data |
 | `report.pdf` | data | Drawing and 3D view, geometry, checks, contact stress, stiffness and backlash, PV and temperature, mass, bill of materials, bearings, and an exploded build order |
+| `motion.gif` | animation | The drive turning, looping, with contacts and contact forces — for a document, a chat or an issue. See below for why it loops without a jump |
 
 The **Outputs** tab lists all of that for the current design *before* anything is
 written — every file by name, what it is for, and where it will land — then
@@ -98,6 +99,28 @@ That list is not a second copy of the truth. `cycloidgen/export/manifest.py`
 declares every deliverable once; `write_bundle`, the Outputs tab and
 `--list-outputs` all read it, and a test compares the declaration against the
 files that actually appear on disk — including this table.
+
+**Why the animation loops without a jump.** A GIF restarts whether or not the
+mechanism is back where it started, and one that is not reads as a fault in the
+drive rather than in the file. Different parts close at different times. The
+disc, the ring contacts and the force arrows close after a *single* input turn —
+one turn walks the disc on by exactly one lobe pitch, and a profile with `N`
+lobes is unchanged by that rotation. The output carrier does not: it advances
+`360/N` per input turn and repeats every `360/output_pin_count`, so it needs
+`N / gcd(N, output_pin_count)` turns — five for the 15:1 preset, seven for the
+21:1, fifty-nine for the 59:1. When the exact period does not fit the frame
+budget the answer is *not* as many turns as will fit: any whole turn leaves the
+disc closed, so the run to choose is the one whose carrier lands closest to a
+hole pitch, and at 29:1 that is five turns (2.1° out) rather than ten (4.1°).
+
+Making that true of the pixels rather than only of the arithmetic took two
+fixes, both of which are improvements in their own right. The chord-tolerance
+sample count is now rounded up onto a whole number of samples per lobe, so the
+sampled polygon has the disc's own symmetry instead of sampling each lobe from a
+slightly different place. And the disc outline is drawn as a closed path rather
+than a polyline with its first point repeated, so its seam is a join like any
+other — a seam travels round the rim as the disc turns, and it was changing a
+handful of pixels every frame at a place where nothing was happening.
 
 ## The geometry
 
@@ -231,11 +254,16 @@ suggests it.
   than something you are told. A pinned reference design shows underneath as a
   ghost outline.
 
+  ![the drive turning](docs/motion.gif)
+
   Everything drawn comes off `core.kinematics`, the module that was verified
   against a full-revolution meshing simulation — the picture cannot tell a
   different story from the datasheet. Force arrows are scaled against the worst
   force over a whole lobe pitch rather than against the current frame, so an
   arrow that grows means the load grew and not that the scale moved under it.
+
+  That animation is a file the app writes, not a screen recording: seven input
+  turns of the 21:1 preset, which is exactly its period.
 
 - **3D** — the assembled drive on the same crank. Drag to orbit, right-drag to
   pan, wheel to zoom, standard viewpoints, an explode slider, per-group
@@ -269,6 +297,12 @@ suggests it.
 - **Outputs** — every file an export writes, by name, with what it is for and
   where it will land, *before* anything is written. Sizes fill in afterwards and
   a double-click opens any of them.
+- **File ▸ Export animation** (`Ctrl+Shift+E`) writes whichever view you are
+  looking at as a looping GIF — the drawing with the overlays you have ticked,
+  or the assembly from the angle, explode and part visibility you have set. It
+  renders off the GUI thread with a real progress bar and a Cancel that leaves
+  no half-written file, and it uses the appearance you are in rather than the
+  print surface the bundled `motion.gif` gets.
 - **Loads**, **Efficiency**, and a **Datasheet** tab with everything above.
 - **Trade study** — sweep any one parameter and watch torque capacity,
   efficiency, lost motion and mass move together, on their own real units, with
@@ -335,12 +369,13 @@ cycloidgen/
 ├── design/     optimise (requirements -> geometry), sweep (trade studies)
 ├── viz/        3D geometry and rendering maths, no Qt: mesh, scene (the
 │               software projection), vtkbridge (mesh -> VTK polydata)
-├── export/     manifest (what a bundle contains), dxf, svg, solid (OCCT), bom
+├── export/     manifest (what a bundle contains), dxf, svg, solid (OCCT),
+│               bom, animation (the looping GIF)
 ├── report/     plots (shared by UI and PDF), build
 └── ui/         PySide6 window, 3D viewer, outputs tab, declarative field table,
                 optimiser dialog, trade-study tab, undo/redo history, log panel
-tests/          338 tests; the envelope, pin-in-hole, clearance-sign and
-                mesh-versus-solid tests matter most
+tests/          364 tests; the envelope, pin-in-hole, clearance-sign,
+                mesh-versus-solid and animation-closes tests matter most
 ```
 
 Two boundaries in there are load-bearing. **`core` and `viz` do not import Qt**,
@@ -355,7 +390,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-338 tests, about 155 s. Most of that is CadQuery writing solids; the pure
+364 tests, about 160 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in under a second. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

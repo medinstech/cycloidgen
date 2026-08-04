@@ -54,10 +54,15 @@ def test_the_bundle_is_exactly_what_the_manifest_promised(spec, tmp_path_factory
 
 
 def test_drawings_and_data_alone_leave_the_kernel_out(spec, tmp_path):
-    """The path that has to work on a machine with no OCCT."""
+    """The path that has to work on a machine with no OCCT.
+
+    ``include_solids=False`` means everything *except* the solids, not the two
+    groups that existed when it was written: the animation comes off the same
+    closed-form profile the drawing does and needs no kernel either.
+    """
     written = write_bundle(spec, tmp_path, include_solids=False)
     planned = sorted(name for _, name in
-                     manifest.planned_files(spec, {"drawings", "data"}))
+                     manifest.planned_files(spec, {"drawings", "data", "animation"}))
     assert _relative(written, tmp_path) == planned
     assert not any("step" in name or "stl" in name for name in planned)
 
@@ -117,7 +122,7 @@ def test_identical_discs_collapse_to_one_name_everywhere():
 
 def test_resolve_groups_understands_both_ways_of_asking():
     assert manifest.resolve_groups(True) == set(manifest.group_keys())
-    assert manifest.resolve_groups(False) == {"drawings", "data"}
+    assert manifest.resolve_groups(False) == set(manifest.group_keys()) - {"solids"}
     assert manifest.resolve_groups(False, ["solids"]) == {"solids"}
     with pytest.raises(ValueError, match="unknown output group"):
         manifest.resolve_groups(True, ["drawings", "pictures"])

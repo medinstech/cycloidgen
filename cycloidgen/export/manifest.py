@@ -53,6 +53,9 @@ GROUPS: tuple[Group, ...] = (
     Group("data", "Data and report",
           "The numbers: bill of materials, machine-readable report, and the "
           "printable dossier."),
+    Group("animation", "Animation",
+          "The drive turning, as a looping GIF for a document or an issue. "
+          "Rendered a frame at a time, so it costs a few seconds."),
 )
 
 
@@ -151,6 +154,12 @@ MANIFEST: tuple[Output, ...] = (
            "Drawing, 3D view, geometry, checks, contact stress, stiffness and "
            "backlash, PV and temperature, mass, bill of materials, bearings, "
            "and a build order."),
+    Output("gif", "motion.gif", "animation", "GIF",
+           "The drive turning",
+           "A looping animation of the drawing, contacts and contact forces "
+           "included, off the same kinematics as the checks. The run is chosen "
+           "so that the mechanism is back where it started when the loop "
+           "restarts."),
 )
 
 

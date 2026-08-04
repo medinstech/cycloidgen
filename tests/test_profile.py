@@ -150,6 +150,27 @@ def test_chord_tolerance_is_actually_met():
     assert err.max() < spec.dxf_chord_tolerance * 1.5
 
 
+@pytest.mark.parametrize("R,Rr,E,N", CASES)
+def test_the_sampled_polygon_has_the_disc_s_own_symmetry(R, Rr, E, N):
+    """Turning the sampled disc by one lobe pitch gives back the same vertices.
+
+    True of the curve - ``q(t + 2*pi/N) = rot(-2*pi/N) . q(t)`` - and true of the
+    sampling only if the sample count divides by the lobe count, which is why
+    the chord-tolerance count is rounded up onto one.  Without it each lobe is
+    sampled from a slightly different place, and a disc that turns by exactly
+    one pitch comes back a fraction of a step out: which is what stops an
+    exported animation from closing on itself.
+    """
+    n = prof.sample_count_for_chord_tolerance(R, Rr, E, N, 0.005)
+    assert n % N == 0
+
+    pts = prof.sampled_profile(R, Rr, E, N, n).points
+    a = 2.0 * np.pi / N
+    c, s = np.cos(a), np.sin(a)
+    turned = pts @ np.array([[c, -s], [s, c]])        # rotate by -a
+    assert np.abs(turned - np.roll(pts, -n // N, axis=0)).max() < 1e-9
+
+
 def test_spec_derived_values():
     s = GearSpec(lobes=11, pin_circle_radius=50, pin_radius=4, eccentricity=1.5,
                  output_pin_diameter=6, hole_clearance=0.0)

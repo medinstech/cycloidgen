@@ -327,6 +327,85 @@ def test_an_out_of_range_split_is_ignored(app):
         _settings().remove("splitter_fraction")
 
 
+# ------------------------------------------------------------------ animation
+
+
+def test_the_animation_follows_whichever_view_is_on_screen(app):
+    """Exporting a view the user is not looking at only makes them do it twice."""
+    w = _window(app)
+    try:
+        w.tabs.setCurrentIndex(w._drawing_tab)
+        w._overlay_boxes["trace"].setChecked(True)
+        plan, options = w._animation_request()
+        assert plan.view == "drawing"
+        assert options["overlays"].trace
+        assert options["theme"] == w.mode          # what you are looking at
+
+        w.tabs.setCurrentIndex(w._solid_tab)
+        w._view3d.view.set_camera_angles(77.0, 12.0)
+        w._view3d._explode.setValue(30)
+        w._view3d._groups["housing"].setChecked(False)
+        plan, options = w._animation_request()
+        assert plan.view == "assembly"
+        assert options["azimuth"] == pytest.approx(77.0)
+        assert options["elevation"] == pytest.approx(12.0)
+        assert options["explode"] == pytest.approx(0.30)
+        assert options["hidden"] == {"housing"}
+    finally:
+        w._overlay_boxes["trace"].setChecked(False)
+        w._view3d._groups["housing"].setChecked(True)
+        w._view3d._explode.setValue(0)
+        w.close()
+
+
+def _run_worker(w, target, plan, cancel_at=None):
+    """Drive the worker on this thread; ``run`` needs no event loop."""
+    from cycloidgen.ui.main_window import AnimationWorker
+
+    worker = AnimationWorker(w.spec.model_copy(deep=True), target, plan,
+                             {"theme": "print"})
+    seen, done, failed = [], [], []
+    worker.progressed.connect(lambda i, n: seen.append(i))
+    worker.done.connect(done.append)
+    worker.failed.connect(failed.append)
+    if cancel_at is not None:
+        worker.progressed.connect(
+            lambda i, _n: worker.cancel() if i == cancel_at else None)
+    worker.run()
+    return seen, done, failed
+
+
+def test_the_animation_worker_reports_every_frame_and_the_file(app, tmp_path):
+    from cycloidgen.export import animation
+
+    w = _window(app)
+    try:
+        target = tmp_path / "motion.gif"
+        plan = animation.plan(w.spec, pixels=120, frames=6)
+        seen, done, failed = _run_worker(w, target, plan)
+        assert seen == [1, 2, 3, 4, 5, 6]
+        assert done == [str(target)] and not failed
+        assert target.stat().st_size > 0
+    finally:
+        w.close()
+
+
+def test_a_cancelled_animation_leaves_no_half_written_file(app, tmp_path):
+    """Cancel has to mean nothing on disk, not a GIF that stops half way."""
+    from cycloidgen.export import animation
+
+    w = _window(app)
+    try:
+        target = tmp_path / "cancelled.gif"
+        plan = animation.plan(w.spec, pixels=120, frames=40)
+        seen, done, failed = _run_worker(w, target, plan, cancel_at=3)
+        assert len(seen) < 40 and not done
+        assert failed == [""]                      # cancelled, not broken
+        assert not target.exists()
+    finally:
+        w.close()
+
+
 # --------------------------------------------------------------------- filter
 
 

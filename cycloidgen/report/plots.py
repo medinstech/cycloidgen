@@ -14,7 +14,7 @@ from dataclasses import dataclass
 import numpy as np
 from matplotlib.collections import LineCollection
 from matplotlib.figure import Figure
-from matplotlib.patches import Circle
+from matplotlib.patches import Circle, Polygon
 
 from ..core import profile as prof
 from ..core.kinematics import contacts, sweep, to_world
@@ -33,6 +33,7 @@ __all__ = [
     "style_axes",
     "sweep_figure",
     "theme",
+    "using_theme",
 ]
 
 #: The three series are the same in every mode and are **not** re-tuned to the
@@ -83,6 +84,32 @@ def theme() -> dict:
 
 
 @contextmanager
+def using_theme(mode: str):
+    """Draw on ``mode``'s surface for the duration, then put it back.
+
+    The theme is module state because a figure bakes its colours in at draw
+    time and every figure in one window has to agree.  Anything that wants a
+    *different* surface for one job - the PDF, an exported animation - borrows
+    it rather than setting it, so a failure part way through cannot leave the
+    application painting on the wrong paper.
+
+    It puts back what it found only if that is still what it left.  A borrowed
+    theme can outlive a real one: the animation renders on a worker thread, and
+    a user who switches appearance while it runs has made a decision that
+    restoring the old value would silently undo.
+    """
+    global _mode
+    if mode not in _THEMES:
+        raise ValueError(f"unknown theme {mode!r}")
+    previous, _mode = _mode, mode
+    try:
+        yield
+    finally:
+        if _mode == mode:
+            _mode = previous
+
+
+@contextmanager
 def print_theme():
     """Force the print surface, then restore whatever the UI was using.
 
@@ -91,12 +118,8 @@ def print_theme():
     document and gets white, because a tint on every figure is ink someone pays
     for and gains nothing on paper.
     """
-    global _mode
-    previous, _mode = _mode, "print"
-    try:
+    with using_theme("print"):
         yield
-    finally:
-        _mode = previous
 
 
 #: Kept for callers written against the old name.
@@ -118,6 +141,17 @@ def style_axes(ax, *, grid: bool = True) -> None:
     for axis in (ax.xaxis, ax.yaxis):
         axis.label.set_color(t["ink2"])
         axis.label.set_fontsize(9)
+
+
+#: Below this share of the worst force in the sweep, a contact is not drawn.
+#: Two pins are at the load reversal at any moment and their moment arms pass
+#: through zero there, which comes out of the arithmetic as +-1e-13 depending on
+#: how the crank angle was reached - so ``force > 0`` makes a dot appear for a
+#: force of a ten-thousandth of a micronewton, and makes the count of pins
+#: carrying flicker by one as the crank goes past.  It is also what stopped the
+#: exported animation from closing: the same pose, reached from crank 0 and from
+#: crank 1800, rounded opposite ways.
+_CONTACT_FLOOR = 1e-9
 
 
 def _circle(x, y, r, color, lw, dashed: bool = False, alpha: float = 1.0) -> Circle:
@@ -221,8 +255,17 @@ class ProfileView:
         hole_r = spec.output_hole_diameter / 2.0
         for i in range(spec.disc_count):
             alpha = 1.0 if i == 0 else 0.45
-            (line,) = ax.plot([], [], color=series[0], linewidth=2.0,
-                              alpha=alpha, zorder=3)
+            # A closed path, not a polyline with its first point repeated.
+            # Both draw the same outline, but a polyline has two *ends* there:
+            # they land on the same vertex and each lays down its own
+            # antialiased cap, which blends to something an interior join does
+            # not.  The seam travels round the rim as the disc turns, so what
+            # that costs is a handful of pixels changing every frame at a place
+            # nothing is happening.
+            line = Polygon(np.zeros((3, 2)), closed=True, fill=False,
+                           edgecolor=series[0], linewidth=2.0, alpha=alpha,
+                           zorder=3)
+            ax.add_patch(line)
             bore = _circle(0, 0, bore_r, series[0], 1.0, alpha=alpha)
             ax.add_artist(bore)
             holes = [_circle(0, 0, hole_r, series[0], 0.9, alpha=alpha)
@@ -340,7 +383,7 @@ class ProfileView:
                    + [ref.eccentricity * np.cos(phi), -ref.eccentricity * np.sin(phi)])
             self._ghost.set_data(pts[:, 0], pts[:, 1])
 
-        closed = self._profile.closed
+        outline = self._profile.points
         for i, (line, bore, holes) in enumerate(self._discs):
             phase = spec.disc_phases[i]
             hole_phase = spec.disc_hole_phases[i]
@@ -348,8 +391,8 @@ class ProfileView:
             cy = -E * np.sin(phi + phase)
             d = (phi + phase) / lobes
             c, s = np.cos(d), np.sin(d)
-            pts = closed @ np.array([[c, s], [-s, c]]) + [cx, cy]
-            line.set_data(pts[:, 0], pts[:, 1])
+            pts = outline @ np.array([[c, s], [-s, c]]) + [cx, cy]
+            line.set_xy(pts)
             bore.set_center((cx, cy))
             for k, hole in enumerate(holes):
                 # hole_phase cancels the disc's own mesh rotation, so every
@@ -397,7 +440,7 @@ class ProfileView:
         # is well under a line width.
         state = contacts(spec, float(phi))
         force = state.forces(self._torque_per_disc)
-        loaded = force > 0.0
+        loaded = force > _CONTACT_FLOOR * self._peak_force
         points = state.points[loaded]
         magnitude = force[loaded]
 

@@ -47,7 +47,7 @@ from .. import __version__
 from ..analysis import DesignAnalysis, analyse
 from ..core.spec import GearSpec, OffsetMode, Process, preset
 from ..core.validate import Severity
-from ..export import write_bundle
+from ..export import animation, write_bundle
 from ..export.manifest import group_keys
 from ..report import plots
 from . import branding
@@ -105,6 +105,53 @@ class ExportWorker(QThread):
             self.done.emit([str(p) for p in files])
         except Exception:
             logger.error("export failed\n%s", traceback.format_exc().rstrip())
+            self.failed.emit(traceback.format_exc())
+
+
+class AnimationWorker(QThread):
+    """Renders the GIF off the GUI thread, a frame at a time.
+
+    Several seconds of matplotlib on the GUI thread is a frozen window and a
+    "not responding" title bar, and the one thing the user wants during it -
+    how far along it is - is exactly what a blocked event loop cannot show.
+    """
+
+    progressed = Signal(int, int)
+    done = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, spec: GearSpec, path: Path, plan: animation.Animation,
+                 options: dict) -> None:
+        super().__init__()
+        self._spec, self._path, self._plan = spec, path, plan
+        self._options = options
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def _tick(self, done: int, total: int) -> None:
+        # Raised inside the frame generator, which unwinds it through the GIF
+        # writer: a half-written file is worse than none, and Pillow only
+        # commits the frames it was given.
+        if self._cancelled:
+            raise InterruptedError("cancelled")
+        self.progressed.emit(done, total)
+
+    def run(self) -> None:
+        try:
+            logger.info("animation started: %s (%s)", self._path,
+                        self._plan.describe())
+            path = animation.write_gif(self._spec, self._path,
+                                       animation=self._plan,
+                                       progress=self._tick, **self._options)
+            self.done.emit(str(path))
+        except InterruptedError:
+            self._path.unlink(missing_ok=True)
+            logger.info("animation cancelled")
+            self.failed.emit("")
+        except Exception:
+            logger.error("animation failed\n%s", traceback.format_exc().rstrip())
             self.failed.emit(traceback.format_exc())
 
 
@@ -542,7 +589,10 @@ class MainWindow(QMainWindow):
         self._export_btn.setProperty("primary", "true")
         self._export_btn.clicked.connect(lambda: self._export(True))
         row.addWidget(self._export_btn)
-        self._export_2d_btn = QPushButton("EXPORT DRAWINGS ONLY")
+        self._export_2d_btn = QPushButton("EXPORT WITHOUT SOLIDS")
+        self._export_2d_btn.setToolTip(
+            "Everything except the STEP and STL files: drawings, the report and "
+            "the animation. Skips the CAD kernel, which is most of the wait.")
         self._export_2d_btn.clicked.connect(lambda: self._export(False))
         row.addWidget(self._export_2d_btn)
         row.addStretch(1)
@@ -718,6 +768,7 @@ class MainWindow(QMainWindow):
             ("&Open design...", self._open_spec, QKeySequence.Open),
             ("&Save design...", self._save_spec, QKeySequence.Save),
             ("&Export all files...", lambda: self._export(True), "Ctrl+E"),
+            ("Export &animation...", self._export_animation, "Ctrl+Shift+E"),
         ):
             a = QAction(text, self)
             a.setShortcut(key)
@@ -1471,10 +1522,82 @@ class MainWindow(QMainWindow):
         self._progress.close()
         QMessageBox.critical(self, "Export failed", message[-2000:])
 
+    # ------------------------------------------------------------- animation
+    def _animation_request(self) -> tuple[animation.Animation, dict]:
+        """The plan and the render options for whatever view is on screen.
+
+        On the 3D tab that is the assembly from the angle, explode and part
+        visibility currently set; anywhere else it is the drawing with the
+        overlays currently ticked.  Exporting a view the user is not looking at,
+        from a viewpoint they did not choose, only produces a file they have to
+        make a second time.
+        """
+        if self.tabs.currentIndex() == self._solid_tab:
+            return (animation.plan(self.spec, view="assembly"),
+                    {"theme": self.mode, **self._view3d.render_options()})
+        return (animation.plan(self.spec, view="drawing"),
+                {"theme": self.mode, "overlays": self._overlays()})
+
+    def _export_animation(self) -> None:
+        plan, options = self._animation_request()
+        folder = Path(self._outputs.destination or Path.home())
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export animation",
+            str(folder / f"cycloidal_{self.spec.ratio}to1_{plan.view}.gif"),
+            "Animated GIF (*.gif)")
+        if not path:
+            return
+
+        self._anim_progress = QProgressDialog(
+            f"Rendering the {plan.view}: {plan.describe()}.",
+            "Cancel", 0, plan.frames, self)
+        self._anim_progress.setWindowTitle("Export animation")
+        self._anim_progress.setWindowModality(Qt.WindowModal)
+        self._anim_progress.setMinimumDuration(0)
+        self._anim_progress.setValue(0)
+
+        self._anim_worker = AnimationWorker(self.spec.model_copy(deep=True),
+                                            Path(path), plan, options)
+        self._anim_worker.progressed.connect(self._animation_progress)
+        self._anim_worker.done.connect(self._animation_done)
+        self._anim_worker.failed.connect(self._animation_failed)
+        self._anim_progress.canceled.connect(self._anim_worker.cancel)
+        self._anim_worker.start()
+
+    def _animation_progress(self, done: int, _total: int) -> None:
+        # One tick is still in flight when Cancel is pressed, and a progress
+        # dialog told to advance after it has been reset puts itself back on
+        # screen.
+        if not self._anim_progress.wasCanceled():
+            self._anim_progress.setValue(done)
+
+    def _animation_done(self, path: str) -> None:
+        self._anim_progress.reset()
+        written = Path(path)
+        size = written.stat().st_size / 1024
+        self._say(f"wrote {written} ({size:.0f} kB)", seconds=6)
+        QMessageBox.information(
+            self, "Animation written",
+            f"{written}\n\n{size:.0f} kB. It loops for ever - drop it straight "
+            f"into a document, a chat or an issue.")
+
+    def _animation_failed(self, message: str) -> None:
+        self._anim_progress.reset()
+        if not message:                               # cancelled, not broken
+            self._say("animation cancelled", seconds=4)
+            return
+        QMessageBox.critical(self, "Animation failed", message[-2000:])
+
     # ---------------------------------------------------------------- close
     def closeEvent(self, event) -> None:
         self._settings.setValue("last_design", self.spec.model_dump_json())
         self._save_workspace()
         for worker in list(self._workers):
             worker.wait(2000)
+        # The animation is the one job long enough to still be running here, and
+        # a QThread destroyed while running takes the process with it.
+        rendering = getattr(self, "_anim_worker", None)
+        if rendering is not None and rendering.isRunning():
+            rendering.cancel()
+            rendering.wait(3000)
         super().closeEvent(event)

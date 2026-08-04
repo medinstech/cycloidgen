@@ -378,6 +378,19 @@ class Assembly3DTab(QWidget):
     def refresh_theme(self, mode: str) -> None:
         self.view.set_theme(mode)
 
+    def render_options(self) -> dict:
+        """What an exported animation needs to look like this tab does.
+
+        Orientation, explode and which groups are hidden - not the section
+        plane or the edge outlines, which are the hardware renderer's own and
+        have no equivalent in the polygon list a frame is built from.
+        """
+        camera = self.view.camera
+        return {"azimuth": camera.azimuth, "elevation": camera.elevation,
+                "explode": self._explode.value() / 100.0,
+                "hidden": frozenset(g for g, box in self._groups.items()
+                                    if not box.isChecked())}
+
     def save_state(self) -> None:
         settings = app_settings()
         camera = self.view.camera

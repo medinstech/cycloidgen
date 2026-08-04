@@ -147,11 +147,11 @@ def test_moving_the_crank_reuses_the_artists():
     ax = view.figure.axes[0]
     before = [id(a) for a in list(ax.lines) + list(ax.patches)]
     outline = view._discs[0][0]
-    was = outline.get_xydata().copy()
+    was = outline.get_xy().copy()
 
     view.set_crank(37.0)
     assert [id(a) for a in list(ax.lines) + list(ax.patches)] == before
-    assert not np.allclose(was, outline.get_xydata())
+    assert not np.allclose(was, outline.get_xy())
 
 
 def test_the_overlays_come_off_the_same_kinematics_as_the_checks():
@@ -167,6 +167,33 @@ def test_the_overlays_come_off_the_same_kinematics_as_the_checks():
     assert 0 < loaded < spec.pin_count           # only the pushing half carries
     assert len(view._force_lines.get_segments()) == loaded
     assert len(view._contact_dots.get_offsets()) == loaded
+
+
+def test_a_pin_at_the_load_reversal_is_not_drawn_as_carrying():
+    """Two pins sit at zero moment arm at any crank angle.
+
+    Whether they come out of the arithmetic at +1e-13 or -1e-13 is decided by
+    how the angle was reached, and ``force > 0`` turns that into a dot that
+    appears and disappears - and into a count of pins carrying that flickers by
+    one.  Crank zero is the case where it is exactly zero rather than nearly.
+    """
+    spec = preset(15)
+    view = plots.ProfileView(Figure())
+    view.set_design(spec, overlays=plots.Overlays(contacts=True, forces=True))
+
+    from cycloidgen.core.kinematics import contacts
+    state = contacts(spec, 0.0)
+    force = state.forces(spec.output_torque_Nm * 1000 / spec.disc_count)
+    at_reversal = int((np.abs(state.moment_arms) < 1e-9).sum())
+    assert at_reversal == 2
+
+    view.set_crank(0.0)
+    drawn = len(view._contact_dots.get_offsets())
+    assert drawn == int((force > 0).sum()) - int((force[np.abs(state.moment_arms)
+                                                       < 1e-9] > 0).sum())
+    # and the same pins, whichever side of zero the rounding lands on
+    view.set_crank(360.0 * spec.lobes)
+    assert len(view._contact_dots.get_offsets()) == drawn
 
 
 def test_overlays_that_are_off_build_nothing():

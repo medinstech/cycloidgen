@@ -19,6 +19,7 @@ from matplotlib.figure import Figure
 
 from cycloidgen.core.spec import GearSpec, Process, preset
 from cycloidgen.design.sweep import sweep_parameter
+from cycloidgen.export import animation
 from cycloidgen.report import plots
 
 DOCS = Path(__file__).resolve().parent
@@ -74,6 +75,16 @@ def main() -> int:
     result = sweep_parameter(hero, "pin_radius", np.linspace(1.6, 6.4, 25))
     _save(plots.sweep_figure(result, Figure(figsize=(9.0, 6.2), dpi=110)),
           "tradestudy.png")
+
+    # The drawing, turning.  Smaller than the exported default and lighter on
+    # frames, because this one is checked into the repository and served on
+    # every view of the README - the point is to show the mesh working, not to
+    # be the highest-fidelity copy of it.  A 21:1 closes exactly at seven turns.
+    plan = animation.plan(spec, pixels=380, frames=84)
+    print(f"  motion.gif  {plan.describe()}")
+    path = animation.write_gif(spec, DOCS / "motion.gif", animation=plan,
+                               theme="light")
+    print(f"  {path.name}  {path.stat().st_size / 1024:.0f} kB")
     return 0
 
 
