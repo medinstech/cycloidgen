@@ -11,7 +11,6 @@ import matplotlib
 matplotlib.use("QtAgg")
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as Canvas
-from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavBar
 from matplotlib.figure import Figure
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QKeySequence, QPalette
@@ -57,6 +56,7 @@ from .logpanel import LogPanel, logger
 from .logpanel import install as install_logging
 from .optimise_dialog import OptimiseDialog
 from .outputs import OutputsTab
+from .plotbar import PlotToolbar
 from .settings import app_settings
 from .tradestudy import TradeStudyTab
 from .view3d import Assembly3DTab
@@ -70,6 +70,10 @@ _FRAME_MS = 33
 
 #: Degrees of input per frame at 1x - one input revolution in four seconds.
 _CRANK_STEP_DEG = 3.0
+
+#: The checks list never gets smaller than this.  Four rows and the filter
+#: strip: enough to see that findings exist and what the worst one is.
+_MIN_CHECKS_PX = 130
 
 
 def _severity_colours(mode: str) -> dict[Severity, QColor]:
@@ -300,8 +304,10 @@ class MainWindow(QMainWindow):
         split is the wrong thing to store anyway: reopen the window on a
         narrower screen and a remembered 600 px panel is most of it.
 
-        So the split is stored as a fraction and reapplied on a zero timer,
+        So each split is stored as a fraction and reapplied on a zero timer,
         which runs after Qt has finished the layout pass this event belongs to.
+        Both of them: the parameter panel against the views, and the views
+        against the checks list.
         """
         super().showEvent(event)
         if self._splitter_restored:
@@ -310,21 +316,29 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._restore_split)
 
     def _restore_split(self) -> None:
+        self._apply_fraction(self._splitter, "splitter_fraction",
+                             self._splitter.width())
+        self._apply_fraction(self._view_split, "checks_fraction",
+                             self._view_split.height())
+
+    def _apply_fraction(self, splitter: QSplitter, key: str, total: int) -> None:
+        """Give the first pane ``key`` of ``total``, if that is a sane thing to do."""
         try:
-            fraction = float(self._settings.value("splitter_fraction", 0.0))
+            fraction = float(self._settings.value(key, 0.0))
         except (TypeError, ValueError):
             return
-        total = self._splitter.width()
         if not 0.05 <= fraction <= 0.95 or total <= 0:
             return
-        left = round(fraction * total)
-        self._splitter.setSizes([left, total - left])
+        first = round(fraction * total)
+        splitter.setSizes([first, total - first])
 
     def _save_workspace(self) -> None:
         self._settings.setValue("geometry", self.saveGeometry())
-        sizes = self._splitter.sizes()
-        if sum(sizes) > 0:
-            self._settings.setValue("splitter_fraction", sizes[0] / sum(sizes))
+        for splitter, key in ((self._splitter, "splitter_fraction"),
+                              (self._view_split, "checks_fraction")):
+            sizes = splitter.sizes()
+            if sum(sizes) > 0:
+                self._settings.setValue(key, sizes[0] / sum(sizes))
         self._settings.setValue("tab", self.tabs.currentIndex())
         self._settings.setValue("crank", self._crank_slider.value())
         self._view3d.save_state()
@@ -456,18 +470,24 @@ class MainWindow(QMainWindow):
             label.setMinimumWidth(width)
 
     def _make_widget(self, f: Field) -> QWidget:
+        # Numbers are set right, against the unit.  The field grows to the panel
+        # width and a left-set value leaves "2" adrift at the far end of a
+        # 200 px box while "13.00 mm" starts in the same place - so the column
+        # cannot be scanned, which is the only reason to have a column.
         if f.kind == "float":
             w = QDoubleSpinBox()
             w.setRange(f.minimum, f.maximum)
             w.setSingleStep(f.step)
             w.setDecimals(f.decimals)
             w.setSuffix(f.suffix)
+            w.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             w.valueChanged.connect(lambda _v, n=f.name: self._on_change(n))
         elif f.kind == "int":
             w = QSpinBox()
             w.setRange(int(f.minimum), int(f.maximum))
             w.setSingleStep(int(f.step))
             w.setSuffix(f.suffix)
+            w.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             w.valueChanged.connect(lambda _v, n=f.name: self._on_change(n))
         elif f.kind == "bool":
             w = QCheckBox()
@@ -489,12 +509,18 @@ class MainWindow(QMainWindow):
         self._profile_view = plots.ProfileView(self._fig_profile)
         page = QWidget()
         pv = QVBoxLayout(page)
-        pv.addWidget(NavBar(self._canvas_profile, page))
+        self._plot_bar = PlotToolbar(self._canvas_profile, page, mode=self.mode)
+        pv.addWidget(self._plot_bar)
         pv.addLayout(self._build_overlay_row())
         pv.addWidget(self._canvas_profile, 1)
         self._drawing_tab = self.tabs.addTab(page, "DRAWING")
 
         self._view3d = Assembly3DTab()
+        # The viewer paints its own background rather than taking one from the
+        # stylesheet, and it starts on light.  Nothing told it otherwise until
+        # the appearance was *changed*, so opening in dark mode gave a white
+        # viewport in a dark window - and it looked like the 3D tab had failed.
+        self._view3d.refresh_theme(self.mode)
         self._solid_tab = self.tabs.addTab(self._view3d, "3D")
         self.tabs.setTabToolTip(self._solid_tab,
                                 "The assembled drive, turning on the same crank "
@@ -574,12 +600,20 @@ class MainWindow(QMainWindow):
         stage_column.addWidget(self._crank_bar)
 
         # A fixed 190 px strip cut the last row in half and left the datasheet
-        # scrolling in a box a third of the window.  Let the user decide.
+        # scrolling in a box a third of the window.  Let the user decide - but
+        # not down to nothing.  The stage is a tab widget whose pages ask for
+        # several hundred pixels each, so on a window that is merely a bit short
+        # the layout pays for them out of the only widget that will yield: the
+        # checks list.  Losing it costs the answer to "is anything wrong with
+        # this design", which is the question the application exists to answer,
+        # and it goes quietly - there is no scrollbar to notice.
+        self._checks_panel.setMinimumHeight(_MIN_CHECKS_PX)
         self._view_split = QSplitter(Qt.Vertical)
         self._view_split.addWidget(stage)
         self._view_split.addWidget(self._checks_panel)
         self._view_split.setStretchFactor(0, 1)
         self._view_split.setCollapsible(0, False)
+        self._view_split.setCollapsible(1, False)
         self._view_split.setSizes([620, 260])
         layout.addWidget(self._view_split, 1)
 
@@ -886,6 +920,7 @@ class MainWindow(QMainWindow):
             f"background: {branding.palette(self.mode).line};")
         for severity, box in self._severity_filters.items():
             box.setStyleSheet(f"QCheckBox {{ color: {self._severity[severity].name()}; }}")
+        self._plot_bar.apply_theme(self.mode)
         self._view3d.refresh_theme(self.mode)
         self._draw_profile()
         if self.analysis is not None:

@@ -148,7 +148,8 @@ def test_the_stylesheet_is_complete(mode):
     assert "{p." not in css
     assert palette(mode).accent in css
     for widget in ("QPushButton", "QTabBar::tab", "QGroupBox", "QProgressBar",
-                   "QTreeWidget", "QMenu", "QStatusBar"):
+                   "QTreeWidget", "QMenu", "QStatusBar", "QToolButton",
+                   "QAbstractSpinBox", "QSlider", "QCheckBox"):
         assert widget in css
 
 
@@ -195,3 +196,42 @@ def test_the_mono_font_names_a_family_for_every_platform():
 def test_the_mono_font_takes_a_size_or_leaves_the_default():
     assert mono_font(9).pointSize() == 9
     assert mono_font().pointSize() == mono_font().pointSize()   # whatever Qt's is
+
+
+# ---------------------------------------------------------------------- chrome
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_the_accent_is_spent_on_actions_not_on_structure(mode):
+    """The rule the chrome was reworked around.
+
+    The first version put the brand colour on every group heading, tab, table
+    header, status bar and rule; at that point it is not emphasis, it is a
+    background colour that happens to be loud.  Structure is drawn in ``line``
+    now, and the accent is left for the things that mean "this one".  Checked
+    on the *declarations* rather than by eye, because this is exactly the kind
+    of decision that erodes one convenient exception at a time.
+    """
+    from cycloidgen.ui.branding import HAIRLINE, palette
+
+    css = stylesheet(mode)
+    p = palette(mode)
+    structural = (
+        f"#BrandHeader {{\n        background: {p.raised};\n"
+        f"        border-bottom: {HAIRLINE} solid {p.line};",
+    )
+    for block in structural:
+        assert block in css
+
+    # A group heading is a label, and a label painted in the primary action's
+    # colour claims to be a button.
+    title = css.split("QGroupBox::title {", 1)[1].split("}", 1)[0]
+    assert p.accent not in title and p.accent_fill not in title
+    assert p.ink_dim in title
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_corners_are_eased_rather_than_square(mode):
+    from cycloidgen.ui.branding import RADIUS, RADIUS_SMALL
+    assert RADIUS != "0px" and RADIUS_SMALL != "0px"
+    assert RADIUS in stylesheet(mode)

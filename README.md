@@ -325,6 +325,11 @@ suggests it.
   light mode is tinted paper, mixed from the brand's own blue, rather than
   white; the PDF still prints on white, because a tint on every figure is ink
   someone pays for and gains nothing on paper.
+
+  Structure is drawn rather than implied by shadow, and the brand blue is spent
+  only where it means *this one* — the primary action, the focused field, the
+  selected row and tab, a ticked box. It used to be on every group heading, tab
+  and rule as well, and at that point it stops being emphasis.
 - **Checks filter** — severity toggles carrying their own counts, because a
   design routinely produces a dozen findings of which ten are notes and the two
   that block an export sit somewhere in the middle.
@@ -374,7 +379,7 @@ cycloidgen/
 ├── report/     plots (shared by UI and PDF), build
 └── ui/         PySide6 window, 3D viewer, outputs tab, declarative field table,
                 optimiser dialog, trade-study tab, undo/redo history, log panel
-tests/          367 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          376 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -390,7 +395,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-367 tests, about 175 s. Most of that is CadQuery writing solids; the pure
+376 tests, about 260 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in under a second. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

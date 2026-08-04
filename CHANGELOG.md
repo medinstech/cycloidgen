@@ -53,6 +53,23 @@ design somebody already built.
 - **CI runs on macOS as well as Linux and Windows.** There is still no macOS
   package, but "it is pure Python on cross-platform wheels, it should work" is
   not a claim worth making without a run behind it.
+- **The chrome is reworked.** Corners eased, structure drawn in one hairline
+  weight, and the brand colour spent only where it means "this one" - the
+  primary action, the focused field, the selected row and tab, a ticked box,
+  the filled part of a slider. It used to be on every group heading, tab, table
+  header, status bar and rule; at that point it is not emphasis, it is a
+  background colour that happens to be loud. Group headings are labels again
+  rather than filled badges, tabs are marked with an underline rather than a
+  block, spin buttons lost the divider that made them read as a separate
+  control bolted to the field, and numeric fields are set right so the column
+  can be scanned. See *Deliberately not doing* in the roadmap, which this
+  overturns half of and says why.
+- **The plot toolbar carries four tools instead of nine.** *Subplots* and
+  *Customize* offer to re-scale and restyle a drawing whose scale is
+  millimetres and whose colours are the part colours, which can only make the
+  picture disagree with the numbers beside it; *Back* and *Forward* walk a view
+  history a single-axes drawing barely has. Reset, pan, zoom and save remain,
+  and their icons are tinted from the theme.
 
 **Fixed**
 
@@ -67,6 +84,20 @@ design somebody already built.
   0` turned that into a contact dot that appeared and disappeared, and a count
   of pins carrying that flickered by one. Drawing only, no reported number
   moves.
+- **The checks list can no longer be squeezed out of existence.** The stage is a
+  tab widget whose pages ask for several hundred pixels each, so on a window
+  that was merely a bit short the layout paid for them out of the only widget
+  that would yield - and the findings list went to zero. It takes the answer to
+  "is anything wrong with this design" with it, quietly, with no scrollbar to
+  notice. It now has a floor, cannot be collapsed, and its split is remembered
+  between sessions like the other one.
+- **The 3D view is themed before it is first shown.** It paints its own
+  background rather than taking one from the stylesheet, and nothing told it the
+  mode until the appearance was *changed* - so opening in dark mode gave a white
+  viewport in a dark window, which looked like the tab had failed.
+- The installer script's CI job creates `releases/` before running `makensis`.
+  The folder is gitignored, so it is never in a fresh checkout and NSIS will not
+  create the one its `OutFile` lives in; the job had never passed.
 
 **Numbers**
 

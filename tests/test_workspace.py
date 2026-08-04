@@ -16,6 +16,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QSettings
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
 
 from cycloidgen.core.validate import Severity
@@ -483,4 +484,110 @@ def test_hiding_the_selected_finding_clears_the_selection(app):
         assert w.findings.currentItem() is None
     finally:
         w._severity_filters[Severity.INFO].setChecked(True)
+        w.close()
+
+
+# --------------------------------------------------------------------- chrome
+
+
+def test_the_checks_list_cannot_be_squeezed_out_of_existence(app):
+    """The stage is a tab widget whose pages ask for hundreds of pixels each.
+
+    On a window that is merely a bit short the layout pays for them out of the
+    only widget that will yield, and the checks list goes to zero - taking the
+    answer to "is anything wrong with this design" with it, quietly, with no
+    scrollbar to notice.
+    """
+    from cycloidgen.ui.main_window import _MIN_CHECKS_PX
+
+    w = _window(app)
+    try:
+        w.resize(1100, 620)                       # deliberately cramped
+        _pump(app, 0.4)
+        assert w._checks_panel.height() >= _MIN_CHECKS_PX
+        assert w._view_split.sizes()[1] >= _MIN_CHECKS_PX
+    finally:
+        w.close()
+
+
+def test_the_checks_split_is_remembered(app):
+    w = _window(app)
+    total = sum(w._view_split.sizes())
+    w._view_split.setSizes([round(0.55 * total), total - round(0.55 * total)])
+    _pump(app, 0.3)
+    w.close()
+    _pump(app, 0.3)
+
+    assert float(_settings().value("checks_fraction")) == pytest.approx(0.55, abs=0.03)
+    w2 = _window(app)
+    try:
+        sizes = w2._view_split.sizes()
+        assert sizes[0] / sum(sizes) == pytest.approx(0.55, abs=0.03)
+    finally:
+        w2.close()
+        _settings().remove("checks_fraction")
+
+
+def test_the_3d_view_is_themed_before_it_is_ever_shown(app):
+    """It paints its own background, so a stylesheet does not reach it.
+
+    Nothing told it the mode until the appearance was *changed*, which meant
+    opening in dark mode gave a white viewport in a dark window.
+    """
+    w = _window(app)
+    try:
+        w._choose_appearance("dark")
+        _pump(app, 0.3)
+        assert w._view3d.view._mode == "dark"
+    finally:
+        w._choose_appearance("light")
+        w.close()
+
+    w2 = _window(app)                             # a fresh window, dark stored
+    try:
+        assert w2._view3d.view._mode == w2.mode
+    finally:
+        w2.close()
+
+
+def test_the_plot_toolbar_carries_only_the_tools_that_apply(app):
+    """Subplots and Customize can only make the picture disagree with the
+    numbers beside it; Back and Forward walk a history a single-axes drawing
+    barely has."""
+    w = _window(app)
+    try:
+        assert [a.text() for a in w._plot_bar.actions() if a.text()] == \
+            ["Home", "Pan", "Zoom", "Save"]
+    finally:
+        w.close()
+
+
+def test_the_toolbar_icons_take_the_ink_of_the_theme(app):
+    """matplotlib picks light or dark artwork off a QPalette that, under an
+    application stylesheet, is not ours - it read black for every role and drew
+    white icons onto the light theme's paper."""
+    from cycloidgen.ui import branding
+
+    w = _window(app)
+    try:
+        for mode in ("light", "dark"):
+            w._choose_appearance(mode)
+            _pump(app, 0.2)
+            icon = next(a.icon() for a in w._plot_bar.actions()
+                        if a.text() == "Home")
+            image = icon.pixmap(24, 24).toImage()
+            opaque = [image.pixelColor(x, y)
+                      for x in range(image.width()) for y in range(image.height())
+                      if image.pixelColor(x, y).alpha() > 200]
+            assert opaque, "the icon rendered empty"
+            # Within a step of the ink: compositing the tint through the
+            # artwork's own alpha is what keeps the edges smooth, and it costs
+            # a rounding unit on the channels.
+            want = QColor(branding.palette(mode).ink)
+            worst = max(max(abs(c.red() - want.red()),
+                            abs(c.green() - want.green()),
+                            abs(c.blue() - want.blue())) for c in opaque)
+            assert worst <= 3, f"{mode}: icon ink is {worst} off"
+    finally:
+        w._choose_appearance("system")
         w.close()
