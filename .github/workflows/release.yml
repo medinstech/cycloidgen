@@ -108,8 +108,7 @@ jobs:
           section = re.split(rf"^## {re.escape(cycloidgen.__version__)}$",
                              text, maxsplit=1, flags=re.MULTILINE)[1]
           notes = re.split(r"^## ", section, maxsplit=1, flags=re.MULTILINE)[0].strip()
-          pathlib.Path("notes.md").write_text(notes + "
-", encoding="utf-8")
+          pathlib.Path("notes.md").write_text(notes + chr(10), encoding="utf-8")
           PY
           cat >> notes.md <<'EOF'
 

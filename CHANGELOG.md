@@ -125,6 +125,12 @@ design somebody already built.
   locale encoding, so the publish step would have gone down with a
   `UnicodeEncodeError` *after* ninety minutes of building the bundle and the
   installer. It writes the file from Python now, with the encoding named.
+
+  `tests/test_workflows.py` holds that end down: it parses every workflow,
+  requires the release to trigger only on a tag, and *runs* the notes step under
+  a Windows locale encoding. A broken workflow file is otherwise close to
+  invisible - GitHub reports a run with no jobs, an instant failure, and the
+  file path where the workflow name should be.
 - The installer script's CI job creates `releases/` before running `makensis`.
   The folder is gitignored, so it is never in a fresh checkout and NSIS will not
   create the one its `OutFile` lives in; the job had never passed.
