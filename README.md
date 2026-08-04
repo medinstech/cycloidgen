@@ -9,6 +9,11 @@ takes a handful of parameters — or a set of requirements — runs the drive li
 2D and 3D, checks it, sizes it, and writes DXF, SVG, STEP, STL, a bill of
 materials and a PDF dossier.
 
+![the application](docs/app-drawing.png)
+
+Selecting a check tells you what it tests, why it matters and what to change;
+the parameters it names light up in the panel on the left.
+
 ![overview](docs/drawing.png)
 
 The drawing is a simulation, not an outline. The dots are where the disc touches
@@ -16,6 +21,8 @@ each ring pin and the arrows are the load it carries there, both off the same
 kinematics the checks and the datasheet use; the faint wavy ring is the path one
 point on the disc rim travels over a full output revolution. Twenty-one turns of
 the input, one of the output.
+
+![the 3D tab](docs/app-3d.png)
 
 ![assembly](docs/assembly.png)
 

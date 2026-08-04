@@ -52,6 +52,10 @@ design somebody already built.
   what is in it and a clamp emits `valueChanged` like any other edit, so the
   first version quietly rewrote a 50 mm pin circle as 500 mm on the way into
   inches.
+- **Screenshots of the running application** in the README, and a repeatable
+  way of taking them: the window is built, given the hero design and told which
+  check to select, then grabbed. The 3D tab needs `PrintWindow` from outside
+  because its viewport is a native OpenGL surface.
 - `pillow` is now a declared dependency. It arrived behind matplotlib anyway;
   the animation imports it directly.
 
