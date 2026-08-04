@@ -32,6 +32,14 @@ design somebody already built.
   stream can compress. `Image.quantize(palette=...)` is a five-bit colour-cube
   lookup rather than a nearest-colour match and puts pure white on a near-white
   entry, so the whole run is quantised together instead.
+- **"Explain this check".** Selecting a finding shows what the check tests, why
+  it matters physically, what to change and in which direction, and the margin -
+  how many times clear of the limit the design sits, where a ratio means
+  anything at all. `cycloidgen/core/explain.py` declares one explanation per
+  code; `tests/test_explain.py` parses the source for the calls that raise
+  codes and fails if a check has no explanation or an explanation has no check.
+  Selecting a finding also no longer loses its selection on every re-analysis,
+  which is every nudge of a spin box.
 - `pillow` is now a declared dependency. It arrived behind matplotlib anyway;
   the animation imports it directly.
 

@@ -333,6 +333,13 @@ suggests it.
 - **Checks filter** — severity toggles carrying their own counts, because a
   design routinely produces a dozen findings of which ten are notes and the two
   that block an export sit somewhere in the middle.
+- **Explain this check** — select a finding and the panel beside it says what
+  the check tests (the relation, in the notation above), what goes wrong
+  physically when it fails, what to change and in which direction, and how many
+  times clear of the limit you are. The parameters it names are highlighted in
+  the panel at the same time. `cycloidgen/core/explain.py` declares one
+  explanation per check code; a test parses the source for the calls that raise
+  codes, so a check cannot be added without one or left behind when it goes.
 - **Log** — everything the app would otherwise print to a terminal you do not
   have. Checks as they appear and clear, searches with their shortlists, sweeps,
   exports, plus every Python warning, stray stderr write, and any exception that
@@ -379,7 +386,7 @@ cycloidgen/
 ├── report/     plots (shared by UI and PDF), build
 └── ui/         PySide6 window, 3D viewer, outputs tab, declarative field table,
                 optimiser dialog, trade-study tab, undo/redo history, log panel
-tests/          376 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          387 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -395,7 +402,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-376 tests, about 260 s. Most of that is CadQuery writing solids; the pure
+387 tests, about 280 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in under a second. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

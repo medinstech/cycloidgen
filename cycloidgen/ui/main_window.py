@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
     QSplitter,
     QStatusBar,
     QTabWidget,
+    QTextBrowser,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -44,6 +45,7 @@ from PySide6.QtWidgets import (
 
 from .. import __version__
 from ..analysis import DesignAnalysis, analyse
+from ..core.explain import explain, margin
 from ..core.spec import GearSpec, OffsetMode, Process, preset
 from ..core.validate import Severity
 from ..export import animation, write_bundle
@@ -87,6 +89,13 @@ def _severity_colours(mode: str) -> dict[Severity, QColor]:
     return {Severity.ERROR: QColor(p.error),
             Severity.WARNING: QColor(p.warning),
             Severity.INFO: QColor(p.ink_dim)}
+
+
+def _section(label: str, dim: str, body: str) -> str:
+    """One labelled block of the explanation panel."""
+    return (f"<div style='color:{dim};font-size:10px;font-weight:700;"
+            f"letter-spacing:.6px;margin-top:10px'>{label}</div>"
+            f"<div style='margin-top:2px'>{body}</div>")
 
 
 class ExportWorker(QThread):
@@ -320,6 +329,8 @@ class MainWindow(QMainWindow):
                              self._splitter.width())
         self._apply_fraction(self._view_split, "checks_fraction",
                              self._view_split.height())
+        self._apply_fraction(self._explain_split, "explain_fraction",
+                             self._explain_split.width())
 
     def _apply_fraction(self, splitter: QSplitter, key: str, total: int) -> None:
         """Give the first pane ``key`` of ``total``, if that is a sane thing to do."""
@@ -335,7 +346,8 @@ class MainWindow(QMainWindow):
     def _save_workspace(self) -> None:
         self._settings.setValue("geometry", self.saveGeometry())
         for splitter, key in ((self._splitter, "splitter_fraction"),
-                              (self._view_split, "checks_fraction")):
+                              (self._view_split, "checks_fraction"),
+                              (self._explain_split, "explain_fraction")):
             sizes = splitter.sizes()
             if sum(sizes) > 0:
                 self._settings.setValue(key, sizes[0] / sum(sizes))
@@ -586,7 +598,22 @@ class MainWindow(QMainWindow):
         for col in (2, 3):
             self.findings.headerItem().setTextAlignment(col, Qt.AlignRight)
         header.setStretchLastSection(True)
-        checks_layout.addWidget(self.findings, 1)
+
+        # Selecting a finding highlights the parameters it is about.  That says
+        # *where* to look and nothing about why, which is the half of the answer
+        # the checks were always missing - the relation being tested, the
+        # physics behind it and which way to move the knob lived in the comments
+        # beside each check, where the person who needs them cannot reach them.
+        self._explain = QTextBrowser()
+        self._explain.setOpenExternalLinks(False)
+        self._explain.setMinimumWidth(240)
+        self._explain_split = QSplitter(Qt.Horizontal)
+        self._explain_split.addWidget(self.findings)
+        self._explain_split.addWidget(self._explain)
+        self._explain_split.setStretchFactor(0, 1)
+        self._explain_split.setCollapsible(0, False)
+        self._explain_split.setSizes([760, 340])
+        checks_layout.addWidget(self._explain_split, 1)
 
         # The crank lives under the tab strip rather than inside the drawing,
         # because it drives the 3D view as well: one control, two simulations,
@@ -921,6 +948,7 @@ class MainWindow(QMainWindow):
         for severity, box in self._severity_filters.items():
             box.setStyleSheet(f"QCheckBox {{ color: {self._severity[severity].name()}; }}")
         self._plot_bar.apply_theme(self.mode)
+        self._show_explanation()
         self._view3d.refresh_theme(self.mode)
         self._draw_profile()
         if self.analysis is not None:
@@ -1107,6 +1135,7 @@ class MainWindow(QMainWindow):
         plots.loss_figure(self.analysis, self._fig_loss)
         self._canvas_loss.draw_idle()
         self._fill_findings()
+        self._show_explanation()
         self._fill_datasheet()
         self._fill_compare()
         self._log_findings()
@@ -1156,6 +1185,11 @@ class MainWindow(QMainWindow):
         self._view3d.set_crank(self._crank)
 
     def _fill_findings(self) -> None:
+        # The list is rebuilt on every analysis, which is every nudge of a spin
+        # box, and clearing it drops the selection - so the check you were
+        # reading about vanished the moment you started acting on it.  Keep the
+        # code and put the cursor back on it if it is still there.
+        keep = getattr(self, "_selected_code", None)
         self.findings.clear()
         assert self.analysis is not None
         counts = {Severity.ERROR: 0, Severity.WARNING: 0, Severity.INFO: 0}
@@ -1190,6 +1224,13 @@ class MainWindow(QMainWindow):
             box.setEnabled(counts[severity] > 0)
         self._apply_findings_filter()
 
+        if keep is not None:
+            for i in range(self.findings.topLevelItemCount()):
+                item = self.findings.topLevelItem(i)
+                if item.data(0, Qt.UserRole) == keep and not item.isHidden():
+                    self.findings.setCurrentItem(item)
+                    break
+
     def _log_findings(self) -> None:
         """Record checks that appear or clear, at their own severity.
 
@@ -1223,13 +1264,15 @@ class MainWindow(QMainWindow):
                          ", ".join(f.code for f in report.errors))
 
     def _finding_selected(self, current: QTreeWidgetItem | None, _prev=None) -> None:
-        """Point at the parameters the selected check is actually about."""
+        """Point at the parameters the selected check is about, and say why."""
         for w in self._highlighted:
             w.setStyleSheet("")
         self._highlighted.clear()
+        self._selected_code = None if current is None else current.data(0, Qt.UserRole)
+        self._show_explanation()
         if current is None:
             return
-        code = current.data(0, Qt.UserRole)
+        code = self._selected_code
         first = None
         for name in CODE_FIELDS.get(code, ()):
             row = self._rows.get(name)
@@ -1241,6 +1284,81 @@ class MainWindow(QMainWindow):
             first = first or widget
         if first is not None:
             self._param_scroll.ensureWidgetVisible(first, 0, 60)
+
+    def _show_explanation(self) -> None:
+        """Render the selected check's explanation, or the prompt for one.
+
+        Rebuilt rather than restyled, because the colours are baked into the
+        markup - the same reason every figure is rebuilt on a theme change.
+        """
+        p = branding.palette(self.mode)
+        code = getattr(self, "_selected_code", None)
+        finding = None
+        if self.analysis is not None and code is not None:
+            finding = next((f for f in self.analysis.report.findings
+                            if f.code == code), None)
+        detail = explain(code) if code else None
+        if detail is None or finding is None:
+            self._explain.setHtml(
+                f"<div style='color:{p.ink_dim};font-size:12px'>"
+                f"Select a check to see what it tests, why it matters, and "
+                f"which parameter moves it.</div>")
+            return
+
+        ink, dim, accent = p.ink, p.ink_dim, self._severity[finding.severity].name()
+        parts = [
+            f"<div style='color:{accent};font-size:10px;font-weight:700;"
+            f"letter-spacing:.6px'>{finding.severity.value.upper()} &middot; "
+            f"{finding.code}</div>",
+            f"<div style='color:{ink};font-size:14px;font-weight:600;"
+            f"margin:2px 0 8px 0'>{detail.title}</div>",
+        ]
+
+        reading = self._reading_line(finding, detail)
+        if reading:
+            parts.append(f"<div style='color:{ink};font-size:12px;"
+                         f"margin-bottom:8px'>{reading}</div>")
+
+        parts.append(_section("TESTS", dim,
+                              f"<code style='color:{ink};font-size:12px'>"
+                              f"{detail.tests}</code>"))
+        parts.append(_section("WHY", dim,
+                              f"<span style='color:{ink};font-size:12px'>"
+                              f"{detail.why}</span>"))
+        parts.append(_section("WHAT TO CHANGE", dim,
+                              f"<span style='color:{ink};font-size:12px'>"
+                              f"{detail.fix}</span>"))
+
+        labels = [self._rows[n][0].text() for n in CODE_FIELDS.get(code, ())
+                  if n in self._rows and self._rows[n][0] is not self._rows[n][1]]
+        if labels:
+            parts.append(_section("HIGHLIGHTED", dim,
+                                  f"<span style='color:{ink};font-size:12px'>"
+                                  f"{', '.join(labels)}</span>"))
+        self._explain.setHtml("".join(parts))
+
+    def _reading_line(self, finding, detail) -> str:
+        """Value against limit, and how many times clear of it - when that means
+        something.  See :func:`cycloidgen.core.explain.margin` for when it does
+        not."""
+        if finding.value is None:
+            return ""
+        unit = f" {detail.unit}" if detail.unit else ""
+        text = f"<b>{finding.value:.4g}</b>{unit}"
+        if finding.limit is not None:
+            # A check with no side to be on still compares against something -
+            # the suggested pin radius, the pin count that would make the discs
+            # interchangeable - and hiding it loses the more useful of the two
+            # numbers.
+            word = {"below": " a limit of", "above": " a minimum of"}.get(
+                detail.keep, "")
+            text += f" against{word} <b>{finding.limit:.4g}</b>{unit}"
+        times = margin(finding)
+        if times is not None:
+            side = "clear of it" if times >= 1.0 else "over it"
+            shown = times if times >= 1.0 else 1.0 / times
+            text += f" &mdash; {shown:.2f}x {side}"
+        return text
 
     def _fill_datasheet(self) -> None:
         """The numbers you would put on a spec sheet, in one place."""
