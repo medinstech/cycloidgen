@@ -40,7 +40,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pyinstaller>=6.5"]
+# pyyaml is here for `tests/test_workflows.py`, which reads the CI
+# definitions.  It arrives transitively today, and a test that depends on
+# an accident is a test that disappears the day the accident does.
+dev = ["pytest>=8.0", "pyinstaller>=6.5", "pyyaml>=6.0"]
 
 [project.urls]
 Homepage = "https://github.com/medinstech/cycloidgen"
