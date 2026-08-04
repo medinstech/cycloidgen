@@ -2,6 +2,7 @@
 
     python -m cycloidgen                          # GUI
     python -m cycloidgen --ratio 29 --out ./x     # headless export
+    python -m cycloidgen --ratio 29 --list-outputs # what an export would write
     python -m cycloidgen --optimise --ratio 29 --torque 20 --max-od 120 --out ./x
 """
 from __future__ import annotations
@@ -9,6 +10,42 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+
+
+def _spec_from_args(args):
+    """The design a headless run works on: a saved file if given, else a preset."""
+    import json
+
+    from .core.spec import GearSpec, preset
+    if args.design:
+        data = json.loads(args.design.read_text(encoding="utf-8"))
+        return GearSpec.model_validate(data.get("spec", data))
+    return preset(args.ratio or 15)
+
+
+def _list_outputs(spec, groups: set[str]) -> int:
+    """Print the bundle without producing it.
+
+    Straight off the manifest, which is also what ``write_bundle`` walks, so
+    this is a promise the exporter keeps rather than a table someone wrote once.
+    """
+    from .export.manifest import GROUPS, outputs_for
+
+    print(f"An export of this {spec.ratio}:1 design writes:\n")
+    total = 0
+    for group in GROUPS:
+        mark = "x" if group.key in groups else " "
+        print(f"[{mark}] {group.title}  -  {group.note}")
+        for out in outputs_for({group.key}):
+            names = out.files(spec)
+            print(f"      {out.fmt:<5} {out.where:<16} {out.title}")
+            if out.is_folder:
+                for name in names:
+                    print(f"            {name}")
+            total += len(names) if group.key in groups else 0
+        print()
+    print(f"{total} file(s) with the current selection.")
+    return 0
 
 
 def _search(args) -> tuple[int, object | None]:
@@ -76,6 +113,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, help="output folder for a headless run")
     parser.add_argument("--no-solids", action="store_true",
                         help="skip STEP/STL, write drawings and report only")
+    parser.add_argument("--only", metavar="GROUPS",
+                        help="write only these output groups, comma separated: "
+                             "drawings, solids, data")
+    parser.add_argument("--list-outputs", action="store_true",
+                        help="print every file an export would write, and exit")
 
     search = parser.add_argument_group(
         "design search", "state what the drive has to do and let the app find "
@@ -108,24 +150,31 @@ def main(argv: list[str] | None = None) -> int:
                         choices=["quick", "normal", "thorough"])
     args = parser.parse_args(argv)
 
-    if args.out or args.ratio or args.design or args.optimise:
+    if args.out or args.ratio or args.design or args.optimise or args.list_outputs:
         import matplotlib
         matplotlib.use("Agg")
         from .analysis import analyse
-        from .core.spec import GearSpec, preset
         from .export import write_bundle
+        from .export.manifest import resolve_groups
+
+        try:
+            groups = resolve_groups(
+                not args.no_solids,
+                [g.strip() for g in args.only.split(",")] if args.only else None)
+        except ValueError as exc:
+            print(exc, file=sys.stderr)
+            return 2
 
         if args.optimise:
             code, spec = _search(args)
             if code:
                 return code
             print()
-        elif args.design:
-            import json
-            data = json.loads(args.design.read_text(encoding="utf-8"))
-            spec = GearSpec.model_validate(data.get("spec", data))
         else:
-            spec = preset(args.ratio or 15)
+            spec = _spec_from_args(args)
+
+        if args.list_outputs:
+            return _list_outputs(spec, groups)
 
         report = analyse(spec).report
         print(report)
@@ -136,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
 
         out = args.out or Path.cwd() / f"cycloidal_{spec.ratio}to1"
-        files = write_bundle(spec, out, include_solids=not args.no_solids)
+        files = write_bundle(spec, out, groups=groups)
         print(f"\nwrote {len(files)} files to {out}")
         for f in files:
             print(f"  {f.relative_to(out)}")

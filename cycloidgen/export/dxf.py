@@ -12,6 +12,7 @@ import numpy as np
 
 from ..core import profile as prof
 from ..core.spec import GearSpec
+from .manifest import disc_names
 
 __all__ = ["write_dxf", "write_part_dxfs"]
 
@@ -105,7 +106,7 @@ def write_part_dxfs(spec: GearSpec, directory: str | Path) -> list[Path]:
 
     identical = spec.discs_are_identical
     phases = spec.disc_hole_phases[:1] if identical else spec.disc_hole_phases
-    for index, hole_phase in enumerate(phases, start=1):
+    for name, hole_phase in zip(disc_names(spec), phases, strict=True):
         doc, msp = _new_doc()
         msp.add_lwpolyline(p.points, close=True, dxfattribs={"layer": "DISC_PROFILE"})
         msp.add_circle((0, 0), bore_r, dxfattribs={"layer": "DISC_BORE"})
@@ -114,7 +115,6 @@ def write_part_dxfs(spec: GearSpec, directory: str | Path) -> list[Path]:
             msp.add_circle((spec.output_bolt_circle_radius * np.cos(a),
                             spec.output_bolt_circle_radius * np.sin(a)),
                            hole_r, dxfattribs={"layer": "OUTPUT_HOLES"})
-        name = "disc" if identical else f"disc_{index}"
         _title(msp, spec, f"{name}  i={spec.ratio}:1  holes at "
                           f"{np.degrees(hole_phase):+.3f} deg", p.outer_radius)
         out = directory / f"{name}.dxf"

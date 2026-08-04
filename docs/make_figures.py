@@ -49,8 +49,23 @@ def main() -> int:
     print("writing figures:")
 
     spec = preset(21)
-    _save(plots.profile_figure(spec, Figure(figsize=(7.3, 7.3), dpi=110)),
+    # With the overlays on, because they are the point: the dots are where the
+    # disc touches each ring pin and the arrows are the load it carries there,
+    # both straight off the kinematics the checks use.
+    _save(plots.profile_figure(spec, Figure(figsize=(7.3, 7.3), dpi=110),
+                               crank_deg=28.0,
+                               overlays=plots.Overlays(contacts=True, forces=True,
+                                                       trace=True)),
           "drawing.png")
+
+    # The same scene the 3D tab paints, rendered through matplotlib instead of
+    # QPainter - so the picture in the README is the picture in the window.
+    _save(plots.assembly_figure(spec, Figure(figsize=(7.0, 5.0), dpi=110),
+                                crank_deg=28.0),
+          "assembly.png")
+    _save(plots.assembly_figure(spec, Figure(figsize=(7.0, 5.2), dpi=110),
+                                explode=0.85, azimuth=32.0, elevation=20.0),
+          "exploded.png")
 
     # The trade study: one parameter moved, four consequences reported. Pin
     # radius is the clearest example - it has a genuine interior optimum rather

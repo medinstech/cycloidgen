@@ -1,0 +1,67 @@
+name: Bug report
+description: Something does not do what it says it does
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A geometry problem is almost never reproducible from a ratio and a
+        screenshot, and always reproducible from the design file. `File ▸ Save
+        design...` writes one, or paste `report.json` from an export.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: design
+    attributes:
+      label: The design
+      description: >
+        Paste the contents of a saved design JSON, or the `spec` block of a
+        `report.json`. Attach the file if it is easier.
+      render: json
+    validations:
+      required: false
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: >
+        The **Log** tab holds everything the app would otherwise print to a
+        terminal you do not have, including any exception that escaped a worker
+        thread. Copy the relevant part.
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`Help ▸ About cycloidgen`, or `pip show cycloidgen`."
+      placeholder: "2.2.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: how
+    attributes:
+      label: How are you running it
+      options:
+        - Installed with pip, from source
+        - The standalone Windows build
+        - Command line only
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      placeholder: "Windows 11, Python 3.12"
+    validations:
+      required: true

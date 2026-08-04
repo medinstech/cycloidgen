@@ -6,6 +6,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from matplotlib.figure import Figure
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import A4
@@ -250,7 +251,15 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
             f"{s.disc_count} disc(s) &middot; {s.process.value} &middot; "
             f"generated {datetime.now():%Y-%m-%d %H:%M}", body),
         Spacer(1, 6),
-        _fig_png(plots.profile_figure(s), 120),
+        # The drawing and the assembly side by side.  They answer different
+        # questions - what the geometry is, and what the thing looks like - and
+        # a reader who has never seen a cycloidal drive needs the second one
+        # before the first one means anything.
+        Table([[_fig_png(plots.profile_figure(s, Figure(figsize=(5.4, 5.4), dpi=110)),
+                         83),
+                _fig_png(plots.assembly_figure(s, Figure(figsize=(5.4, 5.4), dpi=110)),
+                         83)]],
+              colWidths=[86 * mm, 86 * mm], hAlign="LEFT"),
     ]
 
     # --- verdict -------------------------------------------------------------
@@ -540,7 +549,14 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
             f"({a.stiffness.lost_motion_arcmin / 60:.2f} deg) of free play at "
             f"the output. That is the clearance you asked for, not a fault.")
 
-    story += [Spacer(1, 4), Paragraph("Build order", h2)]
+    story += [CondPageBreak(120 * mm), Paragraph("Build order", h2),
+              _fig_png(plots.assembly_figure(
+                  s, Figure(figsize=(6.4, 4.4), dpi=110),
+                  explode=0.85, azimuth=32.0, elevation=20.0), 115),
+              Paragraph("Exploded along the axis in assembly order: carrier at "
+                        "the bottom, then the housing and its ring pins, the "
+                        "disc stack, and the eccentric shaft through the "
+                        "middle.", body), Spacer(1, 4)]
     story += [Paragraph(f"{i}. {text}", body) for i, text in enumerate(steps, 1)]
 
     doc.build(story)

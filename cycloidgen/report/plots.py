@@ -9,16 +9,21 @@ what the light-mode aqua contrast warning requires.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from dataclasses import dataclass
 
 import numpy as np
+from matplotlib.collections import LineCollection
 from matplotlib.figure import Figure
 from matplotlib.patches import Circle
 
 from ..core import profile as prof
-from ..core.kinematics import contacts
+from ..core.kinematics import contacts, sweep, to_world
 from ..core.spec import GearSpec
 
 __all__ = [
+    "Overlays",
+    "ProfileView",
+    "assembly_figure",
     "force_figure",
     "light_theme",
     "loss_figure",
@@ -120,87 +125,363 @@ def _circle(x, y, r, color, lw, dashed: bool = False, alpha: float = 1.0) -> Cir
                   linestyle=(0, (4, 3)) if dashed else "solid", alpha=alpha, zorder=2)
 
 
+@dataclass(frozen=True)
+class Overlays:
+    """What the drawing shows beyond the outlines.
+
+    Everything here is off the same kinematics the checks and the datasheet use,
+    so the picture and the numbers cannot tell different stories.  They are
+    toggles because a 60-pin drive with every overlay on is unreadable, and
+    which one you want depends on what you are looking for.
+    """
+
+    contacts: bool = True        # where the disc actually touches the ring pins
+    forces: bool = True          # and how hard, to scale
+    trace: bool = False          # the path a point on the disc rim travels
+    labels: bool = False         # ring pin numbers
+
+
+class ProfileView:
+    """The drawing, built once and then *moved*.
+
+    The first version rebuilt every artist for every animation frame - a couple
+    of hundred patches, a fresh axes, and a ``tight_layout`` pass - which is
+    most of a hundred milliseconds against a 40 ms timer, so the animation ran
+    at whatever rate matplotlib could manage rather than the one it was asked
+    for.  Nothing about the geometry needs rebuilding when only the crank angle
+    moves: the artists are created when the *design* changes and repositioned
+    when the *angle* does.
+    """
+
+    def __init__(self, fig: Figure | None = None) -> None:
+        self.figure = fig or Figure(figsize=(6.2, 6.2), dpi=110)
+        self._spec: GearSpec | None = None
+        self._reference: GearSpec | None = None
+        self._overlays = Overlays()
+        self._crank = 0.0
+
+    # ----------------------------------------------------------------- design
+    def set_design(self, spec: GearSpec, *, reference: GearSpec | None = None,
+                   overlays: Overlays | None = None) -> None:
+        """Adopt a design and rebuild the artists."""
+        self._spec = spec
+        self._reference = reference
+        if overlays is not None:
+            self._overlays = overlays
+        self._build()
+        self.set_crank(self._crank)
+
+    def set_overlays(self, overlays: Overlays) -> None:
+        self._overlays = overlays
+        if self._spec is not None:
+            self._build()
+            self.set_crank(self._crank)
+
+    def refresh(self) -> None:
+        """Rebuild after a theme change.  Colours are baked in at draw time."""
+        if self._spec is not None:
+            self._build()
+            self.set_crank(self._crank)
+
+    def _build(self) -> None:
+        spec, t = self._spec, theme()
+        assert spec is not None
+        series = t["series"]
+        fig = self.figure
+        fig.clear()
+        fig.patch.set_facecolor(t["surface"])
+        ax = fig.add_subplot(111)
+        ax.set_facecolor(t["surface"])
+        self._ax = ax
+
+        reference = self._reference
+        self._ghost = None
+        if reference is not None:
+            # underneath everything, in the muted ink: it is context, not content
+            self._ref_profile = prof.profile_from_spec(reference)
+            (self._ghost,) = ax.plot([], [], color=t["muted"], linewidth=1.2,
+                                     linestyle=(0, (5, 3)), zorder=1)
+            ax.add_artist(_circle(0, 0, reference.housing_outer_radius, t["muted"],
+                                  0.8, dashed=True, alpha=0.7))
+
+        ax.add_artist(_circle(0, 0, spec.housing_outer_radius, t["muted"], 0.8))
+        ax.add_artist(_circle(0, 0, spec.pin_circle_radius, t["grid"], 0.8, dashed=True))
+        for k in range(spec.pin_count):
+            a = 2.0 * np.pi * k / spec.pin_count
+            x = spec.pin_circle_radius * np.cos(a)
+            y = spec.pin_circle_radius * np.sin(a)
+            ax.add_artist(_circle(x, y, spec.pin_radius, series[1], 1.2))
+            if self._overlays.labels:
+                ax.text(x, y, str(k), color=t["ink2"], fontsize=6.5,
+                        ha="center", va="center", zorder=6)
+
+        self._profile = prof.profile_from_spec(spec)
+        self._discs = []
+        bore_r = (spec.center_bore_diameter + spec.hole_clearance) / 2.0
+        hole_r = spec.output_hole_diameter / 2.0
+        for i in range(spec.disc_count):
+            alpha = 1.0 if i == 0 else 0.45
+            (line,) = ax.plot([], [], color=series[0], linewidth=2.0,
+                              alpha=alpha, zorder=3)
+            bore = _circle(0, 0, bore_r, series[0], 1.0, alpha=alpha)
+            ax.add_artist(bore)
+            holes = [_circle(0, 0, hole_r, series[0], 0.9, alpha=alpha)
+                     for _ in range(spec.output_pin_count)]
+            for hole in holes:
+                ax.add_artist(hole)
+            self._discs.append((line, bore, holes))
+
+        self._output_pins = [_circle(0, 0, spec.output_pin_diameter / 2,
+                                     series[2], 1.2)
+                             for _ in range(spec.output_pin_count)]
+        for pin in self._output_pins:
+            ax.add_artist(pin)
+
+        # Two marks that turn the picture into a mechanism.  The crank arm runs
+        # from the axis to the disc centre and is drawn to scale, which on a
+        # 130 mm drive with 1.4 mm of eccentricity is almost nothing - honest,
+        # and by itself useless.  So the input shaft also carries a ray inside
+        # the bore, where there is room for it and nothing else is drawn: that
+        # is the mark that visibly turns twenty-one times per output turn.
+        self._input_ray_length = bore_r * 0.92
+        (self._input_ray,) = ax.plot([], [], color=t["ink2"], linewidth=1.3,
+                                     linestyle=(0, (4, 2)), zorder=4)
+        (self._crank_arm,) = ax.plot([], [], color=t["ink2"], linewidth=1.2,
+                                     zorder=4)
+        (self._crank_dot,) = ax.plot([], [], marker="o", markersize=4.5,
+                                     color=t["ink2"], zorder=5)
+
+        self._build_overlays(ax, t, series)
+
+        lim = spec.housing_outer_radius * 1.05
+        if reference is not None:
+            lim = max(lim, reference.housing_outer_radius * 1.05)
+        ax.set_xlim(-lim, lim)
+        ax.set_ylim(-lim, lim)
+        ax.set_aspect("equal")
+        ax.axis("off")
+        ax.set_title(f"{spec.ratio}:1   {spec.lobes} lobes / {spec.pin_count} pins   "
+                     f"OD {2 * spec.housing_outer_radius:.1f} mm",
+                     color=t["ink"], fontsize=10, pad=8)
+        # Inside the axes, in the corner the housing circle leaves empty.  Below
+        # it, `tight_layout` does not reserve room for a text in axes
+        # coordinates and the line is cropped by the figure edge.
+        self._readout = ax.text(0.005, 0.005, "", transform=ax.transAxes,
+                                ha="left", va="bottom", color=t["ink2"],
+                                fontsize=8.5, family="monospace")
+        fig.tight_layout()
+
+    def _build_overlays(self, ax, t, series) -> None:
+        spec = self._spec
+        assert spec is not None
+        show = self._overlays
+
+        self._trace_dot = None
+        if show.trace:
+            # The path of one material point on the disc rim over a full
+            # *output* revolution - which takes `lobes` turns of the input, and
+            # is the period of the whole mechanism.  Tracing a single input turn
+            # instead gives a stub of arc, because that is all the disc advances
+            # in one: which is the reduction, drawn.
+            turns = spec.lobes
+            phis = np.linspace(0.0, 2.0 * np.pi * turns,
+                               int(np.clip(48 * turns, 720, 6000)))
+            # `to_world` spelled out for the whole sweep at once: the marker
+            # starts at (r, 0) in the disc frame, so its world position is the
+            # disc rotation applied to that plus the eccentric centre.
+            r, E = self._profile.outer_radius, spec.eccentricity
+            delta = phis / spec.lobes
+            ax.plot(r * np.cos(delta) + E * np.cos(phis),
+                    r * np.sin(delta) - E * np.sin(phis),
+                    color=t["ink2"], linewidth=0.7, alpha=0.9, zorder=2)
+            (self._trace_dot,) = ax.plot([], [], marker="o", markersize=4,
+                                         color=t["ink"], zorder=6)
+
+        self._contact_dots = None
+        self._force_lines = None
+        self._peak_force = 0.0
+        if not (show.contacts or show.forces):
+            return
+
+        # Normalised against the worst force over a whole lobe pitch, not
+        # against this frame's, so an arrow that grows means the load grew - not
+        # that the scale moved under it.  The sweep is the cached one the checks
+        # already ran.
+        torque = spec.output_torque_Nm * 1000.0 / spec.disc_count
+        self._torque_per_disc = torque
+        self._peak_force = max(
+            (float(state.forces(torque).max()) for state in sweep(spec)),
+            default=0.0)
+        self._arrow_span = 0.20 * spec.pin_circle_radius
+
+        if show.contacts:
+            self._contact_dots = ax.scatter([], [], s=[], color=series[1],
+                                            edgecolors="none", zorder=6)
+        if show.forces:
+            self._force_lines = LineCollection([], colors=t["ink"], linewidths=1.4,
+                                               zorder=7)
+            ax.add_collection(self._force_lines)
+
+    # ------------------------------------------------------------------ angle
+    def set_crank(self, degrees: float) -> None:
+        """Move everything to crank angle ``degrees``.  No artist is recreated."""
+        self._crank = float(degrees)
+        spec = self._spec
+        if spec is None:
+            return
+        phi = np.radians(self._crank)
+        E, lobes = spec.eccentricity, spec.lobes
+
+        if self._ghost is not None:
+            ref = self._reference
+            d = phi / ref.lobes
+            c, s = np.cos(d), np.sin(d)
+            pts = (self._ref_profile.closed @ np.array([[c, s], [-s, c]])
+                   + [ref.eccentricity * np.cos(phi), -ref.eccentricity * np.sin(phi)])
+            self._ghost.set_data(pts[:, 0], pts[:, 1])
+
+        closed = self._profile.closed
+        for i, (line, bore, holes) in enumerate(self._discs):
+            phase = spec.disc_phases[i]
+            hole_phase = spec.disc_hole_phases[i]
+            cx = E * np.cos(phi + phase)
+            cy = -E * np.sin(phi + phase)
+            d = (phi + phase) / lobes
+            c, s = np.cos(d), np.sin(d)
+            pts = closed @ np.array([[c, s], [-s, c]]) + [cx, cy]
+            line.set_data(pts[:, 0], pts[:, 1])
+            bore.set_center((cx, cy))
+            for k, hole in enumerate(holes):
+                # hole_phase cancels the disc's own mesh rotation, so every
+                # disc's holes land on the same carrier pins
+                a = 2.0 * np.pi * k / spec.output_pin_count + d + hole_phase
+                hole.set_center((cx + spec.output_bolt_circle_radius * np.cos(a),
+                                 cy + spec.output_bolt_circle_radius * np.sin(a)))
+
+        for k, pin in enumerate(self._output_pins):
+            a = 2.0 * np.pi * k / spec.output_pin_count + phi / lobes
+            pin.set_center((spec.output_bolt_circle_radius * np.cos(a),
+                            spec.output_bolt_circle_radius * np.sin(a)))
+
+        cx, cy = E * np.cos(phi), -E * np.sin(phi)
+        self._crank_arm.set_data([0.0, cx], [0.0, cy])
+        self._crank_dot.set_data([cx], [cy])
+        # The shaft turns *against* the crank angle: the disc centre walks
+        # clockwise, so the cam carrying it is rotated by -phi.
+        self._input_ray.set_data([0.0, self._input_ray_length * np.cos(-phi)],
+                                 [0.0, self._input_ray_length * np.sin(-phi)])
+
+        if self._trace_dot is not None:
+            point = to_world(np.array([[self._profile.outer_radius, 0.0]]),
+                             float(phi), E, lobes)
+            self._trace_dot.set_data(point[:, 0], point[:, 1])
+
+        engaged = self._update_contacts(phi)
+        self._readout.set_text(
+            f"in {self._crank:6.1f} deg    out {self._crank / spec.ratio:6.2f} deg"
+            + (f"    {engaged} of {spec.pin_count} pins carrying"
+               if engaged is not None else ""))
+
+    def _update_contacts(self, phi: float) -> int | None:
+        if self._contact_dots is None and self._force_lines is None:
+            return None
+        spec = self._spec
+        assert spec is not None
+        # Clearance is deliberately absent from this contact model - see
+        # `kinematics.contacts` - so these points sit on the theoretical
+        # profile, a clearance inside the drawn one.  At any readable zoom that
+        # is well under a line width.
+        state = contacts(spec, float(phi))
+        force = state.forces(self._torque_per_disc)
+        loaded = force > 0.0
+        points = state.points[loaded]
+        magnitude = force[loaded]
+
+        if self._contact_dots is not None:
+            self._contact_dots.set_offsets(points if len(points) else np.empty((0, 2)))
+            scale = magnitude / self._peak_force if self._peak_force else magnitude
+            self._contact_dots.set_sizes(6.0 + 44.0 * scale)
+        if self._force_lines is not None:
+            # The pin pushes the disc, so the arrow points along -n.
+            length = (magnitude / self._peak_force * self._arrow_span
+                      if self._peak_force else np.zeros_like(magnitude))
+            tips = points - state.normals[loaded] * length[:, None]
+            self._force_lines.set_segments(
+                [[tuple(a), tuple(b)] for a, b in zip(points, tips, strict=True)])
+        return int(loaded.sum())
+
+
 def profile_figure(spec: GearSpec, fig: Figure | None = None,
                    crank_deg: float = 0.0,
-                   reference: GearSpec | None = None) -> Figure:
-    """Technical drawing of the disc in the housing at a given crank angle.
+                   reference: GearSpec | None = None, *,
+                   overlays: Overlays | None = None) -> Figure:
+    """One-shot drawing of the disc in the housing at a given crank angle.
 
     ``reference`` draws a second design underneath in outline only, for
-    comparing a change against what it replaced.
+    comparing a change against what it replaced.  The application uses
+    :class:`ProfileView` directly so that animating does not rebuild the figure;
+    this is the convenience wrapper for the report and the documentation.
     """
+    view = ProfileView(fig)
+    view.set_design(spec, reference=reference, overlays=overlays or Overlays())
+    view.set_crank(crank_deg)
+    return view.figure
+
+
+def assembly_figure(spec: GearSpec, fig: Figure | None = None, *,
+                    crank_deg: float = 0.0, explode: float = 0.0,
+                    azimuth: float = 38.0, elevation: float = 26.0,
+                    hidden=(), pixels: int = 1100) -> Figure:
+    """The 3D assembly as a figure, for the report and the documentation.
+
+    The same draw list the desktop viewer paints, handed to matplotlib instead
+    of to ``QPainter``.  Two renderers over one scene: the picture in the PDF is
+    the picture in the window, and there is no second projection to keep in
+    step.  It comes out as vector paths, so it stays sharp at print size.
+    """
+    from matplotlib.collections import PathCollection
+    from matplotlib.path import Path
+
+    from ..viz.mesh import mesh_for_spec
+    from ..viz.scene import Camera, render
+
     t = theme()
-    fig = fig or Figure(figsize=(6.2, 6.2), dpi=110)
+    fig = fig or Figure(figsize=(6.2, 4.6), dpi=110)
     fig.clear()
     fig.patch.set_facecolor(t["surface"])
     ax = fig.add_subplot(111)
     ax.set_facecolor(t["surface"])
 
-    phi = np.radians(crank_deg)
-    p = prof.profile_from_spec(spec)
-    series = t["series"]
+    w_in, h_in = fig.get_size_inches()
+    width, height = pixels, max(round(pixels * h_in / w_in), 1)
 
-    if reference is not None:
-        # underneath everything, in the muted ink: it is context, not content
-        ref = prof.profile_from_spec(reference)
-        d = phi / reference.lobes
-        c, s = np.cos(d), np.sin(d)
-        pts = (ref.closed @ np.array([[c, s], [-s, c]])
-               + np.array([reference.eccentricity * np.cos(phi),
-                           -reference.eccentricity * np.sin(phi)]))
-        ax.plot(pts[:, 0], pts[:, 1], color=t["muted"], linewidth=1.2,
-                linestyle=(0, (5, 3)), zorder=1)
-        ax.add_artist(_circle(0, 0, reference.housing_outer_radius, t["muted"],
-                              0.8, dashed=True, alpha=0.7))
+    mesh = mesh_for_spec(spec)
+    camera = Camera.framing(mesh, explode=explode, azimuth=azimuth,
+                            elevation=elevation)
+    draw = render(mesh, np.radians(crank_deg), camera, width, height,
+                  explode=explode, hidden=hidden)
 
-    ax.add_artist(_circle(0, 0, spec.housing_outer_radius, t["muted"], 0.8))
-    ax.add_artist(_circle(0, 0, spec.pin_circle_radius, t["grid"], 0.8, dashed=True))
+    paths = []
+    for loops in draw.loops:
+        verts, codes = [], []
+        for loop in loops:
+            verts.append(np.vstack([loop, loop[:1]]))
+            codes.append(np.concatenate([[Path.MOVETO],
+                                         np.full(len(loop) - 1, Path.LINETO),
+                                         [Path.CLOSEPOLY]]))
+        paths.append(Path(np.vstack(verts), np.concatenate(codes)))
 
-    for k in range(spec.pin_count):
-        a = 2.0 * np.pi * k / spec.pin_count
-        ax.add_artist(_circle(spec.pin_circle_radius * np.cos(a),
-                              spec.pin_circle_radius * np.sin(a),
-                              spec.pin_radius, series[1], 1.2))
-
-    for i, (phase, hole_phase) in enumerate(zip(spec.disc_phases,
-                                                spec.disc_hole_phases,
-                                                strict=True)):
-        cx = spec.eccentricity * np.cos(phi + phase)
-        cy = -spec.eccentricity * np.sin(phi + phase)
-        d = (phi + phase) / spec.lobes
-        c, s = np.cos(d), np.sin(d)
-        pts = p.closed @ np.array([[c, s], [-s, c]]) + np.array([cx, cy])
-        alpha = 1.0 if i == 0 else 0.45
-        ax.plot(pts[:, 0], pts[:, 1], color=series[0], linewidth=2.0,
-                alpha=alpha, zorder=3)
-        ax.add_artist(_circle(cx, cy,
-                              (spec.center_bore_diameter + spec.hole_clearance) / 2,
-                              series[0], 1.0, alpha=alpha))
-        hole_r = spec.output_hole_diameter / 2.0
-        for k in range(spec.output_pin_count):
-            # hole_phase cancels the disc's own mesh rotation, so every disc's
-            # holes land on the same carrier pins
-            a = 2.0 * np.pi * k / spec.output_pin_count + d + hole_phase
-            ax.add_artist(_circle(cx + spec.output_bolt_circle_radius * np.cos(a),
-                                  cy + spec.output_bolt_circle_radius * np.sin(a),
-                                  hole_r, series[0], 0.9, alpha=alpha))
-
-    for k in range(spec.output_pin_count):
-        a = 2.0 * np.pi * k / spec.output_pin_count + phi / spec.lobes
-        ax.add_artist(_circle(spec.output_bolt_circle_radius * np.cos(a),
-                              spec.output_bolt_circle_radius * np.sin(a),
-                              spec.output_pin_diameter / 2, series[2], 1.2))
-
-    lim = spec.housing_outer_radius * 1.05
-    if reference is not None:
-        lim = max(lim, reference.housing_outer_radius * 1.05)
-    ax.set_xlim(-lim, lim)
-    ax.set_ylim(-lim, lim)
+    colours = draw.colours / 255.0
+    # Every face is outlined in its own fill colour.  Without it, antialiasing
+    # leaves a hairline of background along every shared edge and a solid part
+    # arrives looking like a wireframe of its own facets.
+    ax.add_collection(PathCollection(paths, facecolors=colours, edgecolors=colours,
+                                     linewidths=0.5, antialiaseds=True))
+    ax.set_xlim(0, width)
+    ax.set_ylim(height, 0)
     ax.set_aspect("equal")
     ax.axis("off")
-    ax.set_title(f"{spec.ratio}:1   {spec.lobes} lobes / {spec.pin_count} pins   "
-                 f"OD {2 * spec.housing_outer_radius:.1f} mm",
-                 color=t["ink"], fontsize=10, pad=8)
-    fig.tight_layout()
+    fig.tight_layout(pad=0.2)
     return fig
 
 

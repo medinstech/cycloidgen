@@ -169,6 +169,101 @@ def test_tab_and_crank_come_back(app):
         w2.close()
 
 
+def test_the_crank_drives_both_simulations(app):
+    """One control, two views.  If they can drift apart, they will."""
+    w = _window(app)
+    try:
+        w.tabs.setCurrentIndex(w._drawing_tab)
+        _pump(app, 0.2)
+        w._crank_slider.setValue(64)
+        _pump(app, 0.3)
+        assert w._view3d.view._crank == 64.0
+        assert w._profile_view._crank == 64.0
+    finally:
+        w.close()
+
+
+def test_the_drawing_is_not_redrawn_while_nobody_is_looking(app):
+    """A hidden Agg canvas still honours ``draw_idle``.
+
+    That is a full render of a figure nobody can see, on every animation
+    frame - so the drawing is left behind and catches up when its tab comes
+    back.  The 3D view is updated either way because its update is a float and
+    a repaint request Qt drops for a hidden widget.
+    """
+    w = _window(app)
+    try:
+        w.tabs.setCurrentIndex(w._drawing_tab)
+        _pump(app, 0.2)
+        w.tabs.setCurrentIndex(w._outputs_tab)
+        w._crank_slider.setValue(150)
+        _pump(app, 0.2)
+        assert w._view3d.view._crank == 150.0
+        assert w._profile_stale
+
+        w.tabs.setCurrentIndex(w._drawing_tab)
+        assert w._profile_view._crank == 150.0
+        assert not w._profile_stale
+    finally:
+        w.close()
+
+
+def test_the_crank_bar_is_hidden_where_it_would_do_nothing(app):
+    """A control that does nothing where it is shown teaches people to ignore it."""
+    w = _window(app)
+    try:
+        for tab in (w._drawing_tab, w._solid_tab):
+            w.tabs.setCurrentIndex(tab)
+            assert w._crank_bar.isVisible()
+        w.tabs.setCurrentIndex(w._outputs_tab)
+        assert not w._crank_bar.isVisible()
+    finally:
+        w.close()
+
+
+def test_the_viewpoint_and_the_overlays_survive_a_restart(app):
+    w = _window(app)
+    w._view3d.view.set_camera_angles(123.0, -17.0)
+    w._view3d._explode.setValue(40)
+    w._view3d._groups["housing"].setChecked(False)
+    w._overlay_boxes["trace"].setChecked(True)
+    _pump(app, 0.3)
+    w.close()
+    _pump(app, 0.3)
+
+    w2 = _window(app)
+    try:
+        assert w2._view3d.view.camera.azimuth == pytest.approx(123.0)
+        assert w2._view3d.view.camera.elevation == pytest.approx(-17.0)
+        assert w2._view3d._explode.value() == 40
+        assert not w2._view3d._groups["housing"].isChecked()
+        assert w2._overlay_boxes["trace"].isChecked()
+        assert w2._overlays().trace
+    finally:
+        w2._view3d._groups["housing"].setChecked(True)
+        w2._overlay_boxes["trace"].setChecked(False)
+        w2.close()
+
+
+def test_the_outputs_tab_lists_what_an_export_would_write(app):
+    """The tab is a preview, so it has to be right before anything is written."""
+    from cycloidgen.export.manifest import planned_files
+    w = _window(app)
+    try:
+        outputs = w._outputs
+        expected = len(planned_files(w.spec, outputs.selected_groups()))
+        leaves = 0
+        for i in range(outputs.tree.topLevelItemCount()):
+            group = outputs.tree.topLevelItem(i)
+            for j in range(group.childCount()):
+                entry = group.child(j)
+                leaves += entry.childCount() or 1
+        assert leaves == len(planned_files(w.spec))
+        assert expected > 0
+    finally:
+        w.close()
+
+
 def test_the_split_is_remembered_as_a_proportion(app):
     """Storing pixels would hand a narrower screen most of its width to the
     parameter panel."""

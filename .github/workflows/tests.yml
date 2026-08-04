@@ -91,12 +91,26 @@ jobs:
         env:
           MPLBACKEND: Agg
         run: |
+          python -m cycloidgen --ratio 29 --list-outputs
           python -m cycloidgen --ratio 29 --out ./_ci_out
           test -f ./_ci_out/report.pdf
           test -f ./_ci_out/bom.csv
           test -f ./_ci_out/dxf/disc_1.dxf
           test -f ./_ci_out/assembly.step
           ls -R ./_ci_out
+
+      # The group selection is the path a machine without OCCT has to take, so
+      # it is worth proving separately that it produces drawings and a report
+      # and does not reach for the kernel.
+      - name: Export drawings and data only
+        env:
+          MPLBACKEND: Agg
+        run: |
+          python -m cycloidgen --ratio 29 --only drawings,data --out ./_ci_2d
+          test -f ./_ci_2d/report.pdf
+          test -f ./_ci_2d/disc.svg
+          test ! -d ./_ci_2d/step
+          test ! -d ./_ci_2d/stl
 
       - name: Search for a design
         env:

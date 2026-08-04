@@ -1,0 +1,36 @@
+name: Feature request
+description: Something it should do and does not
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check [ROADMAP.md](../blob/main/ROADMAP.md) first. Several things
+        are listed there as **deliberately not doing** — FEA, involute gears,
+        `ruff format`, rounded corners — with the reasoning, and those are
+        settled.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: >
+        The design problem, not the feature. "I cannot tell which pins are
+        carrying load" is more useful than "add a colour scale", because the
+        first has several answers and the second has one.
+    validations:
+      required: true
+
+  - type: textarea
+    id: today
+    attributes:
+      label: What you do today instead
+      description: >
+        Another tool, a spreadsheet, a measurement, doing without. This is how
+        the cost of not having it gets estimated.
+
+  - type: textarea
+    id: shape
+    attributes:
+      label: What it might look like
+      description: Optional. A sketch, a formula, a reference to how another tool does it.

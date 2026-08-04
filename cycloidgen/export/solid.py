@@ -12,6 +12,8 @@ import cadquery as cq
 
 from ..core import profile as prof
 from ..core.spec import GearSpec
+from ..viz.mesh import PART_COLOURS
+from .manifest import disc_names
 
 __all__ = [
     "build_assembly",
@@ -28,6 +30,17 @@ __all__ = [
 #: Solid modelling uses a coarser sampling than DXF; OCCT slows sharply with
 #: vertex count and the mesh tolerance dominates the result anyway.
 _MAX_SOLID_POINTS = 1400
+
+
+def _colour(group: str) -> cq.Color:
+    """Part colour, from the same table the 3D viewer paints with.
+
+    The viewer and the STEP file are meant to be recognisably the same gearbox.
+    Two hand-written colour lists would agree on the day they were written and
+    not for very long after that.
+    """
+    r, g, b = PART_COLOURS[group]
+    return cq.Color(r / 255.0, g / 255.0, b / 255.0)
 
 
 def _profile_points(spec: GearSpec) -> list[tuple[float, float]]:
@@ -115,8 +128,8 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
     """Full gearbox at crank angle zero, each disc on its own phase."""
     assy = cq.Assembly(name=f"cycloidal_{spec.ratio}to1")
 
-    assy.add(ring_housing(spec), name="housing", color=cq.Color(0.65, 0.65, 0.70))
-    assy.add(ring_pins(spec), name="ring_pins", color=cq.Color(0.85, 0.55, 0.15))
+    assy.add(ring_housing(spec), name="housing", color=_colour("housing"))
+    assy.add(ring_pins(spec), name="ring_pins", color=_colour("ring_pins"))
 
     z = 0.0
     for i, (phase, hole_phase) in enumerate(zip(spec.disc_phases,
@@ -127,14 +140,13 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
         rot = math.degrees(phase / spec.lobes)
         assy.add(disc_solid(spec, hole_phase), name=f"disc_{i + 1}",
                  loc=cq.Location(cq.Vector(cx, cy, z), cq.Vector(0, 0, 1), rot),
-                 color=cq.Color(0.30, 0.65, 0.85))
+                 color=_colour("discs"))
         z += spec.disc_thickness + spec.disc_gap
 
-    assy.add(eccentric_shaft(spec), name="eccentric_shaft",
-             color=cq.Color(0.45, 0.45, 0.50))
+    assy.add(eccentric_shaft(spec), name="eccentric_shaft", color=_colour("shaft"))
     assy.add(output_flange(spec), name="output_flange",
              loc=cq.Location(cq.Vector(0, 0, -1.0)),
-             color=cq.Color(0.55, 0.75, 0.45))
+             color=_colour("carrier"))
     return assy
 
 
@@ -158,11 +170,10 @@ def parts(spec: GearSpec) -> dict[str, cq.Workplane]:
         "eccentric_shaft": eccentric_shaft(spec),
         "output_flange": output_flange(spec),
     }
-    if spec.discs_are_identical:
-        out["disc"] = disc_solid(spec, spec.disc_hole_phases[0])
-    else:
-        for i, hole_phase in enumerate(spec.disc_hole_phases):
-            out[f"disc_{i + 1}"] = disc_solid(spec, hole_phase)
+    phases = (spec.disc_hole_phases[:1] if spec.discs_are_identical
+              else spec.disc_hole_phases)
+    for name, hole_phase in zip(disc_names(spec), phases, strict=True):
+        out[name] = disc_solid(spec, hole_phase)
     return out
 
 

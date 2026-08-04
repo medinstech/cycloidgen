@@ -5,11 +5,24 @@
 [![python](https://img.shields.io/badge/python-3.10%20%E2%80%93%203.12-blue.svg)](pyproject.toml)
 
 Parametric cycloidal drive (cycloidal gearbox) generator: a desktop app that
-takes a handful of parameters — or a set of requirements — draws the drive live,
-checks it, sizes it, and writes DXF, SVG, STEP, STL, a bill of materials and a
-PDF dossier.
+takes a handful of parameters — or a set of requirements — runs the drive live in
+2D and 3D, checks it, sizes it, and writes DXF, SVG, STEP, STL, a bill of
+materials and a PDF dossier.
 
 ![overview](docs/drawing.png)
+
+The drawing is a simulation, not an outline. The dots are where the disc touches
+each ring pin and the arrows are the load it carries there, both off the same
+kinematics the checks and the datasheet use; the faint wavy ring is the path one
+point on the disc rim travels over a full output revolution. Twenty-one turns of
+the input, one of the output.
+
+![assembly](docs/assembly.png)
+
+The 3D view turns on the same crank as the drawing, so the mechanism is the same
+mechanism in both. It is built from the same closed-form profile — not
+tessellated from the exported solids — so it works in a build without the CAD
+kernel and cannot drift from what you get in the STEP file.
 
 ## Run it
 
@@ -56,17 +69,35 @@ list is not.
 
 ## What it produces
 
-| File | Contents |
-|---|---|
-| `disc.dxf` | Drawing of the whole drive: disc profile as a closed LWPOLYLINE sampled to the chord tolerance, plus bore, output holes, ring pins and housing, on separate layers |
-| `disc.svg` | Same drawing, 1 unit = 1 mm |
-| `dxf/*.dxf` | One cutting file per part — each disc on its own, the ring plate, and a carrier drilling template |
-| `assembly.step` | Full gearbox: housing, ring pins, phased discs, eccentric shaft, output flange |
-| `step/*.step` | Each part as its own solid |
-| `stl/*.stl` | Each part separately — STL has no assembly structure. A multi-disc stack gets `disc_1.stl`, `disc_2.stl`, ... because **the discs are not the same part** (see below) |
-| `bom.csv` | Every part: quantity, material, size, mass, make or buy, and the bearing designations the sizing study picked |
-| `report.json` | Every parameter, derived value, load, stiffness, temperature, mass and finding as plain data |
-| `report.pdf` | Drawing, geometry, checks, contact stress, stiffness and backlash, PV and temperature, mass, bill of materials, bearings, and a build order |
+Three groups, chosen together or separately — in the app's **Outputs** tab, on
+the command line with `--only`, or with the two quick export buttons.
+
+| File | Group | Contents |
+|---|---|---|
+| `disc.dxf` | drawings | Drawing of the whole drive: disc profile as a closed LWPOLYLINE sampled to the chord tolerance, plus bore, output holes, ring pins and housing, on separate layers |
+| `disc.svg` | drawings | Same drawing, 1 unit = 1 mm |
+| `dxf/` | drawings | One cutting file per part — each disc on its own, the ring plate, and a carrier drilling template drilled for the *press fit*, not for the disc's running hole |
+| `assembly.step` | solids | Full gearbox: housing, ring pins, phased discs, eccentric shaft, output flange, coloured |
+| `step/` | solids | Each part as its own solid, in its own frame |
+| `stl/` | solids | Each part separately — STL has no assembly structure. A multi-disc stack gets `disc_1.stl`, `disc_2.stl`, … because **the discs are not the same part** (see below) |
+| `bom.csv` | data | Every part: quantity, material, size, mass, make or buy, and the bearing designations the sizing study picked |
+| `report.json` | data | Every parameter, derived value, load, stiffness, temperature, mass and finding as plain data |
+| `report.pdf` | data | Drawing and 3D view, geometry, checks, contact stress, stiffness and backlash, PV and temperature, mass, bill of materials, bearings, and an exploded build order |
+
+The **Outputs** tab lists all of that for the current design *before* anything is
+written — every file by name, what it is for, and where it will land — then
+fills in the sizes afterwards and opens any of them on a double-click. The same
+list is available headlessly:
+
+```bash
+python -m cycloidgen --ratio 29 --list-outputs
+python -m cycloidgen --ratio 29 --only drawings,data --out ./x
+```
+
+That list is not a second copy of the truth. `cycloidgen/export/manifest.py`
+declares every deliverable once; `write_bundle`, the Outputs tab and
+`--list-outputs` all read it, and a test compares the declaration against the
+files that actually appear on disk — including this table.
 
 ## The geometry
 
@@ -192,8 +223,39 @@ suggests it.
 
 ## In the app
 
-- **Drawing** with a crank slider and animation; a pinned reference design shows
-  underneath as a ghost outline.
+- **Drawing** — the live 2D simulation. A crank slider and playback at a chosen
+  speed, and four overlays that can be turned on independently: contact points
+  sized by the share of load they carry, contact forces to scale, the traced
+  path of a point on the disc rim, and ring pin numbers. Input and output angles
+  are read out under the drawing, so the reduction is something you watch rather
+  than something you are told. A pinned reference design shows underneath as a
+  ghost outline.
+
+  Everything drawn comes off `core.kinematics`, the module that was verified
+  against a full-revolution meshing simulation — the picture cannot tell a
+  different story from the datasheet. Force arrows are scaled against the worst
+  force over a whole lobe pitch rather than against the current frame, so an
+  arrow that grows means the load grew and not that the scale moved under it.
+
+- **3D** — the assembled drive on the same crank. Drag to orbit, right-drag to
+  pan, wheel to zoom, standard viewpoints, an explode slider, and per-group
+  visibility so you can take the housing off and watch the mesh.
+
+  ![exploded](docs/exploded.png)
+
+  It renders in software: no OpenGL, no Qt 3D, no scene graph. A hardware path
+  would push more triangles than this ever needs, and would also be the one part
+  of the application that fails on a machine with no GL driver, over a remote
+  desktop, or in a headless test — which is where a mechanical tool actually
+  gets used. A cycloidal drive is a few thousand polygons, back-face culled and
+  painted back to front; a frame costs about 13 ms, and the maths can be checked
+  on a machine with no display at all. The mesh is verified against the volume
+  of the solid that gets exported, part by part, so the picture and the STEP file
+  are the same gearbox.
+
+- **Outputs** — every file an export writes, by name, with what it is for and
+  where it will land, *before* anything is written. Sizes fill in afterwards and
+  a double-click opens any of them.
 - **Loads**, **Efficiency**, and a **Datasheet** tab with everything above.
 - **Trade study** — sweep any one parameter and watch torque capacity,
   efficiency, lost motion and mass move together, on their own real units, with
@@ -258,13 +320,20 @@ cycloidgen/
 ├── core/       spec (the one source of truth), profile, kinematics, validate
 ├── analysis/   mechanics (Hertz), stiffness, thermal, mass, efficiency, bearings
 ├── design/     optimise (requirements -> geometry), sweep (trade studies)
-├── export/     dxf, svg, solid (CadQuery/OCCT), bom
+├── viz/        mesh and scene: 3D geometry and rendering maths, no Qt
+├── export/     manifest (what a bundle contains), dxf, svg, solid (OCCT), bom
 ├── report/     plots (shared by UI and PDF), build
-└── ui/         PySide6 window, declarative field table, optimiser dialog,
-                trade-study tab, undo/redo history, log panel
-tests/          259 tests; the envelope, pin-in-hole and clearance-sign tests
-                matter most
+└── ui/         PySide6 window, 3D viewer, outputs tab, declarative field table,
+                optimiser dialog, trade-study tab, undo/redo history, log panel
+tests/          294 tests; the envelope, pin-in-hole, clearance-sign and
+                mesh-versus-solid tests matter most
 ```
+
+Two boundaries in there are load-bearing. **`core` and `viz` do not import Qt**,
+which is what lets the geometry and the renderer be tested without a display and
+what keeps one piece of code drawing both the window and the PDF. And
+**`export/manifest.py` declares every output file exactly once** — the writer,
+the Outputs tab, `--list-outputs` and the table above all read it.
 
 ## Tests
 
@@ -272,9 +341,25 @@ tests/          259 tests; the envelope, pin-in-hole and clearance-sign tests
 .venv\Scripts\python -m pytest -q
 ```
 
-259 tests, about 120 s. Most of that is CadQuery writing solids; the pure
-analysis tests run in under a second. The log-panel tests need Qt and run
-headless (`QT_QPA_PLATFORM=offscreen`, set by the test module itself).
+294 tests, about 145 s. Most of that is CadQuery writing solids; the pure
+analysis tests run in under a second. The Qt tests run headless
+(`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
+preferences into a temporary file, so the suite cannot rearrange your own
+application.
+
+Two of them are worth calling out because they are the ones that keep separate
+representations of the same gearbox honest:
+
+- **The 3D mesh against the exported solid.** Every part's mesh volume is
+  computed by the divergence theorem and compared against what OCCT says the
+  STEP body encloses, to within faceting error. The same test checks that each
+  part is a *closed* surface — the vector areas of its faces must cancel
+  exactly, which catches a missing end cap, a wall built for the wrong number of
+  edges, or a loop wound the wrong way round. It has already earned its keep: it
+  found the eccentric shaft double-counting the barrel inside its own cams.
+- **The manifest against the disk.** An export is compared against what the
+  manifest promised — exactly those files and no others — including the table in
+  this README.
 
 CI runs `ruff`, then the suite on Linux and Windows across the oldest and newest
 supported Python, then separately exports a full bundle and runs a design search
@@ -301,6 +386,15 @@ instead of three modules each running their own, the profile and the undercut
 limit are cached, and the self-intersection test uses a uniform-grid broad phase
 instead of sampling every other segment against all the rest — which was also
 skipping over crossings it should have caught.
+
+Animation runs on a 33 ms tick and both views fit inside it. The drawing costs
+about 10 ms a frame, down from 25: the artists are built when the *design*
+changes and repositioned when the *angle* does, so a crank move no longer
+rebuilds a couple of hundred patches and re-runs `tight_layout`. The 3D view
+costs about 13 ms — roughly 1 ms of projection, culling, shading and depth
+sorting in numpy, and the rest painting. Neither view is redrawn while its tab
+is hidden; a hidden matplotlib canvas will still honour `draw_idle` with a full
+render, which is ten milliseconds a frame spent on something nobody can see.
 
 ## Standalone build
 
@@ -329,6 +423,19 @@ bundle to a fraction of the size.
 See [ROADMAP.md](ROADMAP.md). The item at the top — calibrating the model
 against measured hardware — is worth more than everything under it, and is
 listed first for that reason.
+
+## Contributing
+
+[CONTRIBUTING.md](CONTRIBUTING.md) covers setup, the house style, and what a
+change looks like here. The short version: numbers are verified rather than
+asserted, comments say *why*, and `ruff format` is deliberately not part of the
+build.
+
+The most valuable contribution needs no code at all — **build one of these and
+measure it**. That is the item at the top of the roadmap.
+
+Also: [CHANGELOG.md](CHANGELOG.md) · [SECURITY.md](SECURITY.md) ·
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
 ## License
 

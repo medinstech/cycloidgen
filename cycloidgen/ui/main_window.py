@@ -48,6 +48,7 @@ from ..analysis import DesignAnalysis, analyse
 from ..core.spec import GearSpec, OffsetMode, Process, preset
 from ..core.validate import Severity
 from ..export import write_bundle
+from ..export.manifest import group_keys
 from ..report import plots
 from . import branding
 from .fields import CODE_FIELDS, GROUPS, Field
@@ -55,10 +56,20 @@ from .history import SpecHistory
 from .logpanel import LogPanel, logger
 from .logpanel import install as install_logging
 from .optimise_dialog import OptimiseDialog
+from .outputs import OutputsTab
 from .settings import app_settings
 from .tradestudy import TradeStudyTab
+from .view3d import Assembly3DTab
 
 _MAX_RECENT = 8
+
+#: Animation tick.  30 Hz, not 25: the drawing now costs about 10 ms a frame
+#: instead of 25, so there is room for it, and the difference between 25 and 30
+#: is the difference between a mechanism turning and a mechanism stepping.
+_FRAME_MS = 33
+
+#: Degrees of input per frame at 1x - one input revolution in four seconds.
+_CRANK_STEP_DEG = 3.0
 
 
 def _severity_colours(mode: str) -> dict[Severity, QColor]:
@@ -80,15 +91,15 @@ class ExportWorker(QThread):
     done = Signal(list)
     failed = Signal(str)
 
-    def __init__(self, spec: GearSpec, directory: Path, solids: bool):
+    def __init__(self, spec: GearSpec, directory: Path, groups: set[str]):
         super().__init__()
-        self._spec, self._dir, self._solids = spec, directory, solids
+        self._spec, self._dir, self._groups = spec, directory, groups
 
     def run(self) -> None:
         try:
             logger.info("export started: %s (%s)", self._dir,
-                        "all files" if self._solids else "drawings only")
-            files = write_bundle(self._spec, self._dir, self._solids)
+                        ", ".join(sorted(self._groups)))
+            files = write_bundle(self._spec, self._dir, groups=self._groups)
             for path in files:
                 logger.debug("wrote %s (%.0f kB)", path, path.stat().st_size / 1024)
             self.done.emit([str(p) for p in files])
@@ -144,6 +155,10 @@ class MainWindow(QMainWindow):
         self._groups: list[tuple[QGroupBox, list[str]]] = []
         self._updating = False
         self._crank = 0.0
+        # The animation advances a float and rounds onto the integer slider, so
+        # a quarter-speed run still moves rather than rounding its step to zero.
+        self._crank_exact = 0.0
+        self._profile_stale = False
         self._generation = 0
         self._last_codes: set[str] | None = None
         self._log_badge = 0
@@ -162,7 +177,7 @@ class MainWindow(QMainWindow):
         self._debounce.timeout.connect(self._recompute)
 
         self._anim = QTimer(self)
-        self._anim.setInterval(40)
+        self._anim.setInterval(_FRAME_MS)
         self._anim.timeout.connect(self._advance_crank)
 
         self.setWindowIcon(branding.window_icon())
@@ -220,12 +235,14 @@ class MainWindow(QMainWindow):
                 self.tabs.setCurrentIndex(index)
         except (TypeError, ValueError):
             pass
+        self._tab_changed(self.tabs.currentIndex())
 
         try:
             crank = int(settings.value("crank", 0))
         except (TypeError, ValueError):
             crank = 0
         self._crank_slider.setValue(max(0, min(359, crank)))
+        self._view3d.restore_state()
 
     def showEvent(self, event) -> None:
         """Restore the split once the window actually has a size.
@@ -264,6 +281,7 @@ class MainWindow(QMainWindow):
             self._settings.setValue("splitter_fraction", sizes[0] / sum(sizes))
         self._settings.setValue("tab", self.tabs.currentIndex())
         self._settings.setValue("crank", self._crank_slider.value())
+        self._view3d.save_state()
 
     def _build_header(self) -> QWidget:
         """A slim brand strip: the mark, the product, and nothing else.
@@ -422,26 +440,19 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self._fig_profile = Figure(figsize=(6.4, 6.4), dpi=100)
         self._canvas_profile = Canvas(self._fig_profile)
+        self._profile_view = plots.ProfileView(self._fig_profile)
         page = QWidget()
         pv = QVBoxLayout(page)
         pv.addWidget(NavBar(self._canvas_profile, page))
+        pv.addLayout(self._build_overlay_row())
         pv.addWidget(self._canvas_profile, 1)
+        self._drawing_tab = self.tabs.addTab(page, "DRAWING")
 
-        crank_row = QHBoxLayout()
-        crank_row.addWidget(QLabel("CRANK"))
-        self._crank_slider = QSlider(Qt.Horizontal)
-        self._crank_slider.setRange(0, 359)
-        self._crank_slider.valueChanged.connect(self._on_crank)
-        crank_row.addWidget(self._crank_slider, 1)
-        self._crank_label = QLabel("0 deg")
-        self._crank_label.setMinimumWidth(56)
-        crank_row.addWidget(self._crank_label)
-        self._play = QPushButton("ROTATE")
-        self._play.setCheckable(True)
-        self._play.toggled.connect(self._toggle_animation)
-        crank_row.addWidget(self._play)
-        pv.addLayout(crank_row)
-        self.tabs.addTab(page, "DRAWING")
+        self._view3d = Assembly3DTab()
+        self._solid_tab = self.tabs.addTab(self._view3d, "3D")
+        self.tabs.setTabToolTip(self._solid_tab,
+                                "The assembled drive, turning on the same crank "
+                                "as the drawing.")
 
         self._fig_force = Figure(figsize=(6.4, 3.6), dpi=100)
         self._canvas_force = Canvas(self._fig_force)
@@ -472,6 +483,13 @@ class MainWindow(QMainWindow):
         self._compare_page = self._build_compare_tab()
         self.tabs.addTab(self._compare_page, "COMPARE")
 
+        self._outputs = OutputsTab()
+        self._outputs.export_requested.connect(self._start_export)
+        self._outputs_tab = self.tabs.addTab(self._outputs, "OUTPUTS")
+        self.tabs.setTabToolTip(self._outputs_tab,
+                                "Every file an export writes, what it is for, "
+                                "and where it goes.")
+
         self._log_tab = self.tabs.addTab(self.log, "LOG")
         self.tabs.setTabToolTip(self._log_tab,
                                 "Everything the app would otherwise print to a "
@@ -498,10 +516,21 @@ class MainWindow(QMainWindow):
         header.setStretchLastSection(True)
         checks_layout.addWidget(self.findings, 1)
 
+        # The crank lives under the tab strip rather than inside the drawing,
+        # because it drives the 3D view as well: one control, two simulations,
+        # and no chance of the two disagreeing about where the mechanism is.
+        stage = QWidget()
+        stage_column = QVBoxLayout(stage)
+        stage_column.setContentsMargins(0, 0, 0, 0)
+        stage_column.setSpacing(4)
+        stage_column.addWidget(self.tabs, 1)
+        self._crank_bar = self._build_crank_bar()
+        stage_column.addWidget(self._crank_bar)
+
         # A fixed 190 px strip cut the last row in half and left the datasheet
         # scrolling in a box a third of the window.  Let the user decide.
         self._view_split = QSplitter(Qt.Vertical)
-        self._view_split.addWidget(self.tabs)
+        self._view_split.addWidget(stage)
         self._view_split.addWidget(self._checks_panel)
         self._view_split.setStretchFactor(0, 1)
         self._view_split.setCollapsible(0, False)
@@ -524,6 +553,79 @@ class MainWindow(QMainWindow):
         row.addWidget(self._pin_btn)
         layout.addLayout(row)
         return panel
+
+    def _build_crank_bar(self) -> QWidget:
+        """Crank angle, playback and speed - shared by the drawing and the 3D view."""
+        bar = QWidget()
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(2, 0, 2, 0)
+        row.addWidget(QLabel("CRANK"))
+        self._crank_slider = QSlider(Qt.Horizontal)
+        self._crank_slider.setRange(0, 359)
+        self._crank_slider.valueChanged.connect(self._on_crank)
+        row.addWidget(self._crank_slider, 1)
+        self._crank_label = QLabel("0 deg")
+        self._crank_label.setMinimumWidth(56)
+        row.addWidget(self._crank_label)
+
+        self._play = QPushButton("ROTATE")
+        self._play.setCheckable(True)
+        self._play.toggled.connect(self._toggle_animation)
+        row.addWidget(self._play)
+
+        row.addWidget(QLabel("SPEED"))
+        self._speed_box = QComboBox()
+        for label, factor in (("0.25x", 0.25), ("0.5x", 0.5), ("1x", 1.0),
+                              ("2x", 2.0), ("4x", 4.0)):
+            self._speed_box.addItem(label, factor)
+        self._speed_box.setCurrentIndex(2)
+        self._speed_box.setMaximumWidth(80)
+        self._speed_box.setToolTip("Input revolutions per second of wall clock. "
+                                   "The output turns this / the ratio.")
+        row.addWidget(self._speed_box)
+        return bar
+
+    def _build_overlay_row(self) -> QHBoxLayout:
+        """What the drawing shows on top of the outlines.
+
+        All four come off the same kinematics as the checks and the datasheet,
+        so the picture cannot tell a different story from the numbers.  They are
+        toggles because a sixty-pin drive with everything on is unreadable.
+        """
+        row = QHBoxLayout()
+        row.setContentsMargins(4, 0, 4, 0)
+        row.addWidget(QLabel("OVERLAYS"))
+        self._overlay_boxes: dict[str, QCheckBox] = {}
+        for key, label, default, tip in (
+            ("contacts", "Contacts", True,
+             "Where the disc touches each ring pin, sized by the share of load "
+             "it carries."),
+            ("forces", "Forces", True,
+             "Contact force to scale, against the worst force over a whole "
+             "lobe pitch - so an arrow that grows means the load grew."),
+            ("trace", "Trace", False,
+             "The path one point on the disc rim travels over a full output "
+             "revolution."),
+            ("labels", "Pin numbers", False, "Number the ring pins."),
+        ):
+            box = QCheckBox(label)
+            box.setToolTip(tip)
+            box.setChecked(bool(self._settings.value(f"overlay_{key}", default,
+                                                     type=bool)))
+            box.toggled.connect(lambda on, k=key: self._toggle_overlay(k, on))
+            row.addWidget(box)
+            self._overlay_boxes[key] = box
+        row.addStretch(1)
+        return row
+
+    def _overlays(self) -> plots.Overlays:
+        return plots.Overlays(**{k: b.isChecked()
+                                 for k, b in self._overlay_boxes.items()})
+
+    def _toggle_overlay(self, key: str, on: bool) -> None:
+        self._settings.setValue(f"overlay_{key}", on)
+        self._profile_view.set_overlays(self._overlays())
+        self._canvas_profile.draw_idle()
 
     def _build_findings_filter(self) -> QHBoxLayout:
         """Severity toggles carrying their own counts.
@@ -734,6 +836,7 @@ class MainWindow(QMainWindow):
             f"background: {branding.palette(self.mode).line};")
         for severity, box in self._severity_filters.items():
             box.setStyleSheet(f"QCheckBox {{ color: {self._severity[severity].name()}; }}")
+        self._view3d.refresh_theme(self.mode)
         self._draw_profile()
         if self.analysis is not None:
             plots.force_figure(self.spec, self._fig_force)
@@ -772,6 +875,13 @@ class MainWindow(QMainWindow):
         if index == self._log_tab:
             self._log_badge = 0
             self.tabs.setTabText(self._log_tab, "LOG")
+        # The crank means nothing on a table of numbers, and a control that does
+        # nothing where it is shown teaches people to ignore it.
+        self._crank_bar.setVisible(index in (self._drawing_tab, self._solid_tab))
+        if index == self._drawing_tab and self._profile_stale:
+            self._profile_view.set_crank(self._crank)
+            self._canvas_profile.draw_idle()
+            self._profile_stale = False
 
     # ----------------------------------------------------------------- state
     def _restore_spec(self) -> GearSpec:
@@ -916,6 +1026,8 @@ class MainWindow(QMainWindow):
         self._fill_compare()
         self._log_findings()
         self._trade.set_spec(self.spec)
+        self._outputs.set_spec(self.spec)
+        self._outputs.set_blocked([f.code for f in analysis.report.errors])
 
         s, a = self.spec, self.analysis
         self._export_btn.setEnabled(a.report.ok)
@@ -945,9 +1057,18 @@ class MainWindow(QMainWindow):
                 "Export blocked: " + ", ".join(f.code for f in a.report.errors))
 
     def _draw_profile(self) -> None:
-        plots.profile_figure(self.spec, self._fig_profile, crank_deg=self._crank,
-                             reference=self._pinned)
+        """Rebuild both simulations for a *new design*.
+
+        Only the design goes through here.  A change of crank angle goes through
+        :meth:`_sync_crank`, which moves the artists that already exist rather
+        than making new ones - that is the whole reason the animation keeps up.
+        """
+        self._profile_view.set_design(self.spec, reference=self._pinned,
+                                      overlays=self._overlays())
+        self._profile_view.set_crank(self._crank)
         self._canvas_profile.draw_idle()
+        self._view3d.set_spec(self.spec)
+        self._view3d.set_crank(self._crank)
 
     def _fill_findings(self) -> None:
         self.findings.clear()
@@ -1199,11 +1320,31 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------- animation
     def _on_crank(self, value: int) -> None:
         self._crank = float(value)
+        if not self._anim.isActive():
+            self._crank_exact = self._crank
         self._crank_label.setText(f"{value} deg")
-        self._draw_profile()
+        self._sync_crank()
+
+    def _sync_crank(self) -> None:
+        """Move both simulations to the current angle.
+
+        The 3D view only repaints if it is on screen, and matplotlib is asked
+        for a redraw only when its canvas is: a hidden canvas still honours
+        ``draw_idle`` with a full Agg render, which is ten milliseconds a frame
+        spent drawing something nobody is looking at.
+        """
+        self._view3d.set_crank(self._crank)
+        if self._canvas_profile.isVisible():
+            self._profile_view.set_crank(self._crank)
+            self._canvas_profile.draw_idle()
+            self._profile_stale = False
+        else:
+            self._profile_stale = True
 
     def _advance_crank(self) -> None:
-        self._crank_slider.setValue(int((self._crank_slider.value() + 4) % 360))
+        step = _CRANK_STEP_DEG * float(self._speed_box.currentData())
+        self._crank_exact = (self._crank_exact + step) % 360.0
+        self._crank_slider.setValue(int(self._crank_exact))
 
     def _toggle_animation(self, on: bool) -> None:
         self._play.setText("STOP" if on else "ROTATE")
@@ -1266,31 +1407,47 @@ class MainWindow(QMainWindow):
             self._recent_menu.addAction(action)
 
     def _export(self, solids: bool) -> None:
+        """The two quick buttons.  The Outputs tab is the considered route."""
+        groups = set(group_keys())
+        if not solids:
+            groups.discard("solids")
+        directory = QFileDialog.getExistingDirectory(
+            self, "Export into folder", self._outputs.destination)
+        if not directory:
+            return
+        self._outputs.set_destination(directory)
+        self._start_export(Path(directory) / f"cycloidal_{self.spec.ratio}to1",
+                           groups)
+
+    def _start_export(self, target: Path, groups: set[str]) -> None:
         if self.analysis is None or not self.analysis.report.ok:
             QMessageBox.warning(self, "Blocked",
                                 "Fix the errors in the checks list before exporting.")
             return
-        directory = QFileDialog.getExistingDirectory(self, "Export into folder")
-        if not directory:
+        if not groups:
             return
 
-        target = Path(directory) / f"cycloidal_{self.spec.ratio}to1"
+        self._export_target = Path(target)
         self._progress = QProgressDialog("Generating files...", "", 0, 0, self)
         self._progress.setCancelButton(None)
         self._progress.setWindowModality(Qt.WindowModal)
         self._progress.show()
 
-        self._worker = ExportWorker(self.spec.model_copy(deep=True), target, solids)
+        self._worker = ExportWorker(self.spec.model_copy(deep=True),
+                                    self._export_target, groups)
         self._worker.done.connect(self._export_done)
         self._worker.failed.connect(self._export_failed)
         self._worker.start()
 
     def _export_done(self, files: list[str]) -> None:
         self._progress.close()
-        self._say(f"wrote {len(files)} files to {Path(files[0]).parent}", seconds=6)
+        folder = self._export_target
+        self._outputs.show_written(folder, [Path(f) for f in files])
+        self._say(f"wrote {len(files)} files to {folder}", seconds=6)
         QMessageBox.information(
             self, "Export complete",
-            f"{len(files)} files written to\n{Path(files[0]).parent}")
+            f"{len(files)} files written to\n{folder}\n\n"
+            f"The Outputs tab lists them with sizes; double-click one to open it.")
 
     def _export_failed(self, message: str) -> None:
         self._progress.close()

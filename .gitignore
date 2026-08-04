@@ -8,3 +8,5 @@ __pycache__/
 .ruff_cache/
 _out/
 _cli/
+_ci_out/
+_ci_2d/

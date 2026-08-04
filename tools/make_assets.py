@@ -1,6 +1,7 @@
 """Derive the application's logo assets from the brand originals.
 
-    python tools/make_assets.py --source "C:/path/to/Logos/Medinstech"
+    python tools/make_assets.py --source "path/to/Logos/Medinstech"
+    MEDINSTECH_LOGOS=path/to/logos python tools/make_assets.py
 
 The originals are 6000 px masters that have no business in a source tree.  This
 trims them to their own ink, resamples them to the handful of sizes the app and
@@ -8,16 +9,19 @@ the report actually ask for, and writes them into the package.
 
 Run it when the brand refreshes, not on every build - the results are committed
 so that neither the application nor CI depends on assets living outside the
-repository.
+repository.  The masters are trademarks and are not distributed with it (see
+NOTICE), so there is no default path to give: say where they are.
 """
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 from PIL import Image
 
-DEFAULT_SOURCE = Path(r"C:\Users\USER\Desktop\Logos\Medinstech")
+#: Where the masters live, if you would rather not pass it every time.
+SOURCE_ENV = "MEDINSTECH_LOGOS"
 TARGET = Path(__file__).resolve().parent.parent / "cycloidgen" / "ui" / "assets"
 
 #: Window and executable icon sizes.  16 and 32 are what Windows actually shows
@@ -86,8 +90,15 @@ def _chevron(size: int, colour: tuple[int, int, int], up: bool = False) -> Image
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
+    parser.add_argument("--source", type=Path,
+                        default=Path(os.environ[SOURCE_ENV])
+                        if os.environ.get(SOURCE_ENV) else None,
+                        help=f"folder holding the brand masters; defaults to "
+                             f"${SOURCE_ENV}")
     args = parser.parse_args()
+    if args.source is None:
+        raise SystemExit(f"say where the brand masters are: --source PATH, "
+                         f"or set ${SOURCE_ENV}")
     if not args.source.is_dir():
         raise SystemExit(f"brand assets not found at {args.source}")
 

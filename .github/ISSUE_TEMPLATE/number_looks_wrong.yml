@@ -1,0 +1,66 @@
+name: A number looks wrong
+description: The tool computes something you can show is off
+labels: ["analysis"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the most valuable kind of issue this project gets, and it is
+        different from a bug report: the code may be doing exactly what it was
+        written to do and still be wrong about the world.
+
+        Every number here is a first-principles estimate with a stated model and
+        stated limits — see *How far to trust the analysis* in the README. What
+        turns an estimate into an instrument is a comparison against something
+        real.
+
+  - type: input
+    id: quantity
+    attributes:
+      label: Which quantity
+      placeholder: "lost motion, torsional stiffness, efficiency, temperature, ..."
+    validations:
+      required: true
+
+  - type: input
+    id: predicted
+    attributes:
+      label: What the tool says
+    validations:
+      required: true
+
+  - type: input
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: source
+    attributes:
+      label: Where the expectation comes from
+      description: >
+        A measurement on hardware, a manufacturer's datasheet for a comparable
+        drive, a textbook derivation, another tool. This is the part that makes
+        the issue actionable — without it, it is a disagreement rather than a
+        finding.
+    validations:
+      required: true
+
+  - type: textarea
+    id: design
+    attributes:
+      label: The design
+      description: A saved design JSON, or the `spec` block of a `report.json`.
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: hardware
+    attributes:
+      label: If you measured it, how
+      description: >
+        Instrument, load, temperature, run-in, anything that would let someone
+        else repeat it. Photographs are welcome.

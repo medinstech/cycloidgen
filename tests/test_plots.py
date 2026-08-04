@@ -130,3 +130,68 @@ def test_the_series_keep_their_lightness_spread():
 def test_an_unknown_theme_is_refused():
     with pytest.raises(ValueError):
         plots.set_theme("neon")
+
+
+# ------------------------------------------------------------- the drawing
+
+
+def test_moving_the_crank_reuses_the_artists():
+    """The whole reason the animation keeps up with its timer.
+
+    Rebuilding a couple of hundred patches and running ``tight_layout`` again
+    costs more than the frame budget; nothing about the geometry changes when
+    only the angle does.
+    """
+    view = plots.ProfileView(Figure())
+    view.set_design(preset(15))
+    ax = view.figure.axes[0]
+    before = [id(a) for a in list(ax.lines) + list(ax.patches)]
+    outline = view._discs[0][0]
+    was = outline.get_xydata().copy()
+
+    view.set_crank(37.0)
+    assert [id(a) for a in list(ax.lines) + list(ax.patches)] == before
+    assert not np.allclose(was, outline.get_xydata())
+
+
+def test_the_overlays_come_off_the_same_kinematics_as_the_checks():
+    """A picture that disagreed with the datasheet would be worse than none."""
+    from cycloidgen.core.kinematics import contacts
+    spec = preset(15)
+    view = plots.ProfileView(Figure())
+    view.set_design(spec, overlays=plots.Overlays(contacts=True, forces=True))
+    view.set_crank(24.0)
+
+    state = contacts(spec, np.radians(24.0))
+    loaded = int((state.forces(spec.output_torque_Nm * 1000 / spec.disc_count) > 0).sum())
+    assert 0 < loaded < spec.pin_count           # only the pushing half carries
+    assert len(view._force_lines.get_segments()) == loaded
+    assert len(view._contact_dots.get_offsets()) == loaded
+
+
+def test_overlays_that_are_off_build_nothing():
+    view = plots.ProfileView(Figure())
+    view.set_design(preset(15), overlays=plots.Overlays(
+        contacts=False, forces=False, trace=False, labels=False))
+    assert view._contact_dots is None
+    assert view._force_lines is None
+    assert view._trace_dot is None
+
+
+def test_the_drawing_reports_the_reduction_it_is_drawing():
+    view = plots.ProfileView(Figure())
+    view.set_design(preset(15))
+    view.set_crank(90.0)
+    text = view._readout.get_text()
+    assert "90.0" in text and f"{90.0 / 15:.2f}" in text
+
+
+def test_the_assembly_figure_draws_the_solid():
+    """The report's 3D view is the viewer's draw list, in matplotlib."""
+    fig = plots.assembly_figure(preset(15), Figure(figsize=(4.0, 3.0), dpi=90))
+    ax = fig.axes[0]
+    (faces,) = ax.collections
+    assert len(faces.get_paths()) > 200
+    # Screen coordinates: y grows downward, so the axis has to be inverted or
+    # the whole assembly arrives upside down.
+    assert ax.get_ylim()[0] > ax.get_ylim()[1]
