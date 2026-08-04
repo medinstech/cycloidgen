@@ -26,7 +26,7 @@ import traceback
 import warnings
 
 from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QTextCursor
+from PySide6.QtGui import QColor, QTextCursor
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -38,6 +38,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from . import branding
 
 __all__ = ["LogPanel", "install", "logger"]
 
@@ -145,10 +147,7 @@ class LogPanel(QWidget):
         self._view.setReadOnly(True)
         self._view.setMaximumBlockCount(_MAX_LINES)
         self._view.setLineWrapMode(QPlainTextEdit.NoWrap)
-        font = QFont("Consolas")
-        font.setStyleHint(QFont.Monospace)
-        font.setPointSize(9)
-        self._view.setFont(font)
+        self._view.setFont(branding.mono_font(9))
         layout.addWidget(self._view, 1)
 
         self._summary = QLabel("Nothing logged yet.")

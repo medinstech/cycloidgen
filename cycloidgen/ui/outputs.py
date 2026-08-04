@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QFont
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
     QFileDialog,
@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from ..core.spec import GearSpec
 from ..export.manifest import GROUPS, outputs_for
+from . import branding
 from .settings import app_settings
 
 __all__ = ["OutputsTab"]
@@ -58,8 +59,7 @@ class OutputsTab(QWidget):
         self._written: dict[str, int] = {}
         self._last_folder: Path | None = None
         self._summary = 0
-        self._mono = QFont("Consolas")
-        self._mono.setStyleHint(QFont.Monospace)
+        self._mono = branding.mono_font()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 6, 6, 6)

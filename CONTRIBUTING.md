@@ -25,8 +25,8 @@ py -3.12 -m venv .venv
 .venv\Scripts\python -m ruff check .
 ```
 
-Both have to pass. CI runs them on Linux and Windows across the oldest and
-newest supported Python, then separately exports a bundle and runs a design
+Both have to pass. CI runs them on Linux, Windows and macOS across the oldest
+and newest supported Python, then separately exports a bundle and runs a design
 search from the command line.
 
 Qt tests run headless (`QT_QPA_PLATFORM=offscreen`, set by the test modules

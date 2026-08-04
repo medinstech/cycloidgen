@@ -29,17 +29,19 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtGui import QFont, QIcon, QPixmap
 
 __all__ = [
     "BRAND_BLUE",
     "COMPANY",
     "COMPANY_URL",
+    "MONO_FAMILIES",
     "TAGLINE",
     "Palette",
     "asset",
     "contrast_ratio",
     "logo_pixmap",
+    "mono_font",
     "palette",
     "stylesheet",
     "window_icon",
@@ -204,6 +206,33 @@ def asset(name: str) -> Path:
     if not path.exists():
         raise FileNotFoundError(f"missing brand asset {name!r}; run tools/make_assets.py")
     return path
+
+
+#: Monospace families in preference order, first one present wins.  Numbers in
+#: a proportional face do not line up, and a column of unaligned magnitudes is a
+#: column you have to read one row at a time - so every table of numbers in this
+#: application asks for a fixed pitch.  Naming one family gets that on the
+#: machine it was written on: ``Consolas`` is a Windows font, and asking for it
+#: on Linux or macOS leaves Qt to substitute, which it does by *style hint* and
+#: usually lands on something proportional-looking anyway.  One list per
+#: platform's own good monospace, and the hint underneath as the last resort.
+MONO_FAMILIES: tuple[str, ...] = (
+    "Consolas",             # Windows
+    "SF Mono", "Menlo",     # macOS
+    "DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono",   # Linux
+    "Courier New", "monospace",
+)
+
+
+def mono_font(point_size: int | None = None) -> QFont:
+    """The application's fixed-pitch face, on whatever platform this is."""
+    font = QFont()
+    font.setFamilies(list(MONO_FAMILIES))
+    font.setStyleHint(QFont.Monospace)
+    font.setFixedPitch(True)
+    if point_size is not None:
+        font.setPointSize(point_size)
+    return font
 
 
 @lru_cache(maxsize=8)

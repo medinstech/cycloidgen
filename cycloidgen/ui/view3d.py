@@ -16,7 +16,7 @@ from contextlib import suppress
 
 import numpy as np
 from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPolygonF
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPolygonF
 from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
@@ -76,9 +76,7 @@ class AssemblyView(QWidget):
         self._drag: tuple[float, float] | None = None
         self._drag_button = Qt.NoButton
         self._failed = ""
-        self._label_font = QFont("Consolas")
-        self._label_font.setStyleHint(QFont.Monospace)
-        self._label_font.setPointSize(9)
+        self._label_font = branding.mono_font(9)
 
     # ------------------------------------------------------------------ state
     def set_spec(self, spec: GearSpec) -> None:

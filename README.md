@@ -374,7 +374,7 @@ cycloidgen/
 ├── report/     plots (shared by UI and PDF), build
 └── ui/         PySide6 window, 3D viewer, outputs tab, declarative field table,
                 optimiser dialog, trade-study tab, undo/redo history, log panel
-tests/          364 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          367 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -390,7 +390,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-364 tests, about 160 s. Most of that is CadQuery writing solids; the pure
+367 tests, about 175 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in under a second. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own
@@ -410,8 +410,8 @@ representations of the same gearbox honest:
   manifest promised — exactly those files and no others — including the table in
   this README.
 
-CI runs `ruff`, then the suite on Linux and Windows across the oldest and newest
-supported Python, then separately exports a full bundle and runs a design search
+CI runs `ruff`, then the suite on Linux, Windows and macOS across the oldest and
+newest supported Python, then separately exports a full bundle and runs a design search
 from the command line — the tests cover the pieces, that job proves the whole
 thing still runs end to end.
 

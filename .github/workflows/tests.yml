@@ -37,6 +37,14 @@ jobs:
             python: "3.12"
           - os: windows-latest
             python: "3.12"
+          # Apple silicon.  There is no macOS package yet, but the application
+          # is pure Python on cross-platform wheels and "it should work" is not
+          # a claim worth making without a run behind it.
+          - os: macos-latest
+            python: "3.12"
+          # The oldest supported interpreter, and the one that earns its place:
+          # it ships an older matplotlib, and it is the configuration that
+          # caught the animation sizing its frame buffer from the wrong number.
           - os: ubuntu-latest
             python: "3.10"
 

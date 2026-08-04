@@ -138,9 +138,34 @@ def test_the_gif_has_the_frames_the_plan_promised(written):
     path, plan = written
     with Image.open(path) as im:
         assert im.n_frames == plan.frames
-        assert im.size == plan.size
+        # Size to within a pixel: matplotlib turns the figure size back into
+        # pixels as int(inches * dpi) and which side of the rounding it lands
+        # on depends on the version.  What has to be exact is that every frame
+        # agrees, and the format enforces that.
+        assert abs(im.size[0] - plan.size[0]) <= 1
+        assert abs(im.size[1] - plan.size[1]) <= 1
         assert im.info["loop"] == 0                   # 0 is "for ever"
         assert im.info["duration"] == round(1000 / plan.fps)
+
+
+def test_a_renderer_that_lands_a_pixel_short_still_writes(spec, tmp_path,
+                                                          monkeypatch):
+    """The frame buffer is the authority on its own size, not the plan.
+
+    Sizing the stack from the plan crashed on exactly one of the three CI
+    configurations - the one whose matplotlib truncated 1.16 x 100 to 115 -
+    which is the worst way for this to be wrong: it works everywhere it is
+    developed. So the shortfall is simulated rather than waited for.
+    """
+    real = animation._canvas
+    monkeypatch.setattr(animation, "_canvas",
+                        lambda size: real((size[0], size[1] - 1)))
+
+    plan = animation.plan(spec, pixels=140, frames=4)
+    path = animation.write_gif(spec, tmp_path / "short.gif", animation=plan)
+    with Image.open(path) as im:
+        assert im.size == (140, 139)
+        assert im.n_frames == 4
 
 
 def _played(path) -> list[np.ndarray]:

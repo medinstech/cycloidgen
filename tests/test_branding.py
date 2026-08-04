@@ -13,10 +13,12 @@ pytest.importorskip("PySide6")
 
 from cycloidgen.ui.branding import (
     BRAND_BLUE,
+    MONO_FAMILIES,
     contrast_ratio,
     darken,
     lighten,
     mix,
+    mono_font,
     palette,
     stylesheet,
 )
@@ -166,3 +168,30 @@ def test_a_missing_asset_says_how_to_regenerate_it():
     from cycloidgen.ui.branding import asset
     with pytest.raises(FileNotFoundError, match="make_assets"):
         asset("no-such-logo.png")
+
+
+# ----------------------------------------------------------------------- type
+
+
+def test_the_mono_font_names_a_family_for_every_platform():
+    """One named family gets a fixed pitch on the machine it was written on.
+
+    ``Consolas`` is a Windows font.  Asking for it on Linux or macOS leaves Qt
+    to substitute, and it substitutes by style hint - which lands wherever the
+    system's font configuration happens to point.  Every table of numbers in
+    this application needs the columns to line up.
+    """
+    assert "Consolas" in MONO_FAMILIES                    # Windows
+    assert {"Menlo", "SF Mono"} & set(MONO_FAMILIES)      # macOS
+    assert {"DejaVu Sans Mono", "Liberation Mono"} & set(MONO_FAMILIES)   # Linux
+    assert MONO_FAMILIES[-1] == "monospace"               # the generic last
+
+    font = mono_font()
+    assert font.families() == list(MONO_FAMILIES)
+    assert font.fixedPitch()
+    assert font.styleHint() == font.StyleHint.Monospace
+
+
+def test_the_mono_font_takes_a_size_or_leaves_the_default():
+    assert mono_font(9).pointSize() == 9
+    assert mono_font().pointSize() == mono_font().pointSize()   # whatever Qt's is

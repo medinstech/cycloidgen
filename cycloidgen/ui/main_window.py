@@ -14,7 +14,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as Canvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavBar
 from matplotlib.figure import Figure
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QAction, QColor, QFont, QKeySequence, QPalette
+from PySide6.QtGui import QAction, QColor, QKeySequence, QPalette
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -212,8 +212,7 @@ class MainWindow(QMainWindow):
         self._splitter_restored = False
         # Numbers in a proportional face do not line up, and a column of
         # unaligned magnitudes is a column you have to read one row at a time.
-        self._mono = QFont("Consolas")
-        self._mono.setStyleHint(QFont.Monospace)
+        self._mono = branding.mono_font()
         self._workers: list[AnalysisWorker] = []
         self._history = SpecHistory(self.spec)
         self._highlighted: list[QWidget] = []

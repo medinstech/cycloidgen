@@ -165,6 +165,8 @@ class Animation:
     turns: int
     frames: int
     fps: int
+    #: What the frames are *asked* for.  The renderer can land a pixel short of
+    #: it - see :func:`write_gif` - so it is a request, not a guarantee.
     size: tuple[int, int]
     residual_deg: float
 
@@ -325,14 +327,23 @@ def write_gif(spec: GearSpec, path: str | Path, *,
     animation = animation or plan(spec)
     path = Path(path).with_suffix(".gif")
     path.parent.mkdir(parents=True, exist_ok=True)
-    width, height = animation.size
+    stack = width = height = None
 
     with plots.using_theme(theme):
-        stack = np.empty((animation.frames * height, width, 3), np.uint8)
         for i, frame in enumerate(
                 frames(spec, animation, overlays=overlays, explode=explode,
                        azimuth=azimuth, elevation=elevation, hidden=hidden,
                        progress=progress)):
+            if stack is None:
+                # Sized from the first frame rather than from the plan.
+                # matplotlib takes a figure size in inches and turns it back
+                # into pixels as `int(inches * dpi)`, and 1.16 is not exactly
+                # representable - so a request for 116 px comes back as 116 on
+                # one version and 115 on another.  Every frame agrees with
+                # every other, which is the part that matters; the plan's size
+                # is a request, good to within a pixel.
+                height, width = frame.shape[:2]
+                stack = np.empty((animation.frames * height, width, 3), np.uint8)
             stack[i * height:(i + 1) * height] = frame
 
     indexed = Image.fromarray(stack).convert(

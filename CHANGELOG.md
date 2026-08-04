@@ -45,6 +45,14 @@ design somebody already built.
 - `include_solids=False` means everything except the solids rather than the two
   groups that existed when it was written, so a drawings-only run gets the
   animation too - it comes off the same closed-form profile and needs no kernel.
+- **Every table of numbers asks for a monospace family per platform** rather
+  than for `Consolas`, which is a Windows font. Off Windows, Qt was left to
+  substitute by style hint and could land on something that does not line up a
+  column - which is the entire reason those tables are monospaced. One list,
+  `branding.MONO_FAMILIES`, and one helper the four call sites share.
+- **CI runs on macOS as well as Linux and Windows.** There is still no macOS
+  package, but "it is pure Python on cross-platform wheels, it should work" is
+  not a claim worth making without a run behind it.
 
 **Fixed**
 
