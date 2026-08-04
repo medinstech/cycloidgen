@@ -656,6 +656,7 @@ class MainWindow(QMainWindow):
         avoid, and it is what happens if only half of this runs.
         """
         plots.set_theme(self.mode)
+        self.log.set_theme(self.mode)
         self._severity = _severity_colours(self.mode)
         accent = branding.palette(self.mode).accent
         self._highlight_css = f"border: 1px solid {accent}; border-radius: 3px;"

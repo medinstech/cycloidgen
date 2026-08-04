@@ -48,6 +48,40 @@ def _square(im: Image.Image, size: int) -> Image.Image:
     return canvas
 
 
+def _tick(size: int = 32) -> Image.Image:
+    """A white check mark for the brand-filled checkbox indicator.
+
+    Styling ``QCheckBox::indicator`` replaces the native one *including* its
+    tick, which leaves a filled square that does not obviously mean "on".
+    """
+    from PIL import ImageDraw
+
+    im = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    w = max(2, round(size * 0.12))
+    d.line([(size * 0.22, size * 0.52), (size * 0.42, size * 0.72),
+            (size * 0.78, size * 0.28)],
+           fill=(255, 255, 255, 255), width=w, joint="curve")
+    return im
+
+
+def _chevron(size: int, colour: tuple[int, int, int]) -> Image.Image:
+    """A down chevron for combo boxes.
+
+    ``QComboBox::drop-down`` with a custom border drops the platform arrow, so
+    a styled combo looks exactly like a text field until you click it.
+    """
+    from PIL import ImageDraw
+
+    im = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    w = max(2, round(size * 0.09))
+    d.line([(size * 0.28, size * 0.40), (size * 0.5, size * 0.62),
+            (size * 0.72, size * 0.40)],
+           fill=(*colour, 235), width=w, joint="curve")
+    return im
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
@@ -69,6 +103,12 @@ def main() -> int:
 
         word = _trim(args.source / f"Medinstech-logo-text-{tint}@2x.png")
         save(_fit(word, 520), f"wordmark-{tint}.png")
+
+    # Control glyphs the stylesheet needs, because styling a control replaces
+    # the platform's own drawing of it.
+    save(_tick(32), "tick.png")
+    save(_chevron(28, (0x52, 0x51, 0x4e)), "chevron-light.png")
+    save(_chevron(28, (0xc3, 0xc2, 0xb7)), "chevron-dark.png")
 
     # Multi-resolution icon for the window and the PyInstaller build
     mark = _trim(args.source / "mdns-logo-blue@2x.png")

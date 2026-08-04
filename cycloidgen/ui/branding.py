@@ -230,6 +230,9 @@ def stylesheet(mode: str = "light") -> str:
     less accessible than what it replaced.
     """
     p = palette(mode)
+    # Qt stylesheets take forward slashes on every platform, including Windows.
+    chevron = (_ASSETS / f"chevron-{'dark' if p.is_dark else 'light'}.png").as_posix()
+    tick = (_ASSETS / "tick.png").as_posix()
     return f"""
     QWidget {{
         background: {p.surface};
@@ -277,7 +280,11 @@ def stylesheet(mode: str = "light") -> str:
     }}
     QLineEdit:disabled, QDoubleSpinBox:disabled, QSpinBox:disabled,
     QComboBox:disabled {{ color: {p.ink_dim}; background: {p.surface}; }}
-    QComboBox::drop-down {{ border: none; width: 18px; }}
+    /* Styling the drop-down at all discards the platform's arrow, so a combo
+       becomes indistinguishable from a line edit until you click it. */
+    QComboBox::drop-down {{ border: none; width: 20px; }}
+    QComboBox::down-arrow {{ image: url({chevron}); width: 14px; height: 14px; }}
+    QComboBox::down-arrow:disabled {{ image: none; }}
     QComboBox QAbstractItemView {{
         background: {p.raised};
         border: 1px solid {p.line};
@@ -411,8 +418,14 @@ def stylesheet(mode: str = "light") -> str:
         border: 1px solid {p.line}; border-radius: 3px;
         background: {p.raised};
     }}
+    /* Same trap as the combo: the styled indicator loses the tick along with
+       the native drawing, leaving a filled square that does not read as "on". */
     QCheckBox::indicator:checked {{
-        background: {p.accent_fill}; border-color: {p.accent_fill};
+        background: {p.accent_fill};
+        border-color: {p.accent};
+        image: url({tick});
     }}
     QCheckBox::indicator:hover {{ border-color: {p.accent}; }}
+    QCheckBox::indicator:disabled {{ background: {p.surface};
+                                     border-color: {p.line}; }}
     """

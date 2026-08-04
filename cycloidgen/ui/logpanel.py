@@ -47,13 +47,22 @@ logger = logging.getLogger("cycloidgen")
 
 _LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 
-_COLOURS = {
-    "DEBUG": "#8a8a84",
-    "INFO": "#52514e",
-    "WARNING": "#b8860b",
-    "ERROR": "#c0392b",
-    "CRITICAL": "#c0392b",
-}
+
+def _colours(mode: str) -> dict[str, str]:
+    """Level ink for the current surface.
+
+    Hard-coding these was a mistake worth naming: the light-surface INFO grey is
+    ``#52514e``, which on the dark surface is 1.6:1 against the background.  The
+    whole point of this panel is that it can be read.
+    """
+    from .branding import palette
+
+    p = palette(mode)
+    return {"DEBUG": p.ink_dim if p.is_dark else "#8a8a84",
+            "INFO": p.ink if p.is_dark else p.ink_dim,
+            "WARNING": p.warning,
+            "ERROR": p.error,
+            "CRITICAL": p.error}
 
 #: Lines kept before the oldest are dropped.  A long optimiser run can produce
 #: thousands; an unbounded box would quietly grow forever.
@@ -124,6 +133,8 @@ class LogPanel(QWidget):
         super().__init__(parent)
         self._records: list[tuple[str, str, str]] = []
         self._threshold = "INFO"
+        self._mode = "light"
+        self._colours = _colours(self._mode)
         self.errors = 0
         self.warnings = 0
 
@@ -201,7 +212,7 @@ class LogPanel(QWidget):
             self.problem.emit(level)
 
     def _write(self, level: str, stamp: str, text: str) -> None:
-        colour = QColor(_COLOURS.get(level, "#52514e"))
+        colour = QColor(self._colours.get(level, self._colours["INFO"]))
         cursor = self._view.textCursor()
         cursor.movePosition(QTextCursor.End)
         fmt = cursor.charFormat()
@@ -225,6 +236,14 @@ class LogPanel(QWidget):
         for level, stamp, text in self._records:
             if _rank(level) >= floor:
                 self._write(level, stamp, text)
+
+    def set_theme(self, mode: str) -> None:
+        """Re-ink the log for a new surface, keeping every record."""
+        if mode == self._mode:
+            return
+        self._mode = mode
+        self._colours = _colours(mode)
+        self._rebuild()
 
     def text(self) -> str:
         return self._view.toPlainText()
