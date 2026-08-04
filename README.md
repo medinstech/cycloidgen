@@ -6,8 +6,8 @@
 
 Parametric cycloidal drive (cycloidal gearbox) generator: a desktop app that
 takes a handful of parameters — or a set of requirements — runs the drive live in
-2D and 3D, checks it, sizes it, and writes DXF, SVG, STEP, STL, a bill of
-materials and a PDF dossier.
+2D and 3D, checks it, sizes it, and writes DXF, SVG, STEP, STL, a looping
+animation, a bill of materials and a PDF dossier.
 
 ![the application](docs/app-drawing.png)
 
@@ -391,7 +391,9 @@ a physical prototype before committing to a design.
 
 ```
 cycloidgen/
-├── core/       spec (the one source of truth), profile, kinematics, validate
+├── units.py    what lengths are *shown* in; everything inside is millimetres
+├── core/       spec (the one source of truth), profile, kinematics, validate,
+│               explain (what each check tests, why, and what to change)
 ├── analysis/   mechanics (Hertz), stiffness, thermal, mass, efficiency, bearings
 ├── design/     optimise (requirements -> geometry), sweep (trade studies)
 ├── viz/        3D geometry and rendering maths, no Qt: mesh, scene (the
@@ -400,7 +402,9 @@ cycloidgen/
 │               bom, animation (the looping GIF)
 ├── report/     plots (shared by UI and PDF), build
 └── ui/         PySide6 window, 3D viewer, outputs tab, declarative field table,
-                optimiser dialog, trade-study tab, undo/redo history, log panel
+                optimiser dialog, trade-study tab, undo/redo history, log panel,
+                branding (palette and stylesheet), plotbar (the trimmed
+                matplotlib toolbar)
 tests/          410 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
@@ -480,11 +484,13 @@ fresh copy of the assembly to the graphics card. That key is a hand-written list
 and therefore a liability, so a test perturbs *every* field of `GearSpec` in turn
 and requires that an unchanged key really does mean an unchanged mesh.
 
-The animation loops over the mechanism's own period, which is `lobes` input
-revolutions — one output revolution — and not one turn of the crank. After a
-single input turn the disc and the carrier have moved on by 360/lobes and are
+The live animation loops over the mechanism's own period, which is `lobes`
+input revolutions — one output revolution — and not one turn of the crank. After
+a single input turn the disc and the carrier have moved on by 360/lobes and are
 not back where they started, which is what used to put a visible jump in the
-loop every four seconds.
+loop every four seconds. The *exported* animation cannot afford that many turns
+at a legible frame rate and picks its run differently — see **Why the animation
+loops without a jump** above.
 
 ## Standalone build and installer
 
