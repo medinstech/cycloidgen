@@ -1,0 +1,118 @@
+"""The check explanations, and whether they still describe the checks.
+
+An explanation that has drifted from the check it explains is worse than none:
+it is a confident answer to the wrong question.  So the codes are not listed by
+hand here - they are parsed out of the calls that raise them, which means adding
+a check without explaining it fails, and deleting one without removing its entry
+fails too.
+"""
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+
+import pytest
+
+from cycloidgen.core.explain import EXPLANATIONS, explain, margin
+from cycloidgen.core.validate import Finding, Severity
+
+ROOT = Path(__file__).resolve().parent.parent / "cycloidgen"
+
+
+def _emitted_codes() -> dict[str, str]:
+    """Every code the application can raise, and the file it comes from.
+
+    Found by parsing for ``<report>.add(Severity.X, "CODE", ...)`` rather than
+    by running designs: no set of specs exercises every branch, and the ones
+    that stay unexercised are exactly the ones whose explanation nobody would
+    notice was missing.
+    """
+    found: dict[str, str] = {}
+    sources = [ROOT / "core" / "validate.py", *(ROOT / "analysis").glob("*.py")]
+    for path in sources:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "add"
+                    and len(node.args) >= 2
+                    and isinstance(node.args[1], ast.Constant)
+                    and isinstance(node.args[1].value, str)):
+                found.setdefault(node.args[1].value, path.name)
+    return found
+
+
+def test_the_parser_finds_the_checks_at_all():
+    """If this breaks, every test below is asserting against an empty set."""
+    codes = _emitted_codes()
+    assert len(codes) > 30
+    assert "UNDERCUT" in codes and "OVERTEMP" in codes
+
+
+def test_every_check_the_app_can_raise_is_explained():
+    missing = sorted(set(_emitted_codes()) - set(EXPLANATIONS))
+    assert not missing, f"no explanation for {', '.join(missing)}"
+
+
+def test_no_explanation_describes_a_check_that_no_longer_exists():
+    stale = sorted(set(EXPLANATIONS) - set(_emitted_codes()))
+    assert not stale, f"explained but never raised: {', '.join(stale)}"
+
+
+def test_every_explanation_answers_all_three_questions():
+    for code, detail in EXPLANATIONS.items():
+        assert detail.title and not detail.title.endswith("."), code
+        assert detail.tests, code
+        assert len(detail.why) > 60, f"{code}: 'why' is a restatement, not a reason"
+        assert len(detail.fix) > 30, f"{code}: 'fix' does not say what to change"
+        assert detail.keep in ("below", "above", ""), code
+
+
+def test_every_explained_check_can_also_point_at_its_parameters():
+    """The two declarations are separate on purpose - one names engineering, the
+    other names widgets - but a check that tells you what to change and then
+    cannot show you where to change it is half an answer."""
+    from cycloidgen.ui.fields import CODE_FIELDS
+
+    unroutable = sorted(set(EXPLANATIONS) - set(CODE_FIELDS))
+    assert not unroutable, f"explained but not routed to a field: {unroutable}"
+
+
+# ------------------------------------------------------------------- margins
+
+
+def _finding(code: str, value: float | None, limit: float | None) -> Finding:
+    return Finding(Severity.WARNING, code, "", value, limit)
+
+
+def test_a_margin_is_how_many_times_over_the_limit_you_are():
+    # UNDERCUT wants to stay below: a pin at half the critical radius is 2x clear
+    assert margin(_finding("UNDERCUT", 2.0, 4.0)) == pytest.approx(2.0)
+    # PIN_OVERLAP wants to stay above: a pitch twice the limit is 2x clear
+    assert margin(_finding("PIN_OVERLAP", 8.0, 4.0)) == pytest.approx(2.0)
+
+
+def test_a_ratio_that_would_mislead_is_not_offered():
+    """A clearance measured at -0.4 mm is a real reading and a useless
+    denominator; a reading with no limit is not a multiple of anything."""
+    assert margin(_finding("PROFILE_INTERFERENCE", -0.4, 0.0)) is None
+    assert margin(_finding("MASS", 379.0, None)) is None
+    assert margin(_finding("TORSIONAL_STIFFNESS", 3.2, None)) is None
+    assert margin(_finding("UNDERCUT", 0.0, 4.0)) is None
+
+
+def test_an_unknown_code_explains_nothing_rather_than_raising():
+    assert explain("NO_SUCH_CHECK") is None
+    assert margin(_finding("NO_SUCH_CHECK", 1.0, 2.0)) is None
+
+
+def test_the_explanations_are_reachable_from_a_real_report():
+    """The end the user actually meets: analyse a design, and every finding it
+    produces can say what it was testing."""
+    from cycloidgen.analysis import analyse
+    from cycloidgen.core.spec import preset
+
+    report = analyse(preset(15)).report
+    assert report.findings
+    for finding in report.findings:
+        assert explain(finding.code) is not None, finding.code

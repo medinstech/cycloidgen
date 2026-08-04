@@ -591,3 +591,55 @@ def test_the_toolbar_icons_take_the_ink_of_the_theme(app):
     finally:
         w._choose_appearance("system")
         w.close()
+
+
+def test_selecting_a_check_says_what_it_tests_and_what_to_change(app):
+    """Highlighting the parameters says *where* to look and nothing about why."""
+    from cycloidgen.core.explain import explain
+
+    w = _window(app)
+    try:
+        assert "Select a check" in w._explain.toPlainText()
+
+        chosen = None
+        for i in range(w.findings.topLevelItemCount()):
+            item = w.findings.topLevelItem(i)
+            if item.data(0, _USER_ROLE):
+                w.findings.setCurrentItem(item)
+                chosen = item.data(0, _USER_ROLE)
+                break
+        assert chosen, "this design produced no findings to select"
+        _pump(app, 0.2)
+
+        shown = w._explain.toPlainText()
+        detail = explain(chosen)
+        assert chosen in shown                       # the code
+        assert detail.title in shown
+        assert detail.tests.split("\n")[0][:24] in shown
+        assert detail.fix[:40] in shown
+        assert w._highlighted, "the parameters should still be highlighted"
+    finally:
+        w.close()
+
+
+def test_the_explanation_is_rebuilt_when_the_appearance_changes(app):
+    """Its colours are baked into the markup, like every figure's are."""
+    w = _window(app)
+    try:
+        for i in range(w.findings.topLevelItemCount()):
+            item = w.findings.topLevelItem(i)
+            if item.data(0, _USER_ROLE):
+                w.findings.setCurrentItem(item)
+                break
+        w._choose_appearance("dark")
+        _pump(app, 0.2)
+        dark = w._explain.toHtml()
+        w._choose_appearance("light")
+        _pump(app, 0.2)
+        light = w._explain.toHtml()
+        assert dark != light
+        from cycloidgen.ui import branding
+        assert branding.palette("light").ink.lstrip("#") in light.lower()
+    finally:
+        w._choose_appearance("system")
+        w.close()

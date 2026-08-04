@@ -355,7 +355,7 @@ def stylesheet(mode: str = "light") -> str:
     }}
 
     /* Inputs: recessed against the card they sit on. */
-    QLineEdit, QAbstractSpinBox, QComboBox, QPlainTextEdit {{
+    QLineEdit, QAbstractSpinBox, QComboBox, QPlainTextEdit, QTextBrowser {{
         background: {p.surface};
         border: {HAIRLINE} solid {p.line};
         border-radius: {RADIUS};
@@ -374,6 +374,8 @@ def stylesheet(mode: str = "light") -> str:
     QLineEdit:disabled, QAbstractSpinBox:disabled, QComboBox:disabled {{
         color: {p.ink_dim}; background: {p.raised}; border-color: {p.line};
     }}
+
+    QTextBrowser {{ background: {p.raised}; padding: 8px 10px; }}
 
     QComboBox::drop-down {{
         border: none; width: 22px; margin: 0;
