@@ -220,206 +220,285 @@ def logo_pixmap(kind: str = "wordmark", mode: str = "light",
 
 # -------------------------------------------------------------- stylesheet --
 
+#: Nothing is rounded.  A radius is a softening gesture, and this is a tool for
+#: reading numbers off a machine: every corner is square and every edge is a
+#: line you can see.  The brand mark is flat, heavy and single-colour; the
+#: chrome follows it rather than decorating around it.
+RADIUS = "0px"
+
+#: Structure is drawn, not implied by shadow.  One hairline for ordinary
+#: separation, one heavy rule for anything that divides the window.
+HAIRLINE = "1px"
+RULE = "2px"
+
 
 def stylesheet(mode: str = "light") -> str:
     """Qt stylesheet for the whole application.
 
-    Deliberately narrow: it recolours and calms the native widgets rather than
-    redrawing them.  A stylesheet that replaces every control is a stylesheet
-    that has to be re-tested against every Qt release, and it usually ends up
-    less accessible than what it replaced.
+    Deliberately narrow in *scope*: it recolours and squares off the native
+    widgets rather than reimplementing them.  A stylesheet that redraws every
+    control has to be re-tested against every Qt release and usually ends up
+    less accessible than what it replaced.  Where a rule does displace native
+    drawing - the combo arrow, the checkbox tick, the spin buttons - the glyph
+    is supplied back, because dropping it is how a combo box ends up looking
+    exactly like a line edit.
     """
     p = palette(mode)
     # Qt stylesheets take forward slashes on every platform, including Windows.
-    chevron = (_ASSETS / f"chevron-{'dark' if p.is_dark else 'light'}.png").as_posix()
+    tint = "dark" if p.is_dark else "light"
+    down = (_ASSETS / f"chevron-down-{tint}.png").as_posix()
+    up = (_ASSETS / f"chevron-up-{tint}.png").as_posix()
     tick = (_ASSETS / "tick.png").as_posix()
+
     return f"""
     QWidget {{
         background: {p.surface};
         color: {p.ink};
     }}
-    QMainWindow::separator {{ background: {p.line}; width: 1px; height: 1px; }}
+    QMainWindow::separator {{ background: {p.line}; width: {RULE}; height: {RULE}; }}
+
+    /* A label must not paint its own background, or the generic QWidget rule
+       above stamps a surface-coloured block over whatever it is sitting on -
+       which is what put a dark rectangle behind every word in the header. */
+    QLabel {{ background: transparent; }}
 
     /* Brand header ---------------------------------------------------- */
     #BrandHeader {{
         background: {p.raised};
-        border-bottom: 2px solid {p.accent};
+        border-bottom: 3px solid {p.accent};
     }}
-    #BrandProduct {{ color: {p.ink}; font-size: 15px; font-weight: 600; }}
+    #BrandProduct {{ color: {p.ink}; font-size: 17px; font-weight: 800; }}
     #BrandTagline {{ color: {p.ink_dim}; font-size: 11px; }}
+    #BrandStatus {{ color: {p.ink}; font-size: 12px; font-weight: 700; }}
 
     /* Grouping -------------------------------------------------------- */
     QGroupBox {{
-        background: {p.raised};
-        border: 1px solid {p.line};
-        border-radius: 6px;
-        margin-top: 14px;
-        padding: 10px 8px 8px 8px;
-        font-weight: 600;
+        background: {p.surface};
+        border: {HAIRLINE} solid {p.line};
+        border-left: {RULE} solid {p.accent};
+        border-radius: {RADIUS};
+        margin-top: 15px;
+        padding: 12px 8px 8px 8px;
     }}
     QGroupBox::title {{
         subcontrol-origin: margin;
         subcontrol-position: top left;
-        left: 10px;
-        padding: 0 5px;
-        color: {p.accent};
+        left: 0px;
+        padding: 2px 7px;
+        background: {p.accent_fill};
+        color: {p.accent_text};
+        font-weight: 800;
     }}
 
     /* Inputs ---------------------------------------------------------- */
     QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox, QPlainTextEdit {{
         background: {p.raised};
-        border: 1px solid {p.line};
-        border-radius: 4px;
-        padding: 3px 6px;
+        border: {HAIRLINE} solid {p.line};
+        border-radius: {RADIUS};
+        padding: 4px 6px;
         selection-background-color: {p.accent_fill};
         selection-color: {p.accent_text};
     }}
     QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QComboBox:focus,
     QPlainTextEdit:focus {{
-        border: 1px solid {p.accent};
+        border: {RULE} solid {p.accent};
+        padding: 3px 5px;                    /* keeps the text from shifting */
     }}
     QLineEdit:disabled, QDoubleSpinBox:disabled, QSpinBox:disabled,
     QComboBox:disabled {{ color: {p.ink_dim}; background: {p.surface}; }}
-    /* Styling the drop-down at all discards the platform's arrow, so a combo
-       becomes indistinguishable from a line edit until you click it. */
-    QComboBox::drop-down {{ border: none; width: 20px; }}
-    QComboBox::down-arrow {{ image: url({chevron}); width: 14px; height: 14px; }}
+
+    QComboBox::drop-down {{
+        border: none; border-left: {HAIRLINE} solid {p.line};
+        width: 20px; margin: 0;
+    }}
+    QComboBox::down-arrow {{ image: url({down}); width: 13px; height: 13px; }}
     QComboBox::down-arrow:disabled {{ image: none; }}
     QComboBox QAbstractItemView {{
         background: {p.raised};
-        border: 1px solid {p.line};
+        border: {RULE} solid {p.accent};
+        border-radius: {RADIUS};
         selection-background-color: {p.accent_fill};
         selection-color: {p.accent_text};
+        outline: none;
+    }}
+
+    /* Spin buttons: narrow, flat, hard against the edge.  The native ones are
+       wide bevelled blocks that eat a third of the field. */
+    QAbstractSpinBox::up-button, QAbstractSpinBox::down-button {{
+        subcontrol-origin: border;
+        background: transparent;
+        border: none;
+        border-left: {HAIRLINE} solid {p.line};
+        width: 20px;
+    }}
+    QAbstractSpinBox::up-button {{ subcontrol-position: top right; }}
+    QAbstractSpinBox::down-button {{ subcontrol-position: bottom right; }}
+    QAbstractSpinBox::up-button:hover, QAbstractSpinBox::down-button:hover {{
+        background: {p.accent_wash};
+    }}
+    QAbstractSpinBox::up-arrow {{ image: url({up}); width: 13px; height: 13px; }}
+    QAbstractSpinBox::down-arrow {{ image: url({down}); width: 13px; height: 13px; }}
+    QAbstractSpinBox::up-arrow:disabled, QAbstractSpinBox::down-arrow:disabled {{
+        image: none;
     }}
 
     /* Buttons --------------------------------------------------------- */
     QPushButton {{
         background: {p.raised};
-        border: 1px solid {p.line};
-        border-radius: 5px;
-        padding: 5px 14px;
+        border: {HAIRLINE} solid {p.ink_dim};
+        border-radius: {RADIUS};
+        padding: 6px 16px;
         color: {p.ink};
+        font-weight: 700;
     }}
-    QPushButton:hover {{ border-color: {p.accent}; }}
+    QPushButton:hover {{ border-color: {p.accent}; color: {p.accent}; }}
     QPushButton:pressed {{ background: {p.accent_wash}; }}
-    QPushButton:disabled {{ color: {p.ink_dim}; border-color: {p.line}; }}
+    QPushButton:disabled {{ color: {p.ink_dim}; border-color: {p.line};
+                            background: {p.surface}; }}
     QPushButton:checked {{
         background: {p.accent_fill}; color: {p.accent_text};
-        border-color: {p.accent_fill};
+        border-color: {p.accent};
     }}
-    /* The one action a panel wants you to take, filled in the brand. */
-    /* The border is the lighter `accent`, not the fill.  On the dark surface
-       the fill only reaches 2.3:1 - lightening it to fix that would wreck the
-       white label sitting on it, so the *edge* carries the boundary contrast
-       instead and the fill is left alone. */
+    /* The one action a panel wants you to take: a solid block of the brand.
+       Its border is the lighter `accent`, not the fill - on the dark surface
+       the fill alone sits at 2.3:1 against the page, under the 3:1 floor for
+       finding a control, and lightening the fill would wreck the white label
+       on it.  The edge carries the boundary instead. */
     QPushButton[primary="true"] {{
         background: {p.accent_fill};
         color: {p.accent_text};
-        border: 1px solid {p.accent};
-        font-weight: 600;
+        border: {RULE} solid {p.accent};
+        padding: 5px 15px;
+        font-weight: 800;
     }}
-    QPushButton[primary="true"]:hover {{ background: {p.accent_hover}; }}
+    QPushButton[primary="true"]:hover {{ background: {p.accent_hover};
+                                         color: {p.accent_text}; }}
     QPushButton[primary="true"]:pressed {{ background: {p.accent_pressed}; }}
     QPushButton[primary="true"]:disabled {{
         background: {p.line}; color: {p.ink_dim}; border-color: {p.line};
     }}
 
-    /* Tabs ------------------------------------------------------------ */
-    QTabWidget::pane {{ border: 1px solid {p.line}; border-radius: 6px; top: -1px; }}
-    QTabBar::tab {{
-        background: transparent;
-        color: {p.ink_dim};
-        padding: 7px 15px;
-        margin-right: 2px;
-        border-bottom: 2px solid transparent;
+    /* Tabs: the selected one is a filled block, not a tinted label. */
+    QTabWidget::pane {{
+        border: {HAIRLINE} solid {p.line};
+        border-top: {RULE} solid {p.accent};
+        border-radius: {RADIUS};
+        top: -1px;
     }}
-    QTabBar::tab:hover {{ color: {p.ink}; }}
+    QTabBar::tab {{
+        background: {p.surface};
+        color: {p.ink_dim};
+        border: {HAIRLINE} solid {p.line};
+        border-bottom: none;
+        border-radius: {RADIUS};
+        padding: 7px 16px;
+        margin-right: 3px;
+        font-weight: 700;
+    }}
+    QTabBar::tab:hover {{ color: {p.ink}; border-color: {p.ink_dim}; }}
     QTabBar::tab:selected {{
-        color: {p.accent};
-        border-bottom: 2px solid {p.accent};
-        font-weight: 600;
+        background: {p.accent_fill};
+        color: {p.accent_text};
+        border-color: {p.accent};
     }}
 
     /* Lists and trees ------------------------------------------------- */
     QTreeWidget, QTreeView, QListView {{
         background: {p.raised};
-        border: 1px solid {p.line};
-        border-radius: 6px;
+        border: {HAIRLINE} solid {p.line};
+        border-radius: {RADIUS};
         alternate-background-color: {p.surface};
+        outline: none;
     }}
-    QTreeWidget::item {{ padding: 3px 2px; }}
+    QTreeWidget::item {{ padding: 4px 2px; border: none; }}
     QTreeWidget::item:selected, QTreeView::item:selected {{
         background: {p.accent_wash};
         color: {p.ink};
     }}
     QHeaderView::section {{
         background: {p.surface};
-        color: {p.ink_dim};
+        color: {p.ink};
         border: none;
-        border-bottom: 1px solid {p.line};
-        padding: 5px 6px;
-        font-weight: 600;
+        border-bottom: {RULE} solid {p.accent};
+        border-right: {HAIRLINE} solid {p.line};
+        padding: 6px;
+        font-weight: 800;
     }}
 
     /* Progress, sliders, scrollbars ----------------------------------- */
     QProgressBar {{
         background: {p.surface};
-        border: 1px solid {p.line};
-        border-radius: 4px;
+        border: {HAIRLINE} solid {p.ink_dim};
+        border-radius: {RADIUS};
         text-align: center;
-        color: {p.ink_dim};
-        height: 14px;
+        color: {p.ink};
+        font-weight: 700;
+        height: 16px;
     }}
-    QProgressBar::chunk {{ background: {p.accent_fill}; border-radius: 3px; }}
+    QProgressBar::chunk {{ background: {p.accent_fill}; }}
 
     QSlider::groove:horizontal {{
-        background: {p.line}; height: 4px; border-radius: 2px;
+        background: {p.line}; height: 5px; border-radius: {RADIUS};
     }}
-    QSlider::sub-page:horizontal {{ background: {p.accent}; border-radius: 2px; }}
+    QSlider::sub-page:horizontal {{ background: {p.accent_fill}; }}
     QSlider::handle:horizontal {{
-        background: {p.accent};
-        width: 14px; height: 14px;
-        margin: -6px 0;
-        border-radius: 7px;
+        background: {p.accent_fill};
+        border: {RULE} solid {p.accent};
+        width: 12px; height: 16px;
+        margin: -7px 0;
+        border-radius: {RADIUS};
     }}
     QSlider::handle:horizontal:hover {{ background: {p.accent_hover}; }}
 
-    QScrollBar:vertical {{ background: transparent; width: 11px; margin: 0; }}
-    QScrollBar::handle:vertical {{
-        background: {p.line}; border-radius: 5px; min-height: 28px;
-    }}
-    QScrollBar::handle:vertical:hover {{ background: {p.ink_dim}; }}
-    QScrollBar:horizontal {{ background: transparent; height: 11px; }}
-    QScrollBar::handle:horizontal {{
-        background: {p.line}; border-radius: 5px; min-width: 28px;
-    }}
+    QScrollBar:vertical {{ background: {p.surface}; width: 12px; margin: 0;
+                           border-left: {HAIRLINE} solid {p.line}; }}
+    QScrollBar::handle:vertical {{ background: {p.ink_dim}; min-height: 30px;
+                                   border-radius: {RADIUS}; }}
+    QScrollBar::handle:vertical:hover {{ background: {p.accent}; }}
+    QScrollBar:horizontal {{ background: {p.surface}; height: 12px;
+                             border-top: {HAIRLINE} solid {p.line}; }}
+    QScrollBar::handle:horizontal {{ background: {p.ink_dim}; min-width: 30px;
+                                     border-radius: {RADIUS}; }}
+    QScrollBar::handle:horizontal:hover {{ background: {p.accent}; }}
     QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
     QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
 
     /* Chrome ---------------------------------------------------------- */
-    QMenuBar {{ background: {p.raised}; border-bottom: 1px solid {p.line}; }}
-    QMenuBar::item:selected {{ background: {p.accent_wash}; }}
-    QMenu {{ background: {p.raised}; border: 1px solid {p.line}; padding: 4px; }}
-    QMenu::item {{ padding: 5px 24px 5px 20px; }}
-    QMenu::item:selected {{ background: {p.accent_wash}; }}
-    QMenu::separator {{ height: 1px; background: {p.line}; margin: 4px 8px; }}
+    QMenuBar {{ background: {p.raised};
+                border-bottom: {HAIRLINE} solid {p.line}; }}
+    QMenuBar::item {{ padding: 6px 12px; font-weight: 700; }}
+    QMenuBar::item:selected {{ background: {p.accent_fill};
+                               color: {p.accent_text}; }}
+    QMenu {{ background: {p.raised}; border: {RULE} solid {p.accent};
+             border-radius: {RADIUS}; padding: 2px; }}
+    QMenu::item {{ padding: 6px 26px 6px 22px; }}
+    QMenu::item:selected {{ background: {p.accent_fill}; color: {p.accent_text}; }}
+    QMenu::separator {{ height: {HAIRLINE}; background: {p.line}; margin: 4px 0; }}
 
-    QStatusBar {{ background: {p.raised}; border-top: 1px solid {p.line};
+    QStatusBar {{ background: {p.raised};
+                  border-top: {RULE} solid {p.accent};
                   color: {p.ink_dim}; }}
     QStatusBar::item {{ border: none; }}
     QToolTip {{
         background: {p.ink}; color: {p.surface};
-        border: none; padding: 5px 7px;
+        border: {RULE} solid {p.accent}; border-radius: {RADIUS};
+        padding: 5px 7px;
     }}
     QScrollArea {{ border: none; }}
     QSplitter::handle {{ background: {p.line}; }}
+    QSplitter::handle:hover {{ background: {p.accent}; }}
+    QSplitter::handle:horizontal {{ width: {RULE}; }}
+    QSplitter::handle:vertical {{ height: {RULE}; }}
+
+    /* Same trap as the combo: a styled indicator loses the tick along with the
+       native drawing, leaving a filled square that does not read as "on". */
+    QCheckBox {{ spacing: 7px; }}
     QCheckBox::indicator {{
         width: 15px; height: 15px;
-        border: 1px solid {p.line}; border-radius: 3px;
+        border: {RULE} solid {p.ink_dim};
+        border-radius: {RADIUS};
         background: {p.raised};
     }}
-    /* Same trap as the combo: the styled indicator loses the tick along with
-       the native drawing, leaving a filled square that does not read as "on". */
     QCheckBox::indicator:checked {{
         background: {p.accent_fill};
         border-color: {p.accent};

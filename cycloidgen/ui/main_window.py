@@ -14,7 +14,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as Canvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavBar
 from matplotlib.figure import Figure
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QAction, QColor, QKeySequence, QPalette
+from PySide6.QtGui import QAction, QColor, QFont, QKeySequence, QPalette
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -148,6 +148,10 @@ class MainWindow(QMainWindow):
         self._last_codes: set[str] | None = None
         self._log_badge = 0
         self._splitter_restored = False
+        # Numbers in a proportional face do not line up, and a column of
+        # unaligned magnitudes is a column you have to read one row at a time.
+        self._mono = QFont("Consolas")
+        self._mono.setStyleHint(QFont.Monospace)
         self._workers: list[AnalysisWorker] = []
         self._history = SpecHistory(self.spec)
         self._highlighted: list[QWidget] = []
@@ -269,13 +273,13 @@ class MainWindow(QMainWindow):
         """
         header = QFrame()
         header.setObjectName("BrandHeader")
-        header.setFixedHeight(46)
+        header.setFixedHeight(58)
         row = QHBoxLayout(header)
         row.setContentsMargins(14, 6, 14, 6)
         row.setSpacing(12)
 
         self._logo = QLabel()
-        self._logo.setPixmap(branding.logo_pixmap("wordmark", self.mode, height=24))
+        self._logo.setPixmap(branding.logo_pixmap("wordmark", self.mode, height=34))
         self._logo.setToolTip(f"{branding.COMPANY} - {branding.TAGLINE}")
         row.addWidget(self._logo)
 
@@ -286,17 +290,17 @@ class MainWindow(QMainWindow):
             f"background: {branding.palette(self.mode).line};")
         row.addWidget(self._header_rule)
 
-        product = QLabel("cycloidgen")
+        product = QLabel("CYCLOIDGEN")
         product.setObjectName("BrandProduct")
         row.addWidget(product)
 
-        tagline = QLabel("parametric cycloidal drive design")
+        tagline = QLabel("PARAMETRIC CYCLOIDAL DRIVE DESIGN")
         tagline.setObjectName("BrandTagline")
         row.addWidget(tagline)
         row.addStretch(1)
 
         self._header_status = QLabel()
-        self._header_status.setObjectName("BrandTagline")
+        self._header_status.setObjectName("BrandStatus")
         row.addWidget(self._header_status)
         return header
 
@@ -306,7 +310,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(8, 8, 8, 8)
 
         row = QHBoxLayout()
-        row.addWidget(QLabel("Preset"))
+        row.addWidget(QLabel("PRESET"))
         self._preset_box = QComboBox()
         for r in (10, 15, 21, 29, 39, 59):
             self._preset_box.addItem(f"{r}:1", r)
@@ -315,7 +319,7 @@ class MainWindow(QMainWindow):
         row.addWidget(self._preset_box, 1)
         layout.addLayout(row)
 
-        self._optimise_btn = QPushButton("Design for requirements...")
+        self._optimise_btn = QPushButton("DESIGN FOR REQUIREMENTS")
         self._optimise_btn.setProperty("primary", "true")
         self._optimise_btn.setToolTip(
             "State the ratio, torque and envelope you need and let the app "
@@ -330,21 +334,34 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._filter)
 
         for title, fields in GROUPS:
-            box = QGroupBox(title)
+            box = QGroupBox(title.upper())
             form = QFormLayout(box)
-            form.setLabelAlignment(Qt.AlignRight)
+            form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+            form.setHorizontalSpacing(10)
+            form.setVerticalSpacing(7)
             for f in fields:
                 w = self._make_widget(f)
                 self._widgets[f.name] = w
                 if f.tip:
                     w.setToolTip(f.tip)
-                label = QLabel(f.label)
-                form.addRow(label, w)
-                self._rows[f.name] = (label, w)
+                if isinstance(w, QCheckBox):
+                    # A lone indicator in the field column reads as orphaned,
+                    # and the label beside it is not clickable.  Put the text
+                    # on the box and let it span.
+                    w.setText(f.label)
+                    form.addRow(w)
+                    self._rows[f.name] = (w, w)
+                else:
+                    label = QLabel(f.label)
+                    form.addRow(label, w)
+                    self._rows[f.name] = (label, w)
             layout.addWidget(box)
             self._groups.append((box, [f.name for f in fields]))
 
-        btn = QPushButton("Apply process defaults")
+        self._align_label_column()
+
+        btn = QPushButton("APPLY PROCESS DEFAULTS")
         btn.setToolTip("Reset both clearances to the guide values for the "
                        "selected manufacturing process.")
         btn.clicked.connect(self._apply_process_defaults)
@@ -357,6 +374,22 @@ class MainWindow(QMainWindow):
         scroll.setMinimumWidth(380)
         self._param_scroll = scroll
         return scroll
+
+    def _align_label_column(self) -> None:
+        """Give every group the same label column width.
+
+        QFormLayout sizes its label column to the longest label *in that
+        layout*, so each group lands on its own alignment and the panel reads as
+        a stack of unrelated forms.  One shared width turns it back into a
+        column.
+        """
+        labels = [row[0] for name, row in self._rows.items()
+                  if row[0] is not row[1]]
+        if not labels:
+            return
+        width = max(label.sizeHint().width() for label in labels)
+        for label in labels:
+            label.setMinimumWidth(width)
 
     def _make_widget(self, f: Field) -> QWidget:
         if f.kind == "float":
@@ -395,7 +428,7 @@ class MainWindow(QMainWindow):
         pv.addWidget(self._canvas_profile, 1)
 
         crank_row = QHBoxLayout()
-        crank_row.addWidget(QLabel("Crank"))
+        crank_row.addWidget(QLabel("CRANK"))
         self._crank_slider = QSlider(Qt.Horizontal)
         self._crank_slider.setRange(0, 359)
         self._crank_slider.valueChanged.connect(self._on_crank)
@@ -403,16 +436,16 @@ class MainWindow(QMainWindow):
         self._crank_label = QLabel("0 deg")
         self._crank_label.setMinimumWidth(56)
         crank_row.addWidget(self._crank_label)
-        self._play = QPushButton("Rotate")
+        self._play = QPushButton("ROTATE")
         self._play.setCheckable(True)
         self._play.toggled.connect(self._toggle_animation)
         crank_row.addWidget(self._play)
         pv.addLayout(crank_row)
-        self.tabs.addTab(page, "Drawing")
+        self.tabs.addTab(page, "DRAWING")
 
         self._fig_force = Figure(figsize=(6.4, 3.6), dpi=100)
         self._canvas_force = Canvas(self._fig_force)
-        self.tabs.addTab(self._canvas_force, "Loads")
+        self.tabs.addTab(self._canvas_force, "LOADS")
 
         self._fig_loss = Figure(figsize=(6.4, 3.0), dpi=100)
         self._canvas_loss = Canvas(self._fig_loss)
@@ -425,52 +458,66 @@ class MainWindow(QMainWindow):
         self._loss_note.setContentsMargins(12, 4, 12, 4)
         lv.addWidget(self._loss_note)
         lv.addStretch(1)
-        self.tabs.addTab(loss_page, "Efficiency")
+        self.tabs.addTab(loss_page, "EFFICIENCY")
 
         self._datasheet = QTreeWidget()
-        self._datasheet.setHeaderLabels(["Quantity", "Value", "Note"])
+        self._datasheet.setHeaderLabels(["QUANTITY", "VALUE", "NOTE"])
         self._datasheet.setColumnWidth(0, 260)
         self._datasheet.setColumnWidth(1, 150)
-        self.tabs.addTab(self._datasheet, "Datasheet")
+        self.tabs.addTab(self._datasheet, "DATASHEET")
 
         self._trade = TradeStudyTab()
-        self.tabs.addTab(self._trade, "Trade study")
+        self.tabs.addTab(self._trade, "TRADE STUDY")
 
         self._compare_page = self._build_compare_tab()
-        self.tabs.addTab(self._compare_page, "Compare")
+        self.tabs.addTab(self._compare_page, "COMPARE")
 
-        self._log_tab = self.tabs.addTab(self.log, "Log")
+        self._log_tab = self.tabs.addTab(self.log, "LOG")
         self.tabs.setTabToolTip(self._log_tab,
                                 "Everything the app would otherwise print to a "
                                 "terminal you do not have.")
         self.log.problem.connect(self._flag_log)
         self.tabs.currentChanged.connect(self._tab_changed)
-        layout.addWidget(self.tabs, 1)
 
-        layout.addLayout(self._build_findings_filter())
+        self._checks_panel = QWidget()
+        checks_layout = QVBoxLayout(self._checks_panel)
+        checks_layout.setContentsMargins(0, 4, 0, 0)
+        checks_layout.setSpacing(4)
+        checks_layout.addLayout(self._build_findings_filter())
 
         self.findings = QTreeWidget()
-        self.findings.setHeaderLabels(["", "Check", "Detail", "Value", "Limit"])
+        self.findings.setHeaderLabels(
+            ["", "CHECK", "VALUE", "LIMIT", "DETAIL"])
         self.findings.setRootIsDecorated(False)
-        self.findings.setMaximumHeight(190)
         self.findings.currentItemChanged.connect(self._finding_selected)
         header = self.findings.header()
-        for col, width in ((0, 70), (1, 190), (3, 80), (4, 80)):
+        for col, width in ((0, 74), (1, 210), (2, 84), (3, 84)):
             self.findings.setColumnWidth(col, width)
-        header.setStretchLastSection(False)
-        header.setSectionResizeMode(2, header.ResizeMode.Stretch)
-        layout.addWidget(self.findings)
+        for col in (2, 3):
+            self.findings.headerItem().setTextAlignment(col, Qt.AlignRight)
+        header.setStretchLastSection(True)
+        checks_layout.addWidget(self.findings, 1)
+
+        # A fixed 190 px strip cut the last row in half and left the datasheet
+        # scrolling in a box a third of the window.  Let the user decide.
+        self._view_split = QSplitter(Qt.Vertical)
+        self._view_split.addWidget(self.tabs)
+        self._view_split.addWidget(self._checks_panel)
+        self._view_split.setStretchFactor(0, 1)
+        self._view_split.setCollapsible(0, False)
+        self._view_split.setSizes([620, 260])
+        layout.addWidget(self._view_split, 1)
 
         row = QHBoxLayout()
-        self._export_btn = QPushButton("Export all files...")
+        self._export_btn = QPushButton("EXPORT ALL FILES")
         self._export_btn.setProperty("primary", "true")
         self._export_btn.clicked.connect(lambda: self._export(True))
         row.addWidget(self._export_btn)
-        self._export_2d_btn = QPushButton("Export drawings only")
+        self._export_2d_btn = QPushButton("EXPORT DRAWINGS ONLY")
         self._export_2d_btn.clicked.connect(lambda: self._export(False))
         row.addWidget(self._export_2d_btn)
         row.addStretch(1)
-        self._pin_btn = QPushButton("Pin as reference")
+        self._pin_btn = QPushButton("PIN AS REFERENCE")
         self._pin_btn.setToolTip("Keep this design to compare later changes "
                                  "against. It shows as a ghost on the drawing.")
         self._pin_btn.clicked.connect(self._pin_reference)
@@ -488,7 +535,7 @@ class MainWindow(QMainWindow):
         """
         row = QHBoxLayout()
         row.setContentsMargins(2, 2, 2, 0)
-        row.addWidget(QLabel("Checks"))
+        row.addWidget(QLabel("CHECKS"))
 
         self._severity_filters: dict[Severity, QCheckBox] = {}
         for severity, label in ((Severity.ERROR, "Errors"),
@@ -682,7 +729,7 @@ class MainWindow(QMainWindow):
 
         # Matplotlib bakes its colours in at draw time, so every figure has to
         # be rebuilt - restyling the canvas would leave the old ink on it.
-        self._logo.setPixmap(branding.logo_pixmap("wordmark", self.mode, height=24))
+        self._logo.setPixmap(branding.logo_pixmap("wordmark", self.mode, height=34))
         self._header_rule.setStyleSheet(
             f"background: {branding.palette(self.mode).line};")
         for severity, box in self._severity_filters.items():
@@ -719,12 +766,12 @@ class MainWindow(QMainWindow):
         if self.tabs.currentIndex() == self._log_tab:
             return
         self._log_badge = max(self._log_badge, 2 if level != "WARNING" else 1)
-        self.tabs.setTabText(self._log_tab, "Log !" + "!" * (self._log_badge - 1))
+        self.tabs.setTabText(self._log_tab, "LOG " + "!" * self._log_badge)
 
     def _tab_changed(self, index: int) -> None:
         if index == self._log_tab:
             self._log_badge = 0
-            self.tabs.setTabText(self._log_tab, "Log")
+            self.tabs.setTabText(self._log_tab, "LOG")
 
     # ----------------------------------------------------------------- state
     def _restore_spec(self) -> GearSpec:
@@ -886,18 +933,16 @@ class MainWindow(QMainWindow):
             f"Losses scale with the friction coefficient, so lubrication and rolling "
             f"elements move this number further than any geometry change.")
         self._header_status.setText(
-            f"{s.ratio}:1  ·  {2 * s.housing_outer_radius:.0f} mm OD  ·  "
-            f"{a.torque_capacity_with_clearance_Nm:.1f} Nm  ·  "
-            f"{100 * a.efficiency.efficiency:.0f}%"
-            + ("" if a.report.ok else "  ·  BLOCKED"))
-        self.statusBar().showMessage(
-            f"{s.ratio}:1   OD {2 * s.housing_outer_radius:.1f} mm   "
-            f"stack {s.stack_height:.1f} mm   {a.mass.total_mass_g:.0f} g   "
-            f"efficiency {100 * a.efficiency.efficiency:.1f}%   "
-            f"capacity {a.torque_capacity_with_clearance_Nm:.2f} Nm   "
-            f"backlash {a.stiffness.lost_motion_arcmin:.0f}'   "
+            f"{s.ratio}:1   {2 * s.housing_outer_radius:.0f} mm OD   "
+            f"{s.envelope_length:.0f} mm LONG   {a.mass.total_mass_g:.0f} g   "
+            f"{a.torque_capacity_with_clearance_Nm:.2f} Nm   "
+            f"{100 * a.efficiency.efficiency:.0f}%   "
+            f"{a.stiffness.lost_motion_arcmin:.0f}'   "
             f"{a.thermal.temperature_C:.0f} C"
-            + ("" if a.report.ok else "   -   EXPORT BLOCKED, fix the errors below"))
+            + ("" if a.report.ok else "   EXPORT BLOCKED"))
+        if not a.report.ok:
+            self.statusBar().showMessage(
+                "Export blocked: " + ", ".join(f.code for f in a.report.errors))
 
     def _draw_profile(self) -> None:
         plots.profile_figure(self.spec, self._fig_profile, crank_deg=self._crank,
@@ -910,20 +955,26 @@ class MainWindow(QMainWindow):
         counts = {Severity.ERROR: 0, Severity.WARNING: 0, Severity.INFO: 0}
         for f in self.analysis.report.findings:
             item = QTreeWidgetItem([
-                f.severity.value.upper(), f.code, f.message,
+                f.severity.value.upper(), f.code,
                 f"{f.value:.4g}" if f.value is not None else "",
-                f"{f.limit:.4g}" if f.limit is not None else ""])
+                f"{f.limit:.4g}" if f.limit is not None else "",
+                f.message])
             item.setForeground(0, self._severity[f.severity])
+            for col in (2, 3):
+                item.setTextAlignment(col, Qt.AlignRight | Qt.AlignVCenter)
+                item.setFont(col, self._mono)
             item.setData(0, Qt.UserRole, f.code)
             # The value, not the enum member: Qt stores this in a QVariant and
             # hands back a plain str.  Severity is a str enum so a dict lookup
             # would happen to work anyway - which is exactly the kind of
             # accident that stops working when the enum stops being a str.
             item.setData(1, Qt.UserRole, f.severity.value)
+            item.setToolTip(4, f.message)          # the column truncates
             self.findings.addTopLevelItem(item)
             counts[f.severity] += 1
         if not self.analysis.report.findings:
-            self.findings.addTopLevelItem(QTreeWidgetItem(["", "", "No findings.", "", ""]))
+            self.findings.addTopLevelItem(
+                QTreeWidgetItem(["", "", "", "", "No findings."]))
 
         for severity, label in ((Severity.ERROR, "Errors"),
                                 (Severity.WARNING, "Warnings"),
@@ -1056,7 +1107,10 @@ class MainWindow(QMainWindow):
             parent.setFont(0, font)
             self._datasheet.addTopLevelItem(parent)
             for name, value, note in rows:
-                parent.addChild(QTreeWidgetItem([name, value, note]))
+                child = QTreeWidgetItem([name, value, note])
+                child.setFont(1, self._mono)
+                child.setToolTip(2, note)
+                parent.addChild(child)
             parent.setExpanded(True)
 
     # --------------------------------------------------------------- compare
@@ -1152,7 +1206,7 @@ class MainWindow(QMainWindow):
         self._crank_slider.setValue(int((self._crank_slider.value() + 4) % 360))
 
     def _toggle_animation(self, on: bool) -> None:
-        self._play.setText("Stop" if on else "Rotate")
+        self._play.setText("STOP" if on else "ROTATE")
         self._anim.start() if on else self._anim.stop()
 
     # ---------------------------------------------------------------- files

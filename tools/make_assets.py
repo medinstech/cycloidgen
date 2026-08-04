@@ -65,19 +65,21 @@ def _tick(size: int = 32) -> Image.Image:
     return im
 
 
-def _chevron(size: int, colour: tuple[int, int, int]) -> Image.Image:
-    """A down chevron for combo boxes.
+def _chevron(size: int, colour: tuple[int, int, int], up: bool = False) -> Image.Image:
+    """A chevron for combo boxes and spin buttons.
 
-    ``QComboBox::drop-down`` with a custom border drops the platform arrow, so
-    a styled combo looks exactly like a text field until you click it.
+    Styling ``QComboBox::drop-down`` or a spin box's buttons drops the platform
+    arrow with them, so a styled combo looks exactly like a text field until you
+    click it, and a spin box loses its up/down affordance entirely.
     """
     from PIL import ImageDraw
 
     im = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
-    w = max(2, round(size * 0.09))
-    d.line([(size * 0.28, size * 0.40), (size * 0.5, size * 0.62),
-            (size * 0.72, size * 0.40)],
+    w = max(2, round(size * 0.10))
+    near, far = (0.60, 0.40) if up else (0.40, 0.60)
+    d.line([(size * 0.26, size * near), (size * 0.5, size * far),
+            (size * 0.74, size * near)],
            fill=(*colour, 235), width=w, joint="curve")
     return im
 
@@ -107,8 +109,9 @@ def main() -> int:
     # Control glyphs the stylesheet needs, because styling a control replaces
     # the platform's own drawing of it.
     save(_tick(32), "tick.png")
-    save(_chevron(28, (0x52, 0x51, 0x4e)), "chevron-light.png")
-    save(_chevron(28, (0xc3, 0xc2, 0xb7)), "chevron-dark.png")
+    for tint, rgb in (("light", (0x52, 0x51, 0x4e)), ("dark", (0xc3, 0xc2, 0xb7))):
+        save(_chevron(28, rgb), f"chevron-down-{tint}.png")
+        save(_chevron(28, rgb, up=True), f"chevron-up-{tint}.png")
 
     # Multi-resolution icon for the window and the PyInstaller build
     mark = _trim(args.source / "mdns-logo-blue@2x.png")

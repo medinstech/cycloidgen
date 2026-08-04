@@ -30,10 +30,10 @@ class Field:
 
 GROUPS: list[tuple[str, list[Field]]] = [
     ("Cycloid geometry", [
-        Field("lobes", "Lobes (= ratio)", "int", 3, 200, 1, suffix=" :1",
+        Field("lobes", "Lobes / ratio", "int", 3, 200, 1, suffix=":1",
               tip="Ring pins are one more than the lobe count; the reduction "
                   "equals the lobe count."),
-        Field("pin_circle_radius", "Pin circle radius R", "float", 5, 500, 0.5,
+        Field("pin_circle_radius", "Pin circle R", "float", 5, 500, 0.5,
               decimals=2, suffix=" mm"),
         Field("pin_radius", "Pin radius Rr", "float", 0.2, 100, 0.1, decimals=2,
               suffix=" mm"),
@@ -51,7 +51,7 @@ GROUPS: list[tuple[str, list[Field]]] = [
         Field("output_pin_count", "Pin count", "int", 3, 24, 1),
         Field("output_pin_diameter", "Pin diameter", "float", 1, 60, 0.5, decimals=2,
               suffix=" mm"),
-        Field("output_bolt_circle_radius", "Bolt circle radius", "float", 3, 400, 0.5,
+        Field("output_bolt_circle_radius", "Bolt circle", "float", 3, 400, 0.5,
               decimals=2, suffix=" mm"),
         Field("output_pins_are_rollers", "Pins carry rollers", "bool",
               tip="Rolling output pins remove most of the second-biggest loss."),
@@ -69,14 +69,14 @@ GROUPS: list[tuple[str, list[Field]]] = [
     ("Manufacturing", [
         Field("process", "Process", "choice",
               choices=tuple(p.value for p in Process)),
-        Field("offset_mode", "Clearance applied as", "choice",
+        Field("offset_mode", "Clearance as", "choice",
               choices=tuple(m.value for m in OffsetMode),
               tip="Equidistant grows the roller; pin circle shifts the ring."),
         Field("profile_clearance", "Profile clearance", "float", 0, 2, 0.01,
               decimals=3, suffix=" mm"),
         Field("hole_clearance", "Hole clearance", "float", 0, 2, 0.01,
               decimals=3, suffix=" mm"),
-        Field("dxf_chord_tolerance", "DXF chord tolerance", "float", 0.0005, 0.5,
+        Field("dxf_chord_tolerance", "DXF tolerance", "float", 0.0005, 0.5,
               0.001, decimals=4, suffix=" mm"),
         Field("stl_linear_tolerance", "STL tolerance", "float", 0.005, 1.0, 0.01,
               decimals=3, suffix=" mm"),
@@ -84,12 +84,12 @@ GROUPS: list[tuple[str, list[Field]]] = [
     ("Materials", [
         Field("disc_material", "Disc", "choice", choices=tuple(MATERIALS)),
         Field("pin_material", "Pins", "choice", choices=tuple(MATERIALS)),
-        Field("housing_material", "Housing and carrier", "choice",
+        Field("housing_material", "Housing", "choice",
               choices=tuple(MATERIALS),
               tip="Also the output flange. Sets the mass and the temperature "
                   "limit of the structure."),
-        Field("shaft_material", "Input shaft", "choice", choices=tuple(MATERIALS)),
-        Field("friction_coefficient", "Friction coefficient", "float", 0.01, 0.9,
+        Field("shaft_material", "Shaft", "choice", choices=tuple(MATERIALS)),
+        Field("friction_coefficient", "Friction", "float", 0.01, 0.9,
               0.01, decimals=3),
         Field("ring_pins_are_rollers", "Ring pins are rollers", "bool",
               tip="Needle rollers on the ring pins remove the largest loss."),
@@ -99,7 +99,7 @@ GROUPS: list[tuple[str, list[Field]]] = [
               suffix=" rpm"),
         Field("output_torque_Nm", "Output torque", "float", 0.01, 10000, 0.5,
               decimals=3, suffix=" Nm"),
-        Field("ambient_temp_C", "Ambient temperature", "float", -50, 200, 5,
+        Field("ambient_temp_C", "Ambient", "float", -50, 200, 5,
               decimals=1, suffix=" C",
               tip="Sets the baseline the predicted running temperature is "
                   "added to."),
