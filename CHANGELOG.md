@@ -10,12 +10,22 @@ design somebody already built.
 **Added**
 
 - **3D view.** The assembled drive, turning under the same crank as the drawing:
-  orbit, pan, zoom, standard viewpoints, an explode slider and per-group
-  visibility. Built from the same closed-form profile the drawing uses rather
-  than tessellated from the solids, so it works in a build without the OCCT
-  kernel and cannot drift from what gets exported. Rendered in software - no
-  OpenGL, no scene graph - which is what makes it work over a remote desktop
-  and testable without a display.
+  orbit, pan, zoom, standard viewpoints, an explode slider, per-group visibility
+  and a section plane. Built from the same closed-form profile the drawing uses
+  rather than tessellated from the solids, so it cannot drift from what gets
+  exported, and verified against the volume of that solid part by part.
+
+  Rendered on the GPU through VTK, which the CAD kernel already installs, so it
+  costs no new dependency: depth buffer, smooth shading off feature-angle
+  normals, a three-point light rig, screen-space ambient occlusion sized off the
+  drive, multisampling. Geometry is uploaded once per design and a frame sets
+  one transform per part, so a 59:1 drive costs what a 15:1 one does.
+
+  A software renderer - back-face culled, painted back to front with QPainter -
+  stays as the fallback for a build without the kernel, a machine with no
+  OpenGL, or a remote session that will not forward it. It is also what draws
+  the 3D views in the PDF, as vector rather than a screenshot, and what makes
+  the projection testable with no display at all.
 - **Outputs tab.** Every file an export writes, listed by name with what it is
   for and where it will land, *before* anything is written; sizes filled in
   afterwards, and any of them opens on a double-click. Groups (drawings,
@@ -65,6 +75,18 @@ design somebody has already built.
   costs about 10 ms instead of 25, so the animation now keeps its timer instead
   of running at whatever matplotlib could manage.
 - Part colours come from one table shared by the 3D view and the STEP assembly.
+- The mesh cache is keyed on the fields the geometry depends on rather than on
+  the whole design, so changing a material or the rated torque no longer sends a
+  fresh copy of the assembly to the graphics card.
+
+**Fixed**
+
+- **The rotation animation no longer jumps when it loops.** It was wrapping the
+  crank at 360 degrees, but one input revolution does not put the drive back
+  where it started - the disc and the carrier have advanced by 360/lobes. The
+  period is `lobes` input turns, one output revolution, and wrapping there is
+  seamless because every part really is back at its starting pose. The crank
+  slider still reads 0-359, because that is the angle the user set.
 - Disc file naming (`disc` versus `disc_1`, `disc_2`, …) comes from one place,
   so the DXF and the STEP exporters cannot disagree about the stack.
 

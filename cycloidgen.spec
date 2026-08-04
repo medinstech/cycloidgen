@@ -32,6 +32,13 @@ for package in ("casadi", "OCP"):
 
 hiddenimports += collect_submodules("cycloidgen")
 hiddenimports += ["matplotlib.backends.backend_qtagg", "PySide6.QtSvg"]
+# The 3D view reaches these three only at run time: VTK's Qt widget, and the
+# two modules whose import is what *registers* the OpenGL backend and the
+# interactor styles.  Without them the frozen build silently falls back to the
+# software renderer.
+hiddenimports += ["vtkmodules.qt.QVTKRenderWindowInteractor",
+                  "vtkmodules.vtkRenderingOpenGL2",
+                  "vtkmodules.vtkInteractionStyle"]
 
 # Brand assets: collect_submodules only finds importable modules, so the logos
 # have to be listed as data or the frozen app starts with no icon and an empty

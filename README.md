@@ -238,20 +238,30 @@ suggests it.
   arrow that grows means the load grew and not that the scale moved under it.
 
 - **3D** — the assembled drive on the same crank. Drag to orbit, right-drag to
-  pan, wheel to zoom, standard viewpoints, an explode slider, and per-group
-  visibility so you can take the housing off and watch the mesh.
+  pan, wheel to zoom, standard viewpoints, an explode slider, per-group
+  visibility so you can take the housing off and watch the mesh, and a section
+  plane to cut through it.
 
   ![exploded](docs/exploded.png)
 
-  It renders in software: no OpenGL, no Qt 3D, no scene graph. A hardware path
-  would push more triangles than this ever needs, and would also be the one part
-  of the application that fails on a machine with no GL driver, over a remote
-  desktop, or in a headless test — which is where a mechanical tool actually
-  gets used. A cycloidal drive is a few thousand polygons, back-face culled and
-  painted back to front; a frame costs about 13 ms, and the maths can be checked
-  on a machine with no display at all. The mesh is verified against the volume
-  of the solid that gets exported, part by part, so the picture and the STEP file
-  are the same gearbox.
+  It renders on the GPU through VTK — which costs no new dependency, because
+  the CAD kernel that writes your STEP files already brings it. Depth buffer,
+  smooth shading off feature-angle normals so the pins are round rather than
+  faceted, a three-point light rig, screen-space ambient occlusion sized off the
+  drive so a pin sits *in* its pocket, and multisampled edges. Geometry is
+  uploaded once per design; turning the crank sets one transform per part, so a
+  frame is bounded by the display's refresh rate and a 59:1 drive with sixty
+  pins costs exactly what a 15:1 one does.
+
+  There is a **software fallback** — the same scene, back-face culled and
+  painted back to front with `QPainter` — for a build with the kernel stripped
+  out, a machine with no OpenGL, or a remote session that will not forward it. A
+  flat-shaded gearbox beats a tab that shows an error. It is also what draws the
+  3D views in the PDF, where a vector figure is worth more than a screenshot,
+  and what makes the projection testable on a machine with no display at all.
+
+  The mesh is verified against the volume of the solid that gets exported, part
+  by part, so the picture and the STEP file are the same gearbox.
 
 - **Outputs** — every file an export writes, by name, with what it is for and
   where it will land, *before* anything is written. Sizes fill in afterwards and
@@ -320,12 +330,13 @@ cycloidgen/
 ├── core/       spec (the one source of truth), profile, kinematics, validate
 ├── analysis/   mechanics (Hertz), stiffness, thermal, mass, efficiency, bearings
 ├── design/     optimise (requirements -> geometry), sweep (trade studies)
-├── viz/        mesh and scene: 3D geometry and rendering maths, no Qt
+├── viz/        3D geometry and rendering maths, no Qt: mesh, scene (the
+│               software projection), vtkbridge (mesh -> VTK polydata)
 ├── export/     manifest (what a bundle contains), dxf, svg, solid (OCCT), bom
 ├── report/     plots (shared by UI and PDF), build
 └── ui/         PySide6 window, 3D viewer, outputs tab, declarative field table,
                 optimiser dialog, trade-study tab, undo/redo history, log panel
-tests/          300 tests; the envelope, pin-in-hole, clearance-sign and
+tests/          334 tests; the envelope, pin-in-hole, clearance-sign and
                 mesh-versus-solid tests matter most
 ```
 
@@ -341,7 +352,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-300 tests, about 165 s. Most of that is CadQuery writing solids; the pure
+334 tests, about 155 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in under a second. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own
@@ -391,10 +402,24 @@ Animation runs on a 33 ms tick and both views fit inside it. The drawing costs
 about 10 ms a frame, down from 25: the artists are built when the *design*
 changes and repositioned when the *angle* does, so a crank move no longer
 rebuilds a couple of hundred patches and re-runs `tight_layout`. The 3D view
-costs about 13 ms — roughly 1 ms of projection, culling, shading and depth
-sorting in numpy, and the rest painting. Neither view is redrawn while its tab
-is hidden; a hidden matplotlib canvas will still honour `draw_idle` with a full
-render, which is ten milliseconds a frame spent on something nobody can see.
+sets seven transforms and hands them to the card, so it is bounded by vsync
+rather than by us; the software fallback does the whole projection in numpy in
+about 1 ms and spends the rest painting, for roughly 13 ms a frame.
+
+Neither view is redrawn while its tab is hidden — a hidden matplotlib canvas
+will still honour `draw_idle` with a full render, which is ten milliseconds a
+frame spent on something nobody can see — and neither rebuilds geometry for a
+change that did not touch it. The mesh cache is keyed on the fields the geometry
+actually depends on, so changing a material or the rated torque does not send a
+fresh copy of the assembly to the graphics card. That key is a hand-written list
+and therefore a liability, so a test perturbs *every* field of `GearSpec` in turn
+and requires that an unchanged key really does mean an unchanged mesh.
+
+The animation loops over the mechanism's own period, which is `lobes` input
+revolutions — one output revolution — and not one turn of the crank. After a
+single input turn the disc and the carrier have moved on by 360/lobes and are
+not back where they started, which is what used to put a visible jump in the
+loop every four seconds.
 
 ## Standalone build and installer
 

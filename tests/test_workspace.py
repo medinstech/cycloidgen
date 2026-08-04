@@ -208,6 +208,25 @@ def test_the_drawing_is_not_redrawn_while_nobody_is_looking(app):
         w.close()
 
 
+def test_a_headless_platform_gets_the_software_renderer(app):
+    """The guard that keeps this whole file from crashing the interpreter.
+
+    ``QVTKRenderWindowInteractor`` asks its widget for a native window handle
+    and hands it to OpenGL.  The offscreen platform has none, so it does not
+    raise - it takes the process down with an access violation, which no `try`
+    can catch.  The platform has to be checked before anything is constructed.
+    """
+    from cycloidgen.ui import view3d, view3d_vtk
+    assert not view3d_vtk.available()
+
+    w = _window(app)
+    try:
+        assert isinstance(w._view3d.view, view3d.AssemblyView)
+        assert not hasattr(w._view3d.view, "set_section")   # hardware only
+    finally:
+        w.close()
+
+
 def test_the_crank_bar_is_hidden_where_it_would_do_nothing(app):
     """A control that does nothing where it is shown teaches people to ignore it."""
     w = _window(app)

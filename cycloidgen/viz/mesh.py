@@ -40,6 +40,7 @@ __all__ = [
     "Mesh",
     "Part",
     "build_mesh",
+    "mesh_fingerprint",
     "mesh_for_spec",
     "pocketed_bore",
 ]
@@ -442,19 +443,41 @@ def build_mesh(spec: GearSpec) -> Mesh:
     return b.build(spec)
 
 
-_CACHE: dict[str, Mesh] = {}
+def mesh_fingerprint(spec: GearSpec) -> tuple:
+    """Everything :func:`build_mesh` reads, and nothing else.
+
+    Keying the cache on the whole serialised spec would be safe and useless:
+    changing the input speed, the rated torque or a material produces a new key
+    and rebuilds a mesh that is identical, and on the hardware view that is a
+    fresh upload to the card for nothing.
+
+    The risk of listing fields by hand is leaving one out and then serving a
+    stale mesh, so ``tests/test_viz.py`` perturbs every field of ``GearSpec`` in
+    turn and requires that an unchanged fingerprint really does mean an
+    unchanged mesh.
+    """
+    return (
+        spec.effective_R, spec.effective_Rr, spec.eccentricity, spec.lobes,
+        spec.pin_circle_radius, spec.pin_radius,
+        spec.disc_thickness, spec.disc_count, spec.disc_gap,
+        spec.center_bore_diameter, spec.hole_clearance,
+        spec.output_pin_count, spec.output_pin_diameter,
+        spec.output_bolt_circle_radius, spec.output_flange_thickness,
+        spec.housing_outer_radius, spec.input_shaft_diameter, spec.cam_diameter,
+    )
+
+
+_CACHE: dict[tuple, Mesh] = {}
 
 
 def mesh_for_spec(spec: GearSpec) -> Mesh:
-    """:func:`build_mesh` memoised on the design.
+    """:func:`build_mesh` memoised on the geometry.
 
-    The viewer asks for a mesh on every repaint and the design only changes when
-    the user touches a parameter, so this turns a rebuild-per-frame into a
-    rebuild-per-edit.  Keyed on the serialised spec rather than on the object:
-    ``GearSpec`` is mutable, so identity says nothing about the geometry - two
-    calls with the same object can legitimately want different meshes.
+    The viewer asks for a mesh whenever the design changes, and most design
+    changes are not geometry.  Returning the *same object* for the same geometry
+    is what lets the 3D view skip re-uploading unchanged parts.
     """
-    key = spec.model_dump_json()
+    key = mesh_fingerprint(spec)
     mesh = _CACHE.get(key)
     if mesh is None:
         if len(_CACHE) >= 4:               # dragging a spin box makes a new key a

@@ -377,8 +377,12 @@ class ProfileView:
             self._trace_dot.set_data(point[:, 0], point[:, 1])
 
         engaged = self._update_contacts(phi)
+        # Both angles modulo a turn.  The crank arrives unwrapped during
+        # playback - the mechanism's period is `lobes` input revolutions, not
+        # one - and "in 4680.0 deg" is not a reading anybody wants.
         self._readout.set_text(
-            f"in {self._crank:6.1f} deg    out {self._crank / spec.ratio:6.2f} deg"
+            f"in {self._crank % 360.0:6.1f} deg    "
+            f"out {(self._crank / spec.ratio) % 360.0:6.2f} deg"
             + (f"    {engaged} of {spec.pin_count} pins carrying"
                if engaged is not None else ""))
 

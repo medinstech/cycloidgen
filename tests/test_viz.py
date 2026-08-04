@@ -224,3 +224,101 @@ def test_the_mesh_cache_is_keyed_on_the_design_not_the_object():
     assert mesh_for_spec(s) is first
     s.pin_radius += 0.5
     assert mesh_for_spec(s) is not first
+
+
+def _same_geometry(a, b) -> bool:
+    return (a.vertices.shape == b.vertices.shape
+            and np.allclose(a.vertices, b.vertices)
+            and [len(f) for f in a.loops] == [len(f) for f in b.loops])
+
+
+@pytest.mark.parametrize("field", sorted(preset(15).model_fields))
+def test_an_unchanged_fingerprint_means_an_unchanged_mesh(field):
+    """The cache key is a hand-written list of fields, so it is checked.
+
+    Leaving a field out of :func:`mesh_fingerprint` would serve a stale mesh -
+    the picture would quietly stop matching the design, which is the one thing
+    the 3D view must never do.  The other direction is allowed: a field that
+    changes the key without changing the mesh only costs a rebuild.
+    """
+    from enum import Enum
+
+    from cycloidgen.core.spec import MATERIALS
+    from cycloidgen.viz.mesh import mesh_fingerprint
+
+    base = preset(15)
+    base.disc_count = 2
+    other = base.model_copy(deep=True)
+    value = getattr(other, field)
+    if isinstance(value, bool):
+        setattr(other, field, not value)
+    elif isinstance(value, Enum):
+        # `offset_mode` reaches the mesh through effective_R and effective_Rr,
+        # which is exactly the kind of indirection a hand-written key misses.
+        setattr(other, field, next(v for v in type(value) if v != value))
+    elif isinstance(value, int | float):
+        setattr(other, field, value + 1 if isinstance(value, int)
+                else value * 1.1 + 0.05)
+    elif value is None:
+        setattr(other, field, 12.0)          # eccentric_cam_diameter: auto -> set
+    elif isinstance(value, str) and value in MATERIALS:
+        setattr(other, field, next(m for m in MATERIALS if m != value))
+    else:
+        pytest.skip(f"{field} is not a value this test knows how to move")
+
+    if mesh_fingerprint(base) == mesh_fingerprint(other):
+        assert _same_geometry(build_mesh(base), build_mesh(other)), (
+            f"{field} changes the mesh but not the fingerprint")
+
+
+# ------------------------------------------------------------------- the VTK
+# bridge.  Geometry only - no render window, so this runs without a display.
+
+
+def test_the_vtk_faces_cover_the_same_area_as_the_loops(mesh):
+    """VTK has no polygon-with-holes cell, so the caps are triangulated.
+
+    A triangulation that quietly filled the bore, or dropped a hole, would look
+    almost right and be wrong by the area of a hole.  Total surface area is the
+    cheapest statement that catches it.
+    """
+    from vtkmodules.vtkFiltersCore import vtkMassProperties, vtkTriangleFilter
+
+    from cycloidgen.viz.vtkbridge import part_polydata
+
+    for part in mesh.parts:
+        polydata = part_polydata(mesh, part)
+        assert polydata.GetNumberOfCells() > 0, part.name
+        triangles = vtkTriangleFilter()
+        triangles.SetInputData(polydata)
+        triangles.Update()
+        properties = vtkMassProperties()
+        properties.SetInputData(triangles.GetOutput())
+        properties.Update()
+        expected = float(np.linalg.norm(_face_areas(mesh)[part.facets], axis=1).sum())
+        assert properties.GetSurfaceArea() == pytest.approx(expected, rel=1e-6), \
+            part.name
+
+
+def test_the_vtk_pose_is_the_same_motion_law_as_the_mesh(spec, mesh):
+    """Two ways of placing a part; they have to agree exactly.
+
+    The software view transforms the vertices and the hardware view hands VTK a
+    rotation and a translation.  If those ever diverge, the two 3D views show
+    different mechanisms and only one of them is the one being exported.
+    """
+    from cycloidgen.viz.vtkbridge import pose_matrix
+
+    phi = 1.3
+    world = mesh.world_vertices(phi, explode=0.4)
+    for part in mesh.parts:
+        angle, dx, dy, dz = pose_matrix(mesh, part, phi, explode=0.4)
+        radians = np.radians(angle)
+        c, s = np.cos(radians), np.sin(radians)
+        local = mesh.vertices[part.vertices]
+        placed = np.column_stack([
+            local[:, 0] * c - local[:, 1] * s + dx,
+            local[:, 0] * s + local[:, 1] * c + dy,
+            local[:, 2] + dz,
+        ])
+        assert np.allclose(placed, world[part.vertices], atol=1e-9), part.name

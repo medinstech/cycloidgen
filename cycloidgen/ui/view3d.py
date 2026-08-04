@@ -213,8 +213,11 @@ class AssemblyView(QWidget):
         painter.setFont(self._label_font)
         painter.setPen(QColor(p.ink))
         if self._spec is not None:
-            out = self._crank / self._spec.ratio
-            painter.drawText(12, 20, f"INPUT {self._crank:6.1f} deg")
+            # Modulo a turn: playback runs the crank unwrapped over the
+            # mechanism's period, which is `lobes` input revolutions.
+            crank = self._crank % 360.0
+            out = (self._crank / self._spec.ratio) % 360.0
+            painter.drawText(12, 20, f"INPUT {crank:6.1f} deg")
             painter.drawText(12, 36, f"OUTPUT{out:7.2f} deg   {self._spec.ratio}:1")
 
         right, up, _ = self._camera.basis()
@@ -267,6 +270,29 @@ class AssemblyView(QWidget):
         self.update()
 
 
+def build_view(parent: QWidget | None = None) -> QWidget:
+    """The best 3D view this machine can give us.
+
+    VTK when it is there and its render window can actually be created, which
+    is the normal case because CadQuery installs it.  The software painter
+    otherwise: a build with the CAD kernel stripped out, a machine with no
+    OpenGL, a remote session that does not forward it.  Falling back is worth
+    more than failing - a flat-shaded gearbox is still a gearbox, and the
+    alternative is a tab that shows an error.
+    """
+    try:
+        from . import view3d_vtk
+        if view3d_vtk.available():
+            view = view3d_vtk.VtkAssemblyView(parent)
+            logger.info("3D: hardware renderer (VTK)")
+            return view
+        logger.info("3D: VTK unavailable, using the software renderer")
+    except Exception:
+        logger.warning("3D: VTK failed to start, using the software renderer\n%s",
+                       traceback.format_exc().rstrip())
+    return AssemblyView(parent)
+
+
 class Assembly3DTab(QWidget):
     """The viewer plus the controls a gearbox actually needs.
 
@@ -281,7 +307,7 @@ class Assembly3DTab(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
-        self.view = AssemblyView()
+        self.view = build_view()
 
         view_row = QHBoxLayout()
         view_row.addWidget(QLabel("VIEW"))
@@ -316,6 +342,13 @@ class Assembly3DTab(QWidget):
 
         show_row = QHBoxLayout()
         show_row.addWidget(QLabel("SHOW"))
+        # Only the hardware view can cut: a clipping plane is a per-fragment
+        # test, and the software painter works on whole faces.
+        self._section = QSlider(Qt.Horizontal)
+        self._section.setRange(0, 100)
+        self._section.setMaximumWidth(150)
+        self._section.setToolTip("Cut the assembly on a plane through the axis, "
+                                 "to see the mesh instead of the outside of it.")
         self._groups: dict[str, QCheckBox] = {}
         for group, label in PART_GROUPS:
             box = QCheckBox(label)
@@ -325,6 +358,12 @@ class Assembly3DTab(QWidget):
             show_row.addWidget(box)
             self._groups[group] = box
         show_row.addStretch(1)
+
+        if hasattr(self.view, "set_section"):
+            show_row.addWidget(QLabel("SECTION"))
+            self._section.valueChanged.connect(
+                lambda v: self.view.set_section(v / 100.0))
+            show_row.addWidget(self._section)
         layout.addLayout(show_row)
 
         layout.addWidget(self.view, 1)
@@ -346,6 +385,7 @@ class Assembly3DTab(QWidget):
         settings.setValue("view3d_elevation", camera.elevation)
         settings.setValue("view3d_explode", self._explode.value())
         settings.setValue("view3d_edges", self._edges.isChecked())
+        settings.setValue("view3d_section", self._section.value())
         settings.setValue("view3d_hidden",
                           [g for g, box in self._groups.items()
                            if not box.isChecked()])
@@ -367,6 +407,8 @@ class Assembly3DTab(QWidget):
 
         with suppress(TypeError, ValueError):
             self._explode.setValue(int(settings.value("view3d_explode", 0)))
+        with suppress(TypeError, ValueError):
+            self._section.setValue(int(settings.value("view3d_section", 0)))
         self._edges.setChecked(bool(settings.value("view3d_edges", False, type=bool)))
 
         hidden = settings.value("view3d_hidden") or []

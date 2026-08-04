@@ -1342,9 +1342,27 @@ class MainWindow(QMainWindow):
             self._profile_stale = True
 
     def _advance_crank(self) -> None:
+        """Advance over the *mechanism's* period, not the input shaft's.
+
+        One input revolution does not put the drive back where it started: the
+        disc and the carrier have moved on by 360/lobes, which is exactly the
+        jump that used to appear every time the loop restarted.  The period is
+        `lobes` input turns - one output revolution - and wrapping there is
+        seamless because every part really is back at its starting pose.
+
+        The slider still reads 0-359, because that is the crank angle and it is
+        what the user set; it is driven without its signal so that its own
+        wrap-around does not feed the unwrapped angle back in.
+        """
         step = _CRANK_STEP_DEG * float(self._speed_box.currentData())
-        self._crank_exact = (self._crank_exact + step) % 360.0
-        self._crank_slider.setValue(int(self._crank_exact))
+        self._crank_exact = (self._crank_exact + step) % (360.0 * self.spec.lobes)
+        self._crank = self._crank_exact
+
+        blocked = self._crank_slider.blockSignals(True)
+        self._crank_slider.setValue(int(self._crank_exact) % 360)
+        self._crank_slider.blockSignals(blocked)
+        self._crank_label.setText(f"{int(self._crank_exact) % 360} deg")
+        self._sync_crank()
 
     def _toggle_animation(self, on: bool) -> None:
         self._play.setText("STOP" if on else "ROTATE")
