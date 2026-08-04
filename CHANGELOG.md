@@ -40,6 +40,22 @@ design somebody already built.
   codes and fails if a check has no explanation or an explanation has no check.
   Selecting a finding also no longer loses its selection on every re-analysis,
   which is every nudge of a spin box.
+- **Unit preference** (View ▸ Units): millimetres or decimal inches, for
+  everything you read - parameter fields, datasheet, checks list, comparison
+  table, the explanation panel's reading and the drawing's own title. Everything
+  you hand over stays millimetres: DXF, STEP, STL, the JSON report and the PDF.
+  A CAD file whose units follow a preference is a CAD file nobody can trust.
+
+  The design never leaves millimetres. Switching reloads the widgets *from the
+  spec* rather than converting the numbers in them, so a toggle cannot round a
+  value out and back. Guarded, too: narrowing a spin box's range makes Qt clamp
+  what is in it and a clamp emits `valueChanged` like any other edit, so the
+  first version quietly rewrote a 50 mm pin circle as 500 mm on the way into
+  inches.
+- **Screenshots of the running application** in the README, and a repeatable
+  way of taking them: the window is built, given the hero design and told which
+  check to select, then grabbed. The 3D tab needs `PrintWindow` from outside
+  because its viewport is a native OpenGL surface.
 - `pillow` is now a declared dependency. It arrived behind matplotlib anyway;
   the animation imports it directly.
 
@@ -103,6 +119,12 @@ design somebody already built.
   background rather than taking one from the stylesheet, and nothing told it the
   mode until the appearance was *changed* - so opening in dark mode gave a white
   viewport in a dark window, which looked like the tab had failed.
+- **The release workflow can actually publish.** It built the release notes by
+  redirecting Python's stdout into a file, and the changelog is UTF-8 - it
+  carries the menu arrow, among other things. stdout on a Windows runner is the
+  locale encoding, so the publish step would have gone down with a
+  `UnicodeEncodeError` *after* ninety minutes of building the bundle and the
+  installer. It writes the file from Python now, with the encoding named.
 - The installer script's CI job creates `releases/` before running `makensis`.
   The folder is gitignored, so it is never in a fresh checkout and NSIS will not
   create the one its `OutFile` lives in; the job had never passed.

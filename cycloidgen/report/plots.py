@@ -19,6 +19,7 @@ from matplotlib.patches import Circle, Polygon
 from ..core import profile as prof
 from ..core.kinematics import contacts, sweep, to_world
 from ..core.spec import GearSpec
+from ..units import unit as _unit_for
 
 __all__ = [
     "Overlays",
@@ -30,6 +31,7 @@ __all__ = [
     "print_theme",
     "profile_figure",
     "set_theme",
+    "set_units",
     "style_axes",
     "sweep_figure",
     "theme",
@@ -69,6 +71,19 @@ _THEMES = {
 }
 
 _mode = "light"
+
+#: What lengths in a figure's own labels are shown in.  Module state for the
+#: same reason the theme is: a figure bakes its text in at draw time and every
+#: figure in one window has to agree.  The PDF forces millimetres - see
+#: :func:`print_theme` - because a document you hand to someone should not carry
+#: the units the person who exported it happened to prefer.
+_units = "mm"
+
+
+def set_units(key: str) -> None:
+    """Select the unit lengths are labelled in.  Affects figures built after."""
+    global _units
+    _units = key
 
 
 def set_theme(mode: str) -> None:
@@ -118,8 +133,14 @@ def print_theme():
     document and gets white, because a tint on every figure is ink someone pays
     for and gains nothing on paper.
     """
-    with using_theme("print"):
-        yield
+    global _units
+    previous, _units = _units, "mm"
+    try:
+        with using_theme("print"):
+            yield
+    finally:
+        if _units == "mm":
+            _units = previous
 
 
 #: Kept for callers written against the old name.
@@ -303,8 +324,9 @@ class ProfileView:
         ax.set_ylim(-lim, lim)
         ax.set_aspect("equal")
         ax.axis("off")
+        od = _unit_for(_units).text(2 * spec.housing_outer_radius, 1)
         ax.set_title(f"{spec.ratio}:1   {spec.lobes} lobes / {spec.pin_count} pins   "
-                     f"OD {2 * spec.housing_outer_radius:.1f} mm",
+                     f"OD {od}",
                      color=t["ink"], fontsize=10, pad=8)
         # Inside the axes, in the corner the housing circle leaves empty.  Below
         # it, `tight_layout` does not reserve room for a text in axes

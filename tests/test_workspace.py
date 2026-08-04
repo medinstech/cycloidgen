@@ -643,3 +643,135 @@ def test_the_explanation_is_rebuilt_when_the_appearance_changes(app):
     finally:
         w._choose_appearance("system")
         w.close()
+
+
+# ---------------------------------------------------------------------- units
+
+
+def test_switching_units_changes_the_view_and_not_the_design(app):
+    """The trap this is really guarding.
+
+    Narrowing a spin box's range makes Qt clamp whatever is in it, and a clamp
+    emits ``valueChanged`` like any other edit - so switching to inches would
+    find a 50 mm pin circle outside the new 0.197-19.685 range, pin it to the
+    top and write 500 mm back into the design.  The drive would silently become
+    a different drive for having been looked at in another unit.
+    """
+    w = _window(app)
+    try:
+        before = w.spec.model_dump_json()
+        field = w._widgets["pin_circle_radius"]
+        assert field.suffix() == " mm"
+
+        w._choose_units("in")
+        _pump(app, 0.3)
+        assert field.suffix() == " in"
+        # to within the field's own last place: it shows four decimals in
+        # inches, and rounding the display is the whole point of the extra two
+        assert field.value() == pytest.approx(50.0 / 25.4, abs=5e-5)
+        assert w.spec.model_dump_json() == before
+
+        # and back and forth, because a rounding drift shows up on repetition
+        for _ in range(8):
+            w._choose_units("mm")
+            w._choose_units("in")
+        w._choose_units("mm")
+        _pump(app, 0.3)
+        assert w.spec.model_dump_json() == before
+    finally:
+        w._choose_units("mm")
+        w.close()
+
+
+def test_an_edit_made_in_inches_is_stored_in_millimetres(app):
+    w = _window(app)
+    try:
+        w._choose_units("in")
+        _pump(app, 0.2)
+        w._widgets["pin_circle_radius"].setValue(2.0)
+        _pump(app, 0.3)
+        assert w.spec.pin_circle_radius == pytest.approx(50.8)
+    finally:
+        w._choose_units("mm")
+        w.close()
+
+
+def test_the_clearances_keep_their_precision_in_inches(app):
+    """0.22 mm is 0.00866 in. At the millimetre field's three decimals that
+    rounds to 0.009, which is a 4% change in the quantity."""
+    w = _window(app)
+    try:
+        w._choose_units("in")
+        _pump(app, 0.2)
+        clearance = w._widgets["profile_clearance"]
+        assert clearance.decimals() == 5
+        assert clearance.value() == pytest.approx(0.22 / 25.4, abs=5e-6)
+    finally:
+        w._choose_units("mm")
+        w.close()
+
+
+def test_the_readouts_follow_the_preference(app):
+    w = _window(app)
+    try:
+        w._choose_units("in")
+        _pump(app, 0.4)
+        assert " in OD" in w._header_status.text()
+        assert "mm OD" not in w._header_status.text()
+        for i in range(w.findings.topLevelItemCount()):
+            item = w.findings.topLevelItem(i)
+            if item.data(0, _USER_ROLE) == "LOST_MOTION":
+                # arcmin is not a length and must not have been converted
+                assert float(item.text(3)) == pytest.approx(60.0)
+    finally:
+        w._choose_units("mm")
+        w.close()
+
+
+def test_the_unit_preference_survives_a_restart(app):
+    w = _window(app)
+    w._choose_units("in")
+    _pump(app, 0.3)
+    w.close()
+    _pump(app, 0.3)
+
+    w2 = _window(app)
+    try:
+        assert w2._unit.key == "in"
+        assert w2._widgets["pin_circle_radius"].suffix() == " in"
+    finally:
+        w2._choose_units("mm")
+        w2.close()
+
+
+def test_the_preset_box_says_which_preset_this_actually_is(app):
+    """It is read as much as it is used.  A chooser still claiming 15:1 over a
+    21:1 design is not a small lie, and matching on the ratio alone would be the
+    same lie one step quieter: a 21:1 with its pin radius changed is no longer
+    the 21:1 preset."""
+    from cycloidgen.core.spec import preset
+
+    w = _window(app)
+    try:
+        # Start from a known preset: the window reopens on whatever design the
+        # last session left, which is quite properly Custom more often than not.
+        w._replace_spec(preset(15))
+        _pump(app, 0.3)
+        assert w._preset_box.currentText() == "15:1"
+
+        w._replace_spec(preset(29))
+        _pump(app, 0.3)
+        assert w._preset_box.currentText() == "29:1"
+
+        w._widgets["pin_radius"].setValue(w.spec.pin_radius + 0.5)
+        _pump(app, 0.3)
+        assert w._preset_box.currentText() == "Custom"
+
+        # and choosing Custom does nothing rather than loading a preset
+        before = w.spec.model_dump_json()
+        w._preset_box.setCurrentIndex(0)
+        w._apply_preset()
+        _pump(app, 0.2)
+        assert w.spec.model_dump_json() == before
+    finally:
+        w.close()

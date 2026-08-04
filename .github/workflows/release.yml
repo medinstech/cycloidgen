@@ -96,13 +96,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          python - <<'PY' > notes.md
+          # Written from Python rather than redirected from its stdout.  The
+          # changelog is UTF-8 and carries characters like the menu arrow;
+          # stdout on a Windows runner is the locale encoding, so a redirect
+          # takes the publish step down with a UnicodeEncodeError - after the
+          # bundle and the installer have already been built.
+          python - <<'PY'
           import pathlib, re
           import cycloidgen
           text = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
           section = re.split(rf"^## {re.escape(cycloidgen.__version__)}$",
                              text, maxsplit=1, flags=re.MULTILINE)[1]
-          print(re.split(r"^## ", section, maxsplit=1, flags=re.MULTILINE)[0].strip())
+          notes = re.split(r"^## ", section, maxsplit=1, flags=re.MULTILINE)[0].strip()
+          pathlib.Path("notes.md").write_text(notes + "
+", encoding="utf-8")
           PY
           cat >> notes.md <<'EOF'
 

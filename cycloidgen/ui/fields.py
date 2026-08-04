@@ -27,6 +27,18 @@ class Field:
     tip: str = ""
     zero_is_auto: bool = False
 
+    @property
+    def is_length(self) -> bool:
+        """Whether this field is a length, and so follows the unit preference.
+
+        Derived from the suffix rather than declared beside it.  A second
+        declaration of the same fact is a second thing to forget: the suffix is
+        already the field's statement of what it measures, and a millimetre
+        field that did not say ``mm`` would be wrong on its own terms.
+        ``tests/test_units.py`` checks the derivation against every field.
+        """
+        return self.suffix.strip() == "mm"
+
 
 GROUPS: list[tuple[str, list[Field]]] = [
     ("Cycloid geometry", [

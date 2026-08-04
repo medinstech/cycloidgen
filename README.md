@@ -6,8 +6,13 @@
 
 Parametric cycloidal drive (cycloidal gearbox) generator: a desktop app that
 takes a handful of parameters — or a set of requirements — runs the drive live in
-2D and 3D, checks it, sizes it, and writes DXF, SVG, STEP, STL, a bill of
-materials and a PDF dossier.
+2D and 3D, checks it, sizes it, and writes DXF, SVG, STEP, STL, a looping
+animation, a bill of materials and a PDF dossier.
+
+![the application](docs/app-drawing.png)
+
+Selecting a check tells you what it tests, why it matters and what to change;
+the parameters it names light up in the panel on the left.
 
 ![overview](docs/drawing.png)
 
@@ -16,6 +21,8 @@ each ring pin and the arrows are the load it carries there, both off the same
 kinematics the checks and the datasheet use; the faint wavy ring is the path one
 point on the disc rim travels over a full output revolution. Twenty-one turns of
 the input, one of the output.
+
+![the 3D tab](docs/app-3d.png)
 
 ![assembly](docs/assembly.png)
 
@@ -333,6 +340,14 @@ suggests it.
 - **Checks filter** — severity toggles carrying their own counts, because a
   design routinely produces a dozen findings of which ten are notes and the two
   that block an export sit somewhere in the middle.
+- **Units** (View ▸ Units) — millimetres or decimal inches, for everything you
+  *read*: the parameter fields, the datasheet, the checks list, the comparison
+  table and the drawing's own title. Everything you *hand over* stays
+  millimetres — DXF, STEP, STL, the JSON report and the PDF — because a CAD file
+  whose units follow a preference is a CAD file nobody can trust. Internally the
+  design is millimetres and never leaves them: a switch reloads the widgets from
+  the spec rather than converting what is in them, so toggling the menu twenty
+  times cannot move a number.
 - **Explain this check** — select a finding and the panel beside it says what
   the check tests (the relation, in the notation above), what goes wrong
   physically when it fails, what to change and in which direction, and how many
@@ -376,7 +391,9 @@ a physical prototype before committing to a design.
 
 ```
 cycloidgen/
-├── core/       spec (the one source of truth), profile, kinematics, validate
+├── units.py    what lengths are *shown* in; everything inside is millimetres
+├── core/       spec (the one source of truth), profile, kinematics, validate,
+│               explain (what each check tests, why, and what to change)
 ├── analysis/   mechanics (Hertz), stiffness, thermal, mass, efficiency, bearings
 ├── design/     optimise (requirements -> geometry), sweep (trade studies)
 ├── viz/        3D geometry and rendering maths, no Qt: mesh, scene (the
@@ -385,8 +402,10 @@ cycloidgen/
 │               bom, animation (the looping GIF)
 ├── report/     plots (shared by UI and PDF), build
 └── ui/         PySide6 window, 3D viewer, outputs tab, declarative field table,
-                optimiser dialog, trade-study tab, undo/redo history, log panel
-tests/          387 tests; the envelope, pin-in-hole, clearance-sign,
+                optimiser dialog, trade-study tab, undo/redo history, log panel,
+                branding (palette and stylesheet), plotbar (the trimmed
+                matplotlib toolbar)
+tests/          410 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -402,7 +421,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-387 tests, about 280 s. Most of that is CadQuery writing solids; the pure
+410 tests, about 285 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in under a second. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own
@@ -465,11 +484,13 @@ fresh copy of the assembly to the graphics card. That key is a hand-written list
 and therefore a liability, so a test perturbs *every* field of `GearSpec` in turn
 and requires that an unchanged key really does mean an unchanged mesh.
 
-The animation loops over the mechanism's own period, which is `lobes` input
-revolutions — one output revolution — and not one turn of the crank. After a
-single input turn the disc and the carrier have moved on by 360/lobes and are
+The live animation loops over the mechanism's own period, which is `lobes`
+input revolutions — one output revolution — and not one turn of the crank. After
+a single input turn the disc and the carrier have moved on by 360/lobes and are
 not back where they started, which is what used to put a visible jump in the
-loop every four seconds.
+loop every four seconds. The *exported* animation cannot afford that many turns
+at a legible frame rate and picks its run differently — see **Why the animation
+loops without a jump** above.
 
 ## Standalone build and installer
 
