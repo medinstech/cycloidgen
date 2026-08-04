@@ -119,6 +119,12 @@ design somebody already built.
   background rather than taking one from the stylesheet, and nothing told it the
   mode until the appearance was *changed* - so opening in dark mode gave a white
   viewport in a dark window, which looked like the tab had failed.
+- **The release workflow can actually publish.** It built the release notes by
+  redirecting Python's stdout into a file, and the changelog is UTF-8 - it
+  carries the menu arrow, among other things. stdout on a Windows runner is the
+  locale encoding, so the publish step would have gone down with a
+  `UnicodeEncodeError` *after* ninety minutes of building the bundle and the
+  installer. It writes the file from Python now, with the encoding named.
 - The installer script's CI job creates `releases/` before running `makensis`.
   The folder is gitignored, so it is never in a fresh checkout and NSIS will not
   create the one its `OutFile` lives in; the job had never passed.
