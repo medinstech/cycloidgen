@@ -40,6 +40,18 @@ design somebody already built.
   codes and fails if a check has no explanation or an explanation has no check.
   Selecting a finding also no longer loses its selection on every re-analysis,
   which is every nudge of a spin box.
+- **Unit preference** (View ▸ Units): millimetres or decimal inches, for
+  everything you read - parameter fields, datasheet, checks list, comparison
+  table, the explanation panel's reading and the drawing's own title. Everything
+  you hand over stays millimetres: DXF, STEP, STL, the JSON report and the PDF.
+  A CAD file whose units follow a preference is a CAD file nobody can trust.
+
+  The design never leaves millimetres. Switching reloads the widgets *from the
+  spec* rather than converting the numbers in them, so a toggle cannot round a
+  value out and back. Guarded, too: narrowing a spin box's range makes Qt clamp
+  what is in it and a clamp emits `valueChanged` like any other edit, so the
+  first version quietly rewrote a 50 mm pin circle as 500 mm on the way into
+  inches.
 - `pillow` is now a declared dependency. It arrived behind matplotlib anyway;
   the animation imports it directly.
 

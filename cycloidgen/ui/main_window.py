@@ -51,6 +51,7 @@ from ..core.validate import Severity
 from ..export import animation, write_bundle
 from ..export.manifest import group_keys
 from ..report import plots
+from ..units import Unit, unit
 from . import branding
 from .fields import CODE_FIELDS, GROUPS, Field
 from .history import SpecHistory
@@ -245,6 +246,8 @@ class MainWindow(QMainWindow):
         # answer with whatever we last painted and could never return to light.
         window = self.palette().color(QPalette.Window)
         self._system_mode = "dark" if window.lightness() < 128 else "light"
+        self._unit: Unit = unit(str(self._settings.value("units", "mm")))
+        plots.set_units(self._unit.key)
         self.appearance = self._settings.value("appearance", "system")
         if self.appearance not in ("system", "light", "dark"):
             self.appearance = "system"
@@ -493,6 +496,8 @@ class MainWindow(QMainWindow):
             w.setDecimals(f.decimals)
             w.setSuffix(f.suffix)
             w.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            if f.is_length:
+                self._configure_length(w, f)
             w.valueChanged.connect(lambda _v, n=f.name: self._on_change(n))
         elif f.kind == "int":
             w = QSpinBox()
@@ -877,6 +882,17 @@ class MainWindow(QMainWindow):
             appearance.addAction(action)
             self._appearance_actions[key] = action
 
+        units = v.addMenu("&Units")
+        self._unit_actions: dict[str, QAction] = {}
+        for key, label in (("mm", "&Millimetres"), ("in", "&Inches (decimal)")):
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setChecked(self._unit.key == key)
+            action.triggered.connect(
+                lambda _checked=False, k=key: self._choose_units(k))
+            units.addAction(action)
+            self._unit_actions[key] = action
+
         h = self.menuBar().addMenu("&Help")
         about = QAction("&About cycloidgen", self)
         about.triggered.connect(self._about)
@@ -961,6 +977,68 @@ class MainWindow(QMainWindow):
         self._trade.refresh_theme()
         self._say(f"appearance: {appearance}", seconds=3)
 
+    # --------------------------------------------------------------- units
+    def _choose_units(self, key: str) -> None:
+        """Menu handler: keep the entries behaving as one radio group."""
+        for name, action in self._unit_actions.items():
+            action.setChecked(name == key)
+        self._set_units(key)
+
+    def _set_units(self, key: str) -> None:
+        """Change what lengths are shown in.  The design itself does not move.
+
+        Every widget is reconfigured and then reloaded *from the spec*, rather
+        than having its displayed number converted in place.  Converting in
+        place would round the value into the new unit and round it back out
+        again on the way home, so a design would drift by a rounding unit every
+        time somebody toggled the menu.  The spec is millimetres and stays the
+        source of truth; only the view of it changes.
+        """
+        if key == self._unit.key:
+            return
+        self._unit = unit(key)
+        self._settings.setValue("units", key)
+        plots.set_units(key)
+        # Guarded, and this is the whole reason the guard exists.  Narrowing a
+        # spin box's range makes Qt clamp whatever is in it, and a clamp emits
+        # `valueChanged` like any other edit - so switching to inches would take
+        # a 50 mm pin circle, find it outside the new 0.197-19.685 range, pin it
+        # to the top and write 500 mm back into the design.  The user's drive
+        # would silently become a different drive for having looked at it in
+        # another unit.
+        self._updating = True
+        try:
+            for name, widget in self._widgets.items():
+                field = self._field(name)
+                if field is not None and field.is_length:
+                    self._configure_length(widget, field)
+        finally:
+            self._updating = False
+        self._load_spec_into_widgets()
+        self._draw_profile()
+        if self.analysis is not None:
+            self._fill_findings()
+            self._fill_datasheet()
+            self._fill_compare()
+            self._show_explanation()
+            self._set_header_status()
+        self._say(f"units: {self._unit.suffix.strip()}", seconds=3)
+
+    def _field(self, name: str) -> Field | None:
+        return next((f for _, fs in GROUPS for f in fs if f.name == name), None)
+
+    def _configure_length(self, widget: QWidget, field: Field) -> None:
+        """Point a spin box at the current unit: range, step, decimals, suffix."""
+        u = self._unit
+        widget.setRange(u.show(field.minimum), u.show(field.maximum))
+        widget.setSingleStep(u.show(field.step))
+        widget.setDecimals(u.decimals(field.decimals))
+        widget.setSuffix(u.suffix)
+
+    def _length(self, mm: float, decimals: int = 2) -> str:
+        """A length for display, in whatever unit is selected."""
+        return self._unit.text(mm, decimals)
+
     # ------------------------------------------------------------------- log
     def _say(self, message: str, *, level: int = logging.INFO,
              seconds: int = 5) -> None:
@@ -1021,7 +1099,10 @@ class MainWindow(QMainWindow):
                     elif isinstance(w, QSpinBox):
                         w.setValue(int(v))
                     else:
-                        w.setValue(0.0 if v is None else float(v))
+                        shown = 0.0 if v is None else float(v)
+                        if f.is_length:
+                            shown = self._unit.show(shown)
+                        w.setValue(shown)
         finally:
             self._updating = False
 
@@ -1044,6 +1125,11 @@ class MainWindow(QMainWindow):
             value = w.value()
         else:
             value = w.value()
+            if field.is_length:
+                # Back to millimetres before it touches the spec.  The zero
+                # test comes after, because zero is zero in either unit and
+                # dividing it first would only invite a rounding question.
+                value = self._unit.store(value)
             if field.zero_is_auto and value == 0.0:
                 value = None
 
@@ -1158,17 +1244,26 @@ class MainWindow(QMainWindow):
             f"{e.output_power_W:.2f} W of the {e.input_power_W:.2f} W supplied. "
             f"Losses scale with the friction coefficient, so lubrication and rolling "
             f"elements move this number further than any geometry change.")
+        self._set_header_status()
+        if not a.report.ok:
+            self.statusBar().showMessage(
+                "Export blocked: " + ", ".join(f.code for f in a.report.errors))
+
+    def _set_header_status(self) -> None:
+        """The one-line summary in the brand strip."""
+        s, a = self.spec, self.analysis
+        if a is None:
+            return
+        od = self._length(2 * s.housing_outer_radius, 0 if self._unit.key == "mm" else 1)
+        long = self._length(s.envelope_length, 0 if self._unit.key == "mm" else 1)
         self._header_status.setText(
-            f"{s.ratio}:1   {2 * s.housing_outer_radius:.0f} mm OD   "
-            f"{s.envelope_length:.0f} mm LONG   {a.mass.total_mass_g:.0f} g   "
+            f"{s.ratio}:1   {od} OD   {long} LONG   "
+            f"{a.mass.total_mass_g:.0f} g   "
             f"{a.torque_capacity_with_clearance_Nm:.2f} Nm   "
             f"{100 * a.efficiency.efficiency:.0f}%   "
             f"{a.stiffness.lost_motion_arcmin:.0f}'   "
             f"{a.thermal.temperature_C:.0f} C"
             + ("" if a.report.ok else "   EXPORT BLOCKED"))
-        if not a.report.ok:
-            self.statusBar().showMessage(
-                "Export blocked: " + ", ".join(f.code for f in a.report.errors))
 
     def _draw_profile(self) -> None:
         """Rebuild both simulations for a *new design*.
@@ -1196,8 +1291,8 @@ class MainWindow(QMainWindow):
         for f in self.analysis.report.findings:
             item = QTreeWidgetItem([
                 f.severity.value.upper(), f.code,
-                f"{f.value:.4g}" if f.value is not None else "",
-                f"{f.limit:.4g}" if f.limit is not None else "",
+                self._finding_number(f, f.value),
+                self._finding_number(f, f.limit),
                 f.message])
             item.setForeground(0, self._severity[f.severity])
             for col in (2, 3):
@@ -1230,6 +1325,21 @@ class MainWindow(QMainWindow):
                 if item.data(0, Qt.UserRole) == keep and not item.isHidden():
                     self.findings.setCurrentItem(item)
                     break
+
+    def _finding_number(self, finding, value: float | None) -> str:
+        """A finding's value or limit, in the selected unit.
+
+        Which findings carry a length is not guessed - the explanation beside
+        each check already declares the unit its numbers are in, so the checks
+        list and the explanation panel cannot disagree about what a column
+        means.
+        """
+        if value is None:
+            return ""
+        detail = explain(finding.code)
+        if detail is not None and detail.unit == "mm":
+            return f"{self._unit.show(value):.4g}"
+        return f"{value:.4g}"
 
     def _log_findings(self) -> None:
         """Record checks that appear or clear, at their own severity.
@@ -1343,16 +1453,24 @@ class MainWindow(QMainWindow):
         not."""
         if finding.value is None:
             return ""
-        unit = f" {detail.unit}" if detail.unit else ""
-        text = f"<b>{finding.value:.4g}</b>{unit}"
-        if finding.limit is not None:
+        # The explanation declares millimetres; the reader may have asked for
+        # inches.  Convert both numbers, and the label with them.
+        shown, limit = finding.value, finding.limit
+        if detail.unit == "mm":
+            shown = self._unit.show(shown)
+            limit = None if limit is None else self._unit.show(limit)
+            suffix = self._unit.suffix
+        else:
+            suffix = f" {detail.unit}" if detail.unit else ""
+        text = f"<b>{shown:.4g}</b>{suffix}"
+        if limit is not None:
             # A check with no side to be on still compares against something -
             # the suggested pin radius, the pin count that would make the discs
             # interchangeable - and hiding it loses the more useful of the two
             # numbers.
             word = {"below": " a limit of", "above": " a minimum of"}.get(
                 detail.keep, "")
-            text += f" against{word} <b>{finding.limit:.4g}</b>{unit}"
+            text += f" against{word} <b>{limit:.4g}</b>{suffix}"
         times = margin(finding)
         if times is not None:
             side = "clear of it" if times >= 1.0 else "over it"
@@ -1414,12 +1532,12 @@ class MainWindow(QMainWindow):
                  "seen at the input shaft"),
                 ("Residual unbalance", f"{m.unbalance_force_N:.1f} N",
                  f"couple {m.unbalance_couple_Nmm:.1f} Nmm at {s.input_rpm:g} rpm"),
-                ("Thinnest disc web", f"{m.min_web_mm:.2f} mm",
+                ("Thinnest disc web", self._length(m.min_web_mm),
                  f"shear safety factor {m.web_safety_factor:.1f}"),
             ]),
             ("Envelope", [
-                ("Outer diameter", f"{2 * s.housing_outer_radius:.1f} mm", ""),
-                ("Overall length", f"{s.envelope_length:.1f} mm",
+                ("Outer diameter", self._length(2 * s.housing_outer_radius), ""),
+                ("Overall length", self._length(s.envelope_length),
                  "disc stack plus output flange"),
                 ("Output speed", f"{s.output_rpm:.1f} rpm", ""),
             ]),
@@ -1496,14 +1614,19 @@ class MainWindow(QMainWindow):
             ("Errors", "", len(ref.report.errors), len(cur.report.errors), False),
             ("Warnings", "", len(ref.report.warnings), len(cur.report.warnings), False),
         ]
-        for name, unit, before, after, higher_better in rows:
+        for name, dimension, before, after, higher_better in rows:
+            # A length row is stored in millimetres like everything else, so it
+            # converts here rather than at the twenty places that build it.
+            if dimension == "mm":
+                before, after = self._unit.show(before), self._unit.show(after)
+                dimension = self._unit.suffix.strip()
             delta = after - before
             if abs(before) > 1e-12:
-                text = f"{delta:+.3g} {unit} ({100 * delta / abs(before):+.1f} %)"
+                text = f"{delta:+.3g} {dimension} ({100 * delta / abs(before):+.1f} %)"
             else:
-                text = f"{delta:+.3g} {unit}"
-            item = QTreeWidgetItem([name, f"{before:.4g} {unit}".strip(),
-                                    f"{after:.4g} {unit}".strip(), text.strip()])
+                text = f"{delta:+.3g} {dimension}"
+            item = QTreeWidgetItem([name, f"{before:.4g} {dimension}".strip(),
+                                    f"{after:.4g} {dimension}".strip(), text.strip()])
             if abs(delta) > 1e-9:
                 better = (delta > 0) == higher_better
                 item.setForeground(3, QColor("#1baf7a" if better else "#c0392b"))
