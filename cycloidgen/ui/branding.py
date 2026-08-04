@@ -131,26 +131,35 @@ class Palette:
         return self.mode == "dark"
 
 
+#: The light surface is paper, not a lightbox.  White is the absence of a
+#: decision; this is white carrying a little of the brand's own hue, which is
+#: where ``BRAND_PAPER`` came from in the first place - it is the tone behind
+#: the logo.  The raised surface *is* that tone, and the page sits a shade
+#: below it so panels read as raised without a shadow.
 _LIGHT = Palette(
     mode="light",
-    surface="#fcfcfb",
-    raised="#ffffff",
-    ink="#0b0b0b",
-    ink_dim="#52514e",
-    line="#e2e1dc",
+    surface=mix("#ffffff", BRAND_BLUE, 0.07),      # #eeedff
+    raised=mix("#ffffff", BRAND_BLUE, 0.04),       # #f5f5ff, the brand paper
+    ink=mix("#0b0b0b", BRAND_BLUE, 0.07),
+    ink_dim=mix("#52514e", BRAND_BLUE, 0.12),
+    line=mix(mix("#ffffff", BRAND_BLUE, 0.07), mix("#0b0b0b", BRAND_BLUE, 0.07), 0.16),
     accent=BRAND_BLUE,
     accent_fill=BRAND_BLUE,
     accent_text="#ffffff",
     accent_hover=darken(BRAND_BLUE, 0.06),
     accent_pressed=darken(BRAND_BLUE, 0.12),
-    accent_wash=mix("#ffffff", BRAND_BLUE, 0.10),
+    # Deeper than it was: on a tinted page a 10% wash is nearly the page
+    # itself, and a selection you cannot see is not a selection.
+    accent_wash=mix("#ffffff", BRAND_BLUE, 0.20),
     # Darker than the matching chart series, on purpose: these are drawn as
     # *text* in the checks list and the comparison table, and the chart values
     # only reach 2.7:1 and 3.2:1 against this surface.  A series colour is a
-    # filled mark; a severity colour is a word someone has to read.
+    # filled mark; a severity colour is a word someone has to read.  They are
+    # darker again for the tinted page, which is dimmer than the white it
+    # replaced and so gives dark text less to work against.
     error="#c0392b",
-    warning="#966d09",
-    ok="#14835b",
+    warning="#886308",
+    ok="#137a55",
 )
 
 #: On the dark surface the brand blue as text reaches only 2.8:1, so ``accent``
@@ -380,6 +389,7 @@ def stylesheet(mode: str = "light") -> str:
 
     /* Tabs: the selected one is a filled block, not a tinted label. */
     QTabWidget::pane {{
+        background: {p.raised};
         border: {HAIRLINE} solid {p.line};
         border-top: {RULE} solid {p.accent};
         border-radius: {RADIUS};

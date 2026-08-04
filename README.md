@@ -212,7 +212,10 @@ suggests it.
 - **Appearance** follows the desktop and can be overridden per user
   (View ▸ Appearance). Both palettes are contrast-tested rather than asserted,
   and chrome and figures switch together — a chart on a white slab inside a dark
-  window is the thing following the desktop theme was meant to prevent.
+  window is the thing following the desktop theme was meant to prevent. The
+  light mode is tinted paper, mixed from the brand's own blue, rather than
+  white; the PDF still prints on white, because a tint on every figure is ink
+  someone pays for and gains nothing on paper.
 - **Checks filter** — severity toggles carrying their own counts, because a
   design routinely produces a dozen findings of which ten are notes and the two
   that block an export sit somewhere in the middle.
@@ -259,7 +262,7 @@ cycloidgen/
 ├── report/     plots (shared by UI and PDF), build
 └── ui/         PySide6 window, declarative field table, optimiser dialog,
                 trade-study tab, undo/redo history, log panel
-tests/          256 tests; the envelope, pin-in-hole and clearance-sign tests
+tests/          259 tests; the envelope, pin-in-hole and clearance-sign tests
                 matter most
 ```
 
@@ -269,7 +272,7 @@ tests/          256 tests; the envelope, pin-in-hole and clearance-sign tests
 .venv\Scripts\python -m pytest -q
 ```
 
-256 tests, about 110 s. Most of that is CadQuery writing solids; the pure
+259 tests, about 120 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in under a second. The log-panel tests need Qt and run
 headless (`QT_QPA_PLATFORM=offscreen`, set by the test module itself).
 

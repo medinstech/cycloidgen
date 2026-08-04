@@ -22,6 +22,7 @@ __all__ = [
     "force_figure",
     "light_theme",
     "loss_figure",
+    "print_theme",
     "profile_figure",
     "set_theme",
     "style_axes",
@@ -29,16 +30,35 @@ __all__ = [
     "theme",
 ]
 
+#: The three series are the same in every mode and are **not** re-tuned to the
+#: surface.  Their contrast against the paper is only part of the job; the rest
+#: is telling them apart, and that rests on their *lightness* being spread out,
+#: so a reader who cannot separate the hues still can.  Darkening them all onto
+#: a common contrast target closes that spread - it takes the orange and green
+#: from 1.14:1 apart to 1.01:1, which is the same grey - and buys nothing a
+#: labelled bar does not already provide.
+_SERIES_LIGHT = ("#2a78d6", "#eb6834", "#1baf7a")
+_SERIES_DARK = ("#3987e5", "#d95926", "#199e70")
+
 _THEMES = {
+    # In the window a figure sits inside a panel, so it takes the panel's tone
+    # rather than a white one: a white slab inside a tinted window is exactly
+    # what following the theme is supposed to prevent.
     "light": {
-        "surface": "#fcfcfb", "ink": "#0b0b0b", "ink2": "#52514e",
-        "muted": "#9a9994", "grid": "#e6e5e1",
-        "series": ("#2a78d6", "#eb6834", "#1baf7a"),
+        "surface": "#f5f5ff", "ink": "#0b0a1c", "ink2": "#4a4763",
+        "muted": "#8f8da6", "grid": "#dedcf0",
+        "series": _SERIES_LIGHT,
     },
     "dark": {
-        "surface": "#1a1a19", "ink": "#ffffff", "ink2": "#c3c2b7",
-        "muted": "#6f6e68", "grid": "#33332f",
-        "series": ("#3987e5", "#d95926", "#199e70"),
+        "surface": "#232322", "ink": "#ffffff", "ink2": "#c3c2b7",
+        "muted": "#7a7973", "grid": "#3a3a36",
+        "series": _SERIES_DARK,
+    },
+    # The report is a print document: white paper, no tint to pay for in ink.
+    "print": {
+        "surface": "#ffffff", "ink": "#0b0b0b", "ink2": "#52514e",
+        "muted": "#9a9994", "grid": "#e6e5e1",
+        "series": _SERIES_LIGHT,
     },
 }
 
@@ -58,14 +78,24 @@ def theme() -> dict:
 
 
 @contextmanager
-def light_theme():
-    """Force light for print output, then restore whatever the UI was using."""
+def print_theme():
+    """Force the print surface, then restore whatever the UI was using.
+
+    Separate from ``light`` on purpose.  The application's light mode is tinted
+    paper so that figures match the panels around them; a PDF is a print
+    document and gets white, because a tint on every figure is ink someone pays
+    for and gains nothing on paper.
+    """
     global _mode
-    previous, _mode = _mode, "light"
+    previous, _mode = _mode, "print"
     try:
         yield
     finally:
         _mode = previous
+
+
+#: Kept for callers written against the old name.
+light_theme = print_theme
 
 
 def style_axes(ax, *, grid: bool = True) -> None:

@@ -93,15 +93,14 @@ def test_appearance_switches_chrome_and_plots_together(app):
     """A figure on a light surface inside a dark window is the bug that
     following the desktop theme was meant to prevent."""
     from cycloidgen.report import plots
+    from cycloidgen.ui import branding
     w = _window(app)
     try:
-        w._choose_appearance("dark")
-        assert w.mode == "dark"
-        assert plots.theme()["surface"] == "#1a1a19"
-
-        w._choose_appearance("light")
-        assert w.mode == "light"
-        assert plots.theme()["surface"] == "#fcfcfb"
+        for choice in ("dark", "light"):
+            w._choose_appearance(choice)
+            assert w.mode == choice
+            # the figure takes the tone of the panel it is sitting in
+            assert plots.theme()["surface"] == branding.palette(choice).raised
     finally:
         w.close()
         plots.set_theme("light")

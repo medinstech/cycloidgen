@@ -82,12 +82,48 @@ def test_profile_figure_can_draw_a_reference_underneath():
     assert limit >= b.housing_outer_radius     # the frame must fit both
 
 
-def test_themes_round_trip():
+def test_the_print_theme_round_trips():
     plots.set_theme("dark")
-    assert plots.theme()["surface"] == "#1a1a19"
-    with plots.light_theme():
-        assert plots.theme()["surface"] == "#fcfcfb"
-    assert plots.theme()["surface"] == "#1a1a19"    # restored
+    dark = plots.theme()["surface"]
+    with plots.print_theme():
+        assert plots.theme()["surface"] == "#ffffff"
+    assert plots.theme()["surface"] == dark          # restored
+    plots.set_theme("light")
+
+
+def test_the_report_prints_on_white_not_on_the_app_paper():
+    """The application's light mode is tinted so figures match their panel.
+    A PDF is a print document: a tint on every figure is ink someone pays for
+    and gains nothing on paper."""
+    plots.set_theme("light")
+    assert plots.theme()["surface"] != "#ffffff"
+    with plots.print_theme():
+        assert plots.theme()["surface"] == "#ffffff"
+
+
+def test_a_figure_sits_on_the_same_tone_as_the_panel_around_it():
+    """A white slab inside a tinted window is the thing the theme exists to
+    prevent, so this pins the relationship rather than a literal colour."""
+    from cycloidgen.ui import branding
+    for mode in ("light", "dark"):
+        plots.set_theme(mode)
+        assert plots.theme()["surface"] == branding.palette(mode).raised
+    plots.set_theme("light")
+
+
+def test_the_series_keep_their_lightness_spread():
+    """Contrast against the paper is only half the job; telling the three
+    apart rests on their lightness differing, which is what survives when the
+    hues do not."""
+    from cycloidgen.ui.branding import contrast_ratio
+    for mode in ("light", "dark"):
+        plots.set_theme(mode)
+        from itertools import combinations
+        # Measured: 1.38/1.57/1.14 light, 1.07/1.07/1.14 dark.  The floor
+        # guards against them collapsing onto one lightness, which is what
+        # re-tuning them for background contrast would do.
+        for a, b in combinations(plots.theme()["series"], 2):
+            assert contrast_ratio(a, b) > 1.05
     plots.set_theme("light")
 
 
