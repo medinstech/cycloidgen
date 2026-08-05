@@ -36,45 +36,40 @@ Where this got to, so the next attempt starts here
 **Unfinished.**  Off by default everywhere, including macOS, and selected only
 by ``CYCLOIDGEN_VTK_QTGL=1``.
 
-**Working**, on Windows, measured by photographing the top-level window: a cone
-in this widget draws whether the widget is top-level, inside a layout, or inside
-a tab that has to be switched to.  A control with no VTK in it draws nothing, so
-the measurement discriminates.
+**Nothing was being rendered at all, anywhere**, and the one call that fixes
+that is ``SetIsCurrent``.  ``vtkGenericOpenGLRenderWindow`` cannot discover
+whether the context is current - it exists to be driven by a toolkit that owns
+one, and it expects to be told.  Unanswered, ``IsCurrent()`` is false and the
+render short-circuits *silently*: no error, no warning, and not even the
+background cleared.  Measured off VTK's own buffer with ``GetPixelData`` rather
+than off the screen, which is what separates "drew and the frame was lost" from
+"never drew": without the call it is 100% black, and with it the background
+lands at 88% and a cone fills the rest.  ``SetMapped`` and ``SetSupportsOpenGL``
+change nothing; only this one matters.
 
-**Not working**: the same widget inside
-:class:`~cycloidgen.ui.view3d_vtk.VtkAssemblyView` comes out empty.  Not for want
-of trying - instrumenting shows ``initializeGL`` once, ``paintGL`` five times,
-``resizeGL`` four, the context adopted, the render window sized to match the
-widget, two renderers and twelve actors.  VTK believes it is drawing a full
-scene and none of it survives to what Qt composites.
+**The previous note here was wrong, and that is why the search went where it
+did.**  It recorded that a cone in this widget draws top-level, in a layout and
+in a tab, and that only :class:`~cycloidgen.ui.view3d_vtk.VtkAssemblyView` came
+out empty.  Re-measured with a rig checked by two controls - a painted widget
+with no GL in it, and a plain ``QOpenGLWidget`` clearing to a known colour, both
+of which photograph correctly - the standalone case is black too.  It had never
+drawn anywhere.  So subtracting from ``MainWindow`` was always going to find
+nothing, in either direction, and everything "ruled out" by that subtraction was
+ruled out against a fault that was not there: multisampling, FXAA, SSAO, the
+marker's second renderer, the ``StartEvent`` observer, layered rendering, the
+surface format, nesting in a layout, nesting in a tab, the stylesheet.  None of
+those are cleared any more.  They were never suspects.
 
-The blank is **black**, not the renderer's background - which is
-``(238, 237, 255)`` and would be there if VTK were drawing at all.  So nothing
-reaches the surface Qt composites, rather than a scene being drawn and then
-culled.  The camera is not the problem either: it sits 350 mm out with a
-clipping range of 178 to 596 around bounds of about +-65.
+**What is left.**  With the call in place a bare widget draws on screen, and in
+the real assembly view a hand-driven ``Render`` fills VTK's buffer with the
+gearbox - mean ``(222, 223, 241)`` against a background of ``(238, 237, 255)``.
+The tab is still black.  So the fault has moved from "does not render" to "the
+frame does not reach what Qt composites", which is a transfer that works in the
+bare case and not in this one.  That is the next thing to narrow, and the useful
+question is what the assembly view does to the framebuffer that the bare widget
+does not.
 
-**The scene is not the problem.**  Substituting a plain cone into the assembly
-view's own renderer, in the real window, is equally black.  A cone in the same
-widget outside that window draws.
-
-Ruled out, each measured rather than reasoned about: VTK's own multisampling
-(now left to Qt), FXAA, SSAO, the orientation marker's second renderer, the
-``StartEvent`` observer, layered rendering, the surface format (a 3.2 core
-profile draws as happily as the 4.6 compatibility one the driver gives by
-default), rebinding Qt's framebuffer before an explicit
-``BlitDisplayFramebuffer``, nesting in a layout, nesting in a tab that has to be
-switched to, the application-wide stylesheet, and importing VTK's own Qt widget
-module first.
-
-So the cause is in how :class:`~cycloidgen.ui.main_window.MainWindow` builds and
-hosts the thing, and it is not any of the pieces above.  Both directions of
-subtraction have been tried and both said "still blank", which is the signature
-of a cause nobody has named yet.  The next attempt should go the other way for
-real: start from the tab probe that works and add ``MainWindow``'s construction
-to it a step at a time, rather than removing things from a window that does not.
-
-Three traps, all of them paid for, and all of them the same lesson - **check the
+Four traps, all of them paid for, and all of them the same lesson - **check the
 measurement before believing the result**:
 
 * ``QOpenGLWidget.grabFramebuffer`` is not a measurement here.  It reports a
@@ -87,6 +82,13 @@ measurement before believing the result**:
   temporary source is collected the moment the call returns, the port does not
   keep it alive, and the crash looks exactly like a broken GL integration.  It
   cost an afternoon and a wrong bug report that was very nearly filed upstream.
+* Answering ``WindowMakeCurrentEvent`` with ``makeCurrent()`` looks like the
+  other half of the ``SetIsCurrent`` repair and undoes it.  VTK raises that
+  event mid-render and ``QOpenGLWidget.makeCurrent()`` rebinds the widget's
+  framebuffer, abandoning the frame in progress.  Removing the view's own
+  ``StartEvent`` observer left the viewport black; removing this one drew the
+  gearbox.  A repair can arrive carrying its own bug, and only taking the two
+  apart one at a time says which is which.
 """
 from __future__ import annotations
 
@@ -182,9 +184,13 @@ class QtGLRenderWidget(QOpenGLWidget):
         """
         if self._initialised:
             self.makeCurrent()
+            self._render_window.SetIsCurrent(True)
             self._render_window.SetReadyForRendering(False)
             self._render_window.Finalize()
             self.doneCurrent()
+            # The context is no longer ours, and a render window that thinks it
+            # still is would skip making one current and draw on a stranger's.
+            self._render_window.SetIsCurrent(False)
             self._initialised = False
 
     # ------------------------------------------------------- Qt's GL callbacks
@@ -192,6 +198,17 @@ class QtGLRenderWidget(QOpenGLWidget):
         super().initializeGL()
         self._render_window.SetReadyForRendering(True)
         self._render_window.InitializeFromCurrentContext()
+        # VTK cannot find out whether the context is current; the toolkit that
+        # owns it has to say so, and until it does nothing is drawn at all.
+        #
+        # Answering `WindowMakeCurrentEvent` with `makeCurrent()` looks like the
+        # matching half of this and is not: VTK raises it mid-render, and
+        # `QOpenGLWidget.makeCurrent()` rebinds the widget's framebuffer, which
+        # abandons the frame in progress.  Measured, and it is the difference
+        # between a drawn gearbox and a black viewport.  Qt has already made the
+        # context current at every point we hand VTK to it, so there is nothing
+        # for that observer to do except damage.
+        self._render_window.SetIsCurrent(True)
         self._initialised = True
         if self._interactor_wanted:
             self._start_interactor()
@@ -209,6 +226,9 @@ class QtGLRenderWidget(QOpenGLWidget):
     def paintGL(self) -> None:
         super().paintGL()
         if self._initialised:
+            # Qt has made the context current to call this, so the answer is
+            # yes - and saying so is what makes the frame happen at all.
+            self._render_window.SetIsCurrent(True)
             self._render_window.Render()
 
     # ------------------------------------------------------------- the mouse
