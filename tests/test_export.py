@@ -91,7 +91,7 @@ def test_json_report_round_trips(spec, tmp_path):
     assert data["derived"]["pin_count"] == spec.pin_count
     assert data["contact"]["max_pin_force_N"] > 0
     assert 0 < data["efficiency"]["efficiency"] < 1
-    assert len(data["bearings"]) == 3
+    assert len(data["bearings"]) == 4 + int(spec.ring_pins_are_rollers)
     assert data["spec"]["lobes"] == spec.lobes
 
 

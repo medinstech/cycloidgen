@@ -81,7 +81,8 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     fatigue = analyse_fatigue(spec, mass.web_shear_MPa, mass.min_web_mm,
                               temperature_C=therm.temperature_C)
     bearings = select_bearings(spec, contact.eccentric_bearing_load_N,
-                               contact.max_output_force_N)
+                               contact.max_output_force_N,
+                               ring_pin_load_N=contact.max_pin_force_N)
     capacity = torque_capacity(spec, contact=contact)
 
     if contact.pin_safety_factor < 1.0:
