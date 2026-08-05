@@ -70,9 +70,20 @@ def available() -> bool:
       so, since 10.14. What happens is not a blank viewport: the first render
       blocks the main thread the moment the tab is opened, and the application
       dies with it. The software painter draws the same scene and always works,
-      so that is what macOS gets until the widget is rewritten on top of
-      ``QOpenGLWidget`` and a ``vtkGenericOpenGLRenderWindow`` - which is a real
-      fix rather than this guard, and it is not written yet.
+      so that is what macOS gets.
+
+      The obvious repair does not work, and the next person should not spend the
+      day finding that out again. Rendering *inside* Qt's context - a
+      ``QOpenGLWidget`` of our own over a ``vtkGenericOpenGLRenderWindow``,
+      which is what VTK's C++ ``QVTKOpenGLNativeWidget`` does and its Python
+      side does not - was written and measured on Windows, where the ordinary
+      path works. It logs ``Failed to initialize OpenGL functions`` and takes
+      the process down inside ``show()``, in a context Qt reports as 4.6
+      compatibility and which a plain ``QOpenGLWidget`` paints in happily.
+      Stripped to a bare render window with no configuration at all, it still
+      dies before ``initializeGL`` runs. Whatever the reason, embedding that
+      class from Python is not supported by the wheel VTK 9.6 ships, so there
+      is nothing here to build a macOS viewport on.
     * **Whether the modules are importable**, which is an ordinary question.
 
     Whether the *driver* can then give a GL context is the one thing left to
@@ -114,21 +125,6 @@ def _imports():
     """
     import vtkmodules.qt
     vtkmodules.qt.PyQtImpl = "PySide6"
-
-    # Only reachable on macOS by setting CYCLOIDGEN_VTK=1, because `available`
-    # refuses VTK there by default - see the reasoning over there.
-    #
-    # Necessary but *not* sufficient, and worth writing down so the next person
-    # does not mistake it for the fix.  VTK 9.6's Python widget treats
-    # ``QOpenGLWidget`` as a base class and nothing more: it has no
-    # ``initializeGL``, no ``paintGL``, it never touches ``QSurfaceFormat``, and
-    # it still constructs a plain ``vtkRenderWindow`` and hands it ``winId()``.
-    # So the context is still built beside Qt's rather than inside it.  Making
-    # macOS work needs a widget of our own over ``vtkGenericOpenGLRenderWindow``,
-    # rendering into the framebuffer Qt gives it.  Windows and Linux stay on the
-    # default base: it is what has been running.
-    if sys.platform == "darwin":
-        vtkmodules.qt.QVTKRWIBase = "QOpenGLWidget"
 
     # These two are imported for their side effect: importing them is what
     # registers the OpenGL backend and the interactor styles with VTK's object
