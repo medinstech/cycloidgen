@@ -48,6 +48,11 @@ design somebody already built.
   between the output flange and the housing, and the model has neither a flange
   hub nor a housing end plate for it to sit in. Its note says so.
 
+  They switch off one at a time as well, from the **…** beside the group in the
+  3D tab. A group toggle is enough for the housing, where there is one of it;
+  the bearings sit in four different places, and looking at the cam bearing down
+  its bore means putting the others away rather than putting all of them away.
+
 **Fixed**
 
 - **The design search was returning drives whose output pins bend on the first

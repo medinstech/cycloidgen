@@ -21,9 +21,11 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
     QSizePolicy,
     QSlider,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -134,8 +136,15 @@ class AssemblyView(QWidget):
                                           elevation=self._camera.elevation)
 
     def set_group_visible(self, group: str, visible: bool) -> None:
+        """Show or hide a part group, or one named part."""
         self._hidden.discard(group) if visible else self._hidden.add(group)
         self.update()
+
+    def hideable_parts(self, group: str) -> list[tuple[str, str]]:
+        """(name, label) of the parts in ``group``, for a per-part menu."""
+        if self._mesh is None:
+            return []
+        return [(p.name, p.label) for p in self._mesh.parts if p.group == group]
 
     def set_edges(self, on: bool) -> None:
         self._edges = bool(on)
@@ -347,6 +356,22 @@ class Assembly3DTab(QWidget):
         self._section.setMaximumWidth(150)
         self._section.setToolTip("Cut the assembly on a plane through the axis, "
                                  "to see the mesh instead of the outside of it.")
+        # The bearings are the one group where all-or-nothing is not enough.  The
+        # cam bearing is down a bore and the shaft supports are out in the open,
+        # so seeing one of them usually means putting the others away - and which
+        # ones a design even has changes with the design, which is why this is a
+        # menu rebuilt per spec rather than a row of boxes built once.
+        self._hidden_parts: set[str] = set()
+        self._bearing_menu = QToolButton()
+        self._bearing_menu.setText("...")
+        self._bearing_menu.setPopupMode(QToolButton.InstantPopup)
+        # Wide enough to read as a button.  At its natural size an ellipsis and
+        # a menu arrow next to a row of checkboxes look like stray punctuation.
+        self._bearing_menu.setMinimumWidth(30)
+        self._bearing_menu.setToolTip("Show or hide bearings one at a time.")
+        self._bearing_menu.setMenu(QMenu(self._bearing_menu))
+        self._bearing_menu.setEnabled(False)
+
         self._groups: dict[str, QCheckBox] = {}
         for group, label in PART_GROUPS:
             box = QCheckBox(label)
@@ -355,6 +380,8 @@ class Assembly3DTab(QWidget):
                 lambda on, g=group: self.view.set_group_visible(g, on))
             show_row.addWidget(box)
             self._groups[group] = box
+            if group == "bearings":
+                show_row.addWidget(self._bearing_menu)
         show_row.addStretch(1)
 
         if hasattr(self.view, "set_section"):
@@ -369,6 +396,33 @@ class Assembly3DTab(QWidget):
     # ------------------------------------------------------------------ state
     def set_spec(self, spec: GearSpec) -> None:
         self.view.set_spec(spec)
+        self._rebuild_bearing_menu()
+
+    def _rebuild_bearing_menu(self) -> None:
+        """One entry per bearing this design actually has.
+
+        A bearing already hidden stays hidden across a design change: the names
+        are stable, so switching preset and back does not quietly put a part you
+        put away back on the screen.  A name that no longer exists costs nothing
+        - the renderer is being told to hide something that is not there.
+        """
+        menu = self._bearing_menu.menu()
+        menu.clear()
+        parts = self.view.hideable_parts("bearings")
+        self._bearing_menu.setEnabled(bool(parts))
+        for name, label in parts:
+            action = menu.addAction(label)
+            action.setCheckable(True)
+            # Checked before it is connected: setting it after would fire
+            # `toggled` and hide whatever the last design had hidden.
+            action.setChecked(name not in self._hidden_parts)
+            action.toggled.connect(
+                lambda on, n=name: self._set_part_visible(n, on))
+            self.view.set_group_visible(name, name not in self._hidden_parts)
+
+    def _set_part_visible(self, name: str, visible: bool) -> None:
+        self._hidden_parts.discard(name) if visible else self._hidden_parts.add(name)
+        self.view.set_group_visible(name, visible)
 
     def set_crank(self, degrees: float) -> None:
         self.view.set_crank(degrees)
@@ -386,8 +440,17 @@ class Assembly3DTab(QWidget):
         camera = self.view.camera
         return {"azimuth": camera.azimuth, "elevation": camera.elevation,
                 "explode": self._explode.value() / 100.0,
-                "hidden": frozenset(g for g, box in self._groups.items()
-                                    if not box.isChecked())}
+                "hidden": frozenset(self._hidden())}
+
+    def _hidden(self) -> list[str]:
+        """Everything currently switched off, groups and single parts alike.
+
+        One list, because the renderer takes one set: a name that is both a group
+        and a part is a group of exactly one part named after it, so it says the
+        same thing read either way.
+        """
+        return [g for g, box in self._groups.items()
+                if not box.isChecked()] + sorted(self._hidden_parts)
 
     def save_state(self) -> None:
         settings = app_settings()
@@ -397,9 +460,7 @@ class Assembly3DTab(QWidget):
         settings.setValue("view3d_explode", self._explode.value())
         settings.setValue("view3d_edges", self._edges.isChecked())
         settings.setValue("view3d_section", self._section.value())
-        settings.setValue("view3d_hidden",
-                          [g for g, box in self._groups.items()
-                           if not box.isChecked()])
+        settings.setValue("view3d_hidden", self._hidden())
 
     def restore_state(self) -> None:
         """Reopen on the viewpoint the last session left.
@@ -427,3 +488,8 @@ class Assembly3DTab(QWidget):
             hidden = [hidden]
         for group, box in self._groups.items():
             box.setChecked(group not in hidden)
+        # Whatever is left is a part name.  Kept without checking it against the
+        # current design: the tab is restored before a spec ever arrives, so
+        # there is nothing yet to check it against.
+        self._hidden_parts = {h for h in hidden if h not in self._groups}
+        self._rebuild_bearing_menu()

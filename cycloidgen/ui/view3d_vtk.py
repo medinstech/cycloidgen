@@ -415,13 +415,21 @@ class VtkAssemblyView(QWidget):
         self.fit()
 
     def set_group_visible(self, group: str, visible: bool) -> None:
+        """Show or hide a part group, or one named part."""
         self._hidden.discard(group) if visible else self._hidden.add(group)
         self._apply_visibility()
         self._render()
 
+    def hideable_parts(self, group: str) -> list[tuple[str, str]]:
+        """(name, label) of the parts in ``group``, for a per-part menu."""
+        if self._mesh is None:
+            return []
+        return [(p.name, p.label) for p in self._mesh.parts if p.group == group]
+
     def _apply_visibility(self) -> None:
         for record in self._actors.values():
-            shown = record["part"].group not in self._hidden
+            part = record["part"]
+            shown = part.group not in self._hidden and part.name not in self._hidden
             record["actor"].SetVisibility(shown)
             record["edges"].SetVisibility(shown and self._edges)
 

@@ -19,7 +19,7 @@ animation, a bill of materials and a PDF dossier.
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
   a shortlist that passes every check, with the trade-offs side by side.
-- **Nothing is asserted that is not verified.** 465 tests, and where two parts
+- **Nothing is asserted that is not verified.** 517 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -373,6 +373,10 @@ suggests it.
   because the model has nothing for it to sit in, and its note in the schedule
   says which case it is.
 
+  They also switch off one at a time, from the **…** beside the group: they sit
+  in four different places, and looking at the cam bearing down its bore means
+  putting the others away rather than putting all of them away.
+
   ![exploded](docs/exploded.png)
 
   It renders on the GPU through VTK — which costs no new dependency, because
@@ -521,7 +525,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          465 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          517 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -537,7 +541,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-465 tests, about 300 s. Most of that is CadQuery writing solids; the pure
+517 tests, about 300 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

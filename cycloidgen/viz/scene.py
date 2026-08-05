@@ -138,9 +138,12 @@ def render(mesh: Mesh, phi: float, camera: Camera, width: int, height: int, *,
            ambient: float = 0.30) -> DrawList:
     """Project ``mesh`` at crank angle ``phi`` into a painter's-order draw list.
 
-    ``hidden`` names part *groups* to leave out - hiding the housing is how you
-    look at the mesh, and it is the first thing anyone does with a gearbox
-    viewer.
+    ``hidden`` names part groups *or individual parts* to leave out.  Hiding the
+    housing is the first thing anyone does with a gearbox viewer, and that is a
+    group; but "the bearings" is not one thing you want to see or not see - the
+    cam bearing sits inside a bore and the shaft supports sit out in the open,
+    and looking at one usually means putting the others away.  Both live in the
+    same set because a part and a group can never share a name.
     """
     world = mesh.world_vertices(phi, explode)
     eye = camera.eye()
@@ -160,7 +163,8 @@ def render(mesh: Mesh, phi: float, camera: Camera, width: int, height: int, *,
 
     keep = ((normals * (v0 - eye)).sum(axis=1) < 0.0) & (lengths > 1e-12)
     if hidden:
-        shown = np.array([p.group not in hidden for p in mesh.parts])
+        shown = np.array([p.group not in hidden and p.name not in hidden
+                          for p in mesh.parts])
         keep &= shown[mesh.facet_part]
 
     # Depth per face, and rejection of anything crossing the near plane.  Both
