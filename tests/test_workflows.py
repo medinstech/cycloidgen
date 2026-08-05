@@ -56,6 +56,29 @@ def test_the_release_only_runs_on_a_tag():
     assert "branches" not in triggers["push"]
 
 
+@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
+def test_nsis_is_never_compiled_from_bash(path):
+    """The bug that cost a release build at the last step.
+
+    NSIS takes its options as ``/INPUTCHARSET`` and MSYS rewrites any argument
+    shaped like a Unix path, so under bash on a Windows runner the flag arrives
+    as ``C:/Program Files/Git/INPUTCHARSET`` and makensis compiles *that*
+    instead of the script.  It failed after the 1.2 GB bundle had already been
+    built, and the identical command in tests.yml passed throughout because
+    that one runs in pwsh.
+    """
+    definition = _load(path)
+    for name, job in definition["jobs"].items():
+        for step in job["steps"]:
+            if "makensis" not in step.get("run", ""):
+                continue
+            shell = step.get("shell", "")
+            assert shell in {"pwsh", "powershell"}, (
+                f"{path.name}: job {name}, step {step.get('name')!r} compiles "
+                f"NSIS in {shell or 'the default shell'}; MSYS would mangle "
+                f"the /FLAG options")
+
+
 def _release_notes_script() -> str:
     definition = _load(ROOT / ".github" / "workflows" / "release.yml")
     steps = definition["jobs"]["windows"]["steps"]

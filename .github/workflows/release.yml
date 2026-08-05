@@ -77,13 +77,20 @@ jobs:
       - name: Install NSIS
         run: choco install nsis --no-progress -y
 
+      # In pwsh, and not in bash, because NSIS takes `/FLAG` options and MSYS
+      # rewrites anything shaped like a Unix path: `/INPUTCHARSET` arrives as
+      # `C:/Program Files/Git/INPUTCHARSET` and makensis reads it as the script
+      # to compile.  The installer job in tests.yml has always spelled this in
+      # pwsh, which is why it passed while this one fell over - the two were
+      # running the same command in two shells and only one of them mangles it.
       - name: Build the installer
-        shell: bash
+        shell: pwsh
         run: |
-          mkdir -p releases
-          "/c/Program Files (x86)/NSIS/makensis.exe" /INPUTCHARSET UTF8 \
-            packaging/cycloidgen.nsi
-          ls -lh releases/
+          New-Item -ItemType Directory -Force releases | Out-Null
+          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" /INPUTCHARSET UTF8 packaging\cycloidgen.nsi
+          # A native command that fails does not stop a pwsh step by itself.
+          if ($LASTEXITCODE -ne 0) { throw "makensis failed" }
+          Get-ChildItem releases | Format-Table Name, Length
 
       - uses: actions/upload-artifact@v4
         with:
