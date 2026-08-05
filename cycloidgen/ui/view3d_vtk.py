@@ -159,12 +159,13 @@ def _imports():
 def qt_context_wanted() -> bool:
     """Whether to render inside Qt's GL context instead of beside it.
 
-    **Off everywhere by default, including macOS, because it is not finished.**
-    See :mod:`cycloidgen.ui.view3d_qtgl` for where it got to: it renders a scene
-    correctly on its own and comes out empty inside
-    :class:`VtkAssemblyView`, with every GL callback firing, the context
-    adopted, the right size and twelve actors present.  Until that is
-    understood it is a thing to develop, not a thing to select.
+    **Off everywhere by default, including macOS.**  It draws now - the whole
+    assembly, in the real window, measured off the screen - but every one of
+    those measurements is a Windows one, on the machine where the ordinary path
+    already works.  The platform it exists for has not run it once.  Turning it
+    on for macOS is a decision to make after somebody opens the tab on a Mac,
+    not before, because the failure it replaces takes the application down with
+    it.  See :mod:`cycloidgen.ui.view3d_qtgl`.
     """
     return os.environ.get(_QT_GL_OVERRIDE, "").strip() == "1"
 

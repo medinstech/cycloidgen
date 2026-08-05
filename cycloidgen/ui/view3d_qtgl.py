@@ -13,15 +13,23 @@ still constructs a plain ``vtkRenderWindow`` and hands it ``winId()``.  The
 context is still built beside Qt's.
 
 So this is the widget VTK's C++ side has as ``QVTKOpenGLNativeWidget`` and its
-Python side does not.  Three things make it work:
+Python side does not.  Four things make it work, and the middle two are the ones
+that took the time - each is a question VTK cannot answer for itself and gets
+no error for:
 
 * **``vtkGenericOpenGLRenderWindow``** owns no context.  It adopts the one Qt
   has already made current - ``InitializeFromCurrentContext`` - so there is no
   second context and no native handle to get wrong.
-* **Blit to current.**  A ``QOpenGLWidget`` does not draw to the screen; it draws
-  to a framebuffer Qt binds before ``paintGL`` and composites afterwards.  VTK
-  renders into its own framebuffer and blits into whatever is bound, which is
-  exactly that one.  Qt swaps, so VTK must not.
+* **It has to be told the context is current.**  ``SetIsCurrent`` - see
+  :meth:`QtGLRenderWidget.initializeGL`.  Unanswered, ``IsCurrent()`` is false
+  and the render short-circuits silently, without clearing so much as the
+  background.
+* **The frame has to be carried across by hand.**  A ``QOpenGLWidget`` does not
+  draw to the screen; it draws to a framebuffer Qt binds before ``paintGL`` and
+  composites afterwards.  VTK draws into a framebuffer of its own and has no way
+  of being told where Qt's is, because ``SetDefaultFrameBufferId`` is not in the
+  9.6 Python wheel - so :meth:`QtGLRenderWidget._present` blits it over
+  directly.  Qt swaps, so VTK must not.
 * **Rendering only ever happens inside ``paintGL``.**  ``Render`` schedules a
   repaint instead of drawing, because a draw outside ``paintGL`` is a draw on
   whatever context happens to be current - which is the original bug in a
@@ -31,10 +39,8 @@ Interaction is forwarded by hand.  ``vtkGenericRenderWindowInteractor`` is the
 interactor for exactly this case: it has no event loop of its own and expects to
 be told what happened.
 
-Where this got to, so the next attempt starts here
---------------------------------------------------
-**Unfinished.**  Off by default everywhere, including macOS, and selected only
-by ``CYCLOIDGEN_VTK_QTGL=1``.
+Where this got to
+-----------------
 
 **Nothing was being rendered at all, anywhere**, and the one call that fixes
 that is ``SetIsCurrent``.  ``vtkGenericOpenGLRenderWindow`` cannot discover
@@ -60,39 +66,40 @@ marker's second renderer, the ``StartEvent`` observer, layered rendering, the
 surface format, nesting in a layout, nesting in a tab, the stylesheet.  None of
 those are cleared any more.  They were never suspects.
 
-**What is left: the transfer, and it is unsolved in both cases.**  The commit
-that found ``SetIsCurrent`` claimed a bare widget draws on screen with it.  That
-was measured while the ``WindowMakeCurrentEvent`` observer below was still in
-the file, and the same commit removed it.  Measured again afterwards, with one
-camera across all four combinations:
+**It draws.**  Measured by photographing the top-level window and cropping to
+the viewport: the bare widget, the widget in a layout, in a tab, in a splitter
+inside a ``QMainWindow``, and the real application's 3D tab - 1178 colours and
+0.0% black, against 100% black before.
 
-===================  ==========================  =====================
-observer             bare widget                 assembly view
-===================  ==========================  =====================
-on                   draws, 269 colours, 4% black  black, 98%
-off (what is here)   black, 93%                  black, 98%
-===================  ==========================  =====================
+It was two faults with one symptom, and the second was hidden behind the first
+for two days:
 
-So the observer was never a repair for the assembly view - it only ever moved
-the bare widget's frame into the framebuffer Qt composites, by rebinding it
-mid-render as a side effect, and mid-render is also what destroys the assembly
-view's frame.  One mechanism, helpful at one moment and fatal at another.
+1. **Nothing was rendered at all**, because ``SetIsCurrent`` was never called.
+   Silent - no error, not even a cleared background.
+2. **Nothing carried the frame to Qt**, because VTK cannot be told where Qt's
+   framebuffer is from Python.  Also silent.
 
-What is established is upstream of that: with ``SetIsCurrent`` VTK draws, which
-is measured off its own buffer with ``GetPixelData`` - in the real assembly view
-a hand-driven ``Render`` fills it with the gearbox, mean ``(222, 223, 241)``.
-The picture exists.  Nothing carries it to Qt.
+The source of that blit is the **render** framebuffer, not the display one.
+The display framebuffer is only resolved into when VTK presents the frame
+itself, which here it must not; blitting it instead is black, and just as
+quiet.  ``GetPixelData(front=0)`` reads the render framebuffer, which is why
+it - and not the screen - is the thing to measure when the viewport is empty:
+it separates "never drew" from "drew and the frame was lost".
 
-Tried and does not do it: ``makeCurrent`` after ``Render`` rather than during;
-binding the widget's framebuffer with ``glBindFramebuffer`` before an explicit
-``BlitDisplayFramebuffer``; and that explicit blit at all, which turns the one
-case that did reach the screen black.  ``SSAO``, the second layer and
-multisampling change nothing either way, measured on screen.
+Two dead ends worth not repeating: ``BlitDisplayFramebuffer`` in any
+arrangement, and answering ``WindowMakeCurrentEvent`` with ``makeCurrent()``.
+The second is the more interesting - it rebinds Qt's framebuffer mid-render, so
+it *did* deliver the bare widget's frame by accident while destroying the
+assembly view's, which for a while looked like two unrelated findings.
 
-So the question is narrow now: what binds the framebuffer VTK blits into, and
-when.  ``vtkGenericOpenGLRenderWindow`` has no ``SetDefaultFrameBufferId`` in
-the 9.6 Python wheel, which is the call VTK's own C++ widget uses for exactly
-this, and that absence is the shape of the remaining problem.
+``SSAO``, the second renderer's layer and multisampling turned out to be
+irrelevant either way, and everything the earlier subtraction "ruled out" was
+ruled out against a fault that was not there.
+
+**Still off by default everywhere, including macOS**, and selected by
+``CYCLOIDGEN_VTK_QTGL=1``.  What it now needs is a run on the hardware it was
+written for: all of this is Windows, where the ordinary path already works, and
+the whole point of the exercise is a macOS that has never been measured.
 
 Four traps, all of them paid for, and all of them the same lesson - **check the
 measurement before believing the result**:
@@ -118,12 +125,23 @@ measurement before believing the result**:
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QSurfaceFormat
+from PySide6.QtGui import QOpenGLContext, QSurfaceFormat
+from PySide6.QtOpenGL import (
+    QOpenGLVersionFunctionsFactory,
+    QOpenGLVersionProfile,
+)
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from vtkmodules.vtkRenderingOpenGL2 import vtkGenericOpenGLRenderWindow
 from vtkmodules.vtkRenderingUI import vtkGenericRenderWindowInteractor
 
 __all__ = ["QtGLRenderWidget", "default_surface_format"]
+
+#: Spelled out rather than imported: PyOpenGL is not a dependency, and the four
+#: constants the presentation blit needs are stable parts of the GL 3.0 core.
+GL_READ_FRAMEBUFFER = 0x8CA8
+GL_DRAW_FRAMEBUFFER = 0x8CA9
+GL_COLOR_BUFFER_BIT = 0x00004000
+GL_NEAREST = 0x2600
 
 
 def default_surface_format() -> QSurfaceFormat:
@@ -173,6 +191,7 @@ class QtGLRenderWidget(QOpenGLWidget):
         self._interactor.SetRenderWindow(self._render_window)
         self._initialised = False
         self._interactor_wanted = False
+        self._functions = None
 
     # ------------------------------------------------ the interchangeable bit
     def GetRenderWindow(self):
@@ -234,9 +253,57 @@ class QtGLRenderWidget(QOpenGLWidget):
         # context current at every point we hand VTK to it, so there is nothing
         # for that observer to do except damage.
         self._render_window.SetIsCurrent(True)
+        self._functions = self._core_functions()
         self._initialised = True
         if self._interactor_wanted:
             self._start_interactor()
+
+    @staticmethod
+    def _core_functions():
+        """The 3.2 core entry points, which is where ``glBlitFramebuffer`` lives.
+
+        ``QOpenGLFunctions`` - the one Qt hands out for free - is the ES2 subset
+        and has no framebuffer blit in it.  Fetched once, with the context
+        current, because the lookup is not free per frame.
+        """
+        profile = QOpenGLVersionProfile()
+        profile.setVersion(3, 2)
+        profile.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)
+        return QOpenGLVersionFunctionsFactory.get(
+            profile, QOpenGLContext.currentContext())
+
+    def _present(self) -> None:
+        """Copy the frame VTK just drew into the framebuffer Qt composites.
+
+        This is the half that ``SetDefaultFrameBufferId`` would do, and that
+        call is not in VTK 9.6's Python wheel: VTK renders into a framebuffer of
+        its own and has no way of being told where Qt's is, so left alone the
+        picture is drawn correctly and then simply never arrives.
+
+        The source is the **render** framebuffer, not the display one.  That is
+        where the frame is - ``GetPixelData(front=0)`` reads it there - and the
+        display framebuffer is not resolved into unless VTK presents the frame
+        itself, which here it must not.  Blitting the wrong one of the two is
+        the difference between a gearbox and a black viewport, and both are
+        silent.
+
+        Multisampled source into a single-sampled destination is a resolve, and
+        legal exactly while the two rectangles match and the filter is
+        ``GL_NEAREST`` - which is why the sizes are taken from one place.
+        """
+        source = self._render_window.GetRenderFramebuffer()
+        if source is None or self._functions is None:
+            return
+        width, height = self._render_window.GetSize()
+        target = self.defaultFramebufferObject()
+        self._functions.glBindFramebuffer(GL_READ_FRAMEBUFFER,
+                                          source.GetFBOIndex())
+        self._functions.glBindFramebuffer(GL_DRAW_FRAMEBUFFER, target)
+        self._functions.glBlitFramebuffer(0, 0, width, height,
+                                          0, 0, width, height,
+                                          GL_COLOR_BUFFER_BIT, GL_NEAREST)
+        # Handed back the way Qt gave it: both bindings on the widget's own.
+        self._functions.glBindFramebuffer(GL_READ_FRAMEBUFFER, target)
 
     def resizeGL(self, width: int, height: int) -> None:
         super().resizeGL(width, height)
@@ -255,6 +322,7 @@ class QtGLRenderWidget(QOpenGLWidget):
             # yes - and saying so is what makes the frame happen at all.
             self._render_window.SetIsCurrent(True)
             self._render_window.Render()
+            self._present()
 
     # ------------------------------------------------------------- the mouse
     def _tell_vtk_where(self, event) -> None:
