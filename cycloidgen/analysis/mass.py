@@ -25,7 +25,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ..core import profile as prof
-from ..core.spec import SHAFT_OVERHANG, GearSpec
+from ..core.spec import GearSpec
 
 __all__ = ["MassResult", "analyse_mass"]
 
@@ -112,14 +112,29 @@ def analyse_mass(spec: GearSpec) -> MassResult:
                     * (spec.output_pin_diameter / 2.0) ** 2 * h)
     pins_mass = pins_volume * _MM3_TO_CM3 * rho_pin
 
-    shaft_volume = math.pi * (spec.input_shaft_diameter / 2.0) ** 2 * (h + 2 * SHAFT_OVERHANG)
+    shaft_volume = math.pi * (spec.input_shaft_diameter / 2.0) ** 2 * (h + 2 * spec.shaft_overhang)
     cam_extra = n * math.pi * ((spec.cam_diameter / 2.0) ** 2
                                - (spec.input_shaft_diameter / 2.0) ** 2) * t
     shaft_mass = (shaft_volume + max(cam_extra, 0.0)) * _MM3_TO_CM3 * rho_shaft
 
     plate_r = spec.output_bolt_circle_radius + spec.output_pin_diameter
     flange_volume = math.pi * plate_r ** 2 * spec.output_flange_thickness
-    flange_mass = flange_volume * _MM3_TO_CM3 * rho_house
+    # Plus the boss the drive turns on, bored through for the shaft, and less
+    # that same bore through the plate.
+    flange_volume += math.pi * ((spec.hub_diameter / 2.0) ** 2
+                                - (spec.hub_bore / 2.0) ** 2) * spec.plate_thickness
+    flange_volume -= math.pi * (spec.hub_bore / 2.0) ** 2 * spec.output_flange_thickness
+    flange_mass = max(flange_volume, 0.0) * _MM3_TO_CM3 * rho_house
+
+    # The two plates that close the housing.  They are part of the gearbox and
+    # were simply not weighed: on the 21:1 preset they are a third of it.
+    outer_area = math.pi * spec.housing_outer_radius ** 2
+    plates_volume = (2.0 * outer_area
+                     - math.pi * (spec.hub_bore / 2.0) ** 2
+                     - math.pi * (spec.output_bearing_seat_diameter / 2.0) ** 2
+                     ) * spec.plate_thickness
+    plates_mass = max(plates_volume, 0.0) * _MM3_TO_CM3 * rho_house
+    housing_mass += plates_mass
 
     total = n * disc_mass + housing_mass + pins_mass + shaft_mass + flange_mass
 

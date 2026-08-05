@@ -75,6 +75,14 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
         note=f"{s.pin_count} pin pockets on a {2 * s.pin_circle_radius:g} mm circle"))
 
     items.append(BomItem(
+        part="Housing end plate", quantity=2, material=s.housing_material,
+        size=f"{2 * s.housing_outer_radius:.1f} dia x {s.plate_thickness:g} mm",
+        mass_each_g=0.0, source="make",
+        note=f"input side bored {s.hub_bore:.1f} for the shaft support, output "
+             f"side {s.output_bearing_seat_diameter:.1f} for the output bearing "
+             f"- they are not interchangeable"))
+
+    items.append(BomItem(
         part="Output flange / carrier", quantity=1, material=s.housing_material,
         size=f"{2 * (s.output_bolt_circle_radius + s.output_pin_diameter):.1f} dia "
              f"x {s.output_flange_thickness:g} mm",

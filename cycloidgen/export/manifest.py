@@ -76,7 +76,7 @@ def disc_names(spec: GearSpec) -> list[str]:
 def part_names(spec: GearSpec) -> list[str]:
     """Every distinct part, in the order :func:`export.solid.parts` builds them."""
     return ["housing", "ring_pins", "eccentric_shaft", "output_flange",
-            *disc_names(spec)]
+            "input_end_plate", "output_end_plate", *disc_names(spec)]
 
 
 @dataclass(frozen=True)

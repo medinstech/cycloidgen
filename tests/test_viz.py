@@ -105,9 +105,19 @@ def test_mesh_volume_matches_the_exported_solid(ratio, discs):
             name = "disc"
         expected = solids[name].val().Volume()
         assert volumes[i] == pytest.approx(expected, rel=0.03), part.name
-    bearings = sum(p.group == "bearings" for p in mesh.parts)
-    assert len(mesh.parts) == 4 + discs + bearings
-    assert bearings, "the drive is drawn without any of its bearings"
+    # ...and nothing is in one and not the other.  Stated against the export's
+    # own part list rather than a count, which was a magic number that had to be
+    # edited every time the gearbox grew a part - and would have been just as
+    # happy with a part missing as with one added.
+    drawn = {p.name for p in mesh.parts if p.group != "bearings"}
+    exported = set(solid.parts(s))
+    if s.discs_are_identical:
+        # One file for a stack of identical discs, but still a body each - and a
+        # single disc is trivially identical to itself, so it takes this path too.
+        exported = (exported - {"disc"}) | {f"disc_{i + 1}" for i in range(discs)}
+    assert drawn == exported
+    assert any(p.group == "bearings" for p in mesh.parts), \
+        "the drive is drawn without any of its bearings"
 
 
 def test_the_ring_pockets_keep_the_pins_out_of_the_housing(spec):
@@ -203,13 +213,20 @@ def test_faces_are_painted_back_to_front(mesh):
 
 
 def test_hiding_a_group_removes_exactly_that_group(mesh):
+    """Every part of it, and nothing else.
+
+    Checked on a group with more than one part in it - the two end plates - so
+    that hiding the first and leaving the rest on screen cannot pass.
+    """
     camera = Camera.framing(mesh)
     everything = render(mesh, 0.2, camera, 640, 480)
-    without = render(mesh, 0.2, camera, 640, 480, hidden={"housing"})
-    housing = next(i for i, p in enumerate(mesh.parts) if p.group == "housing")
-    assert (everything.parts == housing).sum() > 0
-    assert (without.parts == housing).sum() == 0
-    assert len(without) == len(everything) - (everything.parts == housing).sum()
+    without = render(mesh, 0.2, camera, 640, 480, hidden={"end_plates"})
+    housing = [i for i, p in enumerate(mesh.parts) if p.group == "end_plates"]
+    assert len(housing) > 1, "this design has only one end plate to hide"
+    shown = np.isin(everything.parts, housing)
+    assert shown.sum() > 0
+    assert not np.isin(without.parts, housing).any()
+    assert len(without) == len(everything) - shown.sum()
 
 
 def test_the_viewer_and_the_step_file_agree_on_part_colours():

@@ -38,7 +38,7 @@ from ..analysis.bearings import (
     placements_for_spec,
 )
 from ..core import profile as prof
-from ..core.spec import CARRIER_DROP, SHAFT_OVERHANG, GearSpec
+from ..core.spec import CARRIER_DROP, GearSpec
 
 __all__ = [
     "PART_COLOURS",
@@ -63,11 +63,20 @@ PART_COLOURS: dict[str, tuple[int, int, int]] = {
     "shaft": (115, 115, 128),
     "carrier": (140, 191, 115),
     "bearings": (150, 128, 200),
+    "end_plates": (140, 140, 156),
 }
 
 #: Human names for the visibility toggles, in assembly order.
+#:
+#: The end plates are their own group rather than more of the housing, for two
+#: reasons that happen to agree.  Taking the covers off to look inside is a
+#: different thing from taking the barrel away, so it wants its own switch.  And
+#: a group of several parts must not share its name with one of them - the
+#: renderer takes groups and part names in one set - which is what would have
+#: happened if the plates had joined "housing".
 PART_GROUPS: tuple[tuple[str, str], ...] = (
     ("housing", "Housing"),
+    ("end_plates", "End plates"),
     ("ring_pins", "Ring pins"),
     ("discs", "Discs"),
     ("shaft", "Shaft"),
@@ -84,7 +93,7 @@ PART_GROUPS: tuple[tuple[str, str], ...] = (
 #: that a cam bearing comes off in its disc's bore rather than being left behind
 #: on the shaft, which is neither where it is pressed nor where it would go.
 _EXPLODE = {"carrier": -1.0, "housing": 0.0, "ring_pins": 0.62,
-            "discs": 1.25, "shaft": 2.6, "bearings": 0.0}
+            "discs": 1.25, "shaft": 2.6, "bearings": 0.0, "end_plates": 0.0}
 _EXPLODE_PER_DISC = 0.45
 
 #: Segments on a bearing ring.  The floor matters more than it looks: both loops
@@ -440,7 +449,7 @@ def build_mesh(spec: GearSpec,
     # real geometry, so the test has to be made and not assumed.
     shaft_r = spec.input_shaft_diameter / 2.0
     cam_r = spec.cam_diameter / 2.0
-    spans = [(-SHAFT_OVERHANG, stack + SHAFT_OVERHANG)]
+    spans = [(-spec.shaft_overhang, stack + spec.shaft_overhang)]
     if cam_r >= shaft_r + spec.eccentricity:
         spans = _subtract_spans(spans, [(z0, z1) for z0, z1, _ in cams])
 
@@ -457,11 +466,17 @@ def build_mesh(spec: GearSpec,
     # same height, which is a fight the renderer cannot win.
     drop = CARRIER_DROP
     plate_r = spec.output_bolt_circle_radius + spec.output_pin_diameter
+    hub_r = spec.hub_diameter / 2.0
+    bore_r = spec.hub_bore / 2.0
+    plate_bottom = -drop - spec.output_flange_thickness
     with b.part("output_flange", "Output carrier", "carrier",
                 PART_COLOURS["carrier"], spin=1.0 / spec.lobes):
         b.prism(_circle(0.0, 0.0, plate_r, 72),
-                (_circle(0.0, 0.0, (spec.input_shaft_diameter + 1.0) / 2.0, 28),),
-                -spec.output_flange_thickness - drop, -drop)
+                (_circle(0.0, 0.0, bore_r, 28),), plate_bottom, -drop)
+        # The boss the drive turns on: the output bearing rides its outside and
+        # a shaft support sits in its bore.
+        b.prism(_circle(0.0, 0.0, hub_r, 40), (_circle(0.0, 0.0, bore_r, 28),),
+                plate_bottom - spec.plate_thickness, plate_bottom)
         shank = pin_shank_diameter(placements, "bearing_output_pins",
                                    spec.output_pin_diameter)
         for k in range(spec.output_pin_count):
@@ -469,6 +484,23 @@ def build_mesh(spec: GearSpec,
             b.cylinder(spec.output_bolt_circle_radius * math.cos(a),
                        spec.output_bolt_circle_radius * math.sin(a),
                        shank / 2.0, -drop, stack - drop, 20)
+
+    # The two plates that close the housing.  They do not move, they are the
+    # same colour as the barrel they bolt to, and they are why the shaft
+    # supports and the output bearing have somewhere to be.
+    for name, label, bore, z0, apart in (
+            ("input_end_plate", "Input end plate", spec.hub_bore, stack, 2.0),
+            ("output_end_plate", "Output end plate",
+             spec.output_bearing_seat_diameter,
+             plate_bottom - spec.plate_thickness, -1.6)):
+        # Each comes off its own face rather than staying with the barrel: they
+        # are bolted on, and an exploded view that leaves them there is showing
+        # a housing nobody can assemble.
+        with b.part(name, label, "end_plates", PART_COLOURS["end_plates"],
+                    explode=apart):
+            b.prism(_circle(0.0, 0.0, spec.housing_outer_radius, 96),
+                    (_circle(0.0, 0.0, max(bore, 1e-3) / 2.0, 48),),
+                    z0, z0 + spec.plate_thickness)
 
     # Bearings last, and each one takes the motion of the part it was placed
     # against rather than restating it.  Two copies of "how does a disc move"

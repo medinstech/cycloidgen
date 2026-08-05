@@ -214,6 +214,17 @@ class GearSpec(BaseModel):
         None, description="cam OD; defaults to the bore less a 4 mm bearing wall"
     )
     output_flange_thickness: float = Field(6.0, gt=0)
+    end_plate_thickness: float | None = Field(
+        None,
+        description="the two plates that close the housing and hold the shaft "
+                    "supports and the output bearing; defaults to the housing wall",
+    )
+    output_hub_diameter: float | None = Field(
+        None,
+        description="boss on the output carrier: the main output bearing sits on "
+                    "it and a shaft support sits in it; defaults to the shaft plus "
+                    "20 mm, which is a bearing wall each side of both",
+    )
 
     # ---- manufacturing --------------------------------------------------------
     process: Process = Process.FDM
@@ -389,6 +400,65 @@ class GearSpec(BaseModel):
         return max(self.center_bore_diameter - 8.0, self.input_shaft_diameter + 2.0)
 
     @property
+    def plate_thickness(self) -> float:
+        """The two end plates that close the housing.
+
+        The housing wall plus a couple of millimetres, because these are bearing
+        housings and not covers: whatever goes in one has to fit *inside* it, and
+        the thin-section balls that suit this size run 5 to 7 mm wide.  A plate
+        at the bare wall could not hold the bearing the output seat asks for.
+        """
+        if self.end_plate_thickness is not None:
+            return self.end_plate_thickness
+        return self.housing_wall + 2.0
+
+    @property
+    def shaft_overhang(self) -> float:
+        """How far the input shaft stands past the disc stack at each end.
+
+        It has to reach through the carrier's boss, because a shaft support sits
+        in there and a bearing on a shaft that stops short of it is not a
+        bearing.  The fixed 12 mm this used to be predates the boss existing.
+        """
+        return max(SHAFT_OVERHANG,
+                   CARRIER_DROP + self.output_flange_thickness
+                   + self.plate_thickness + 3.0)
+
+    @property
+    def hub_diameter(self) -> float:
+        """Output carrier boss: what the main output bearing sits *on*.
+
+        Twenty over the shaft by default, which is a bearing wall each side of
+        both bearings it separates - a support inside it on the shaft, the output
+        bearing outside it in the end plate.  On the 10 mm default shaft that is
+        30 mm, and 30 mm is a catalogue bore, so the two land on each other
+        exactly rather than nearly.
+        """
+        if self.output_hub_diameter is not None:
+            return self.output_hub_diameter
+        return max(self.input_shaft_diameter + 20.0,
+                   self.input_shaft_diameter + 2.0)
+
+    @property
+    def hub_bore(self) -> float:
+        """Inside of the boss: the seat for the outboard shaft support.
+
+        The hub less a 4 mm wall each side, which is the same allowance the cam
+        makes for the bearing inside the disc bore.
+        """
+        return max(self.hub_diameter - 8.0, self.input_shaft_diameter + 1.0)
+
+    @property
+    def output_bearing_seat_diameter(self) -> float:
+        """Bore in the output end plate: what the main output bearing sits *in*.
+
+        A housing wall out from the hub on each side, so the ring between them is
+        the space the bearing has.  With the default shaft that is 30 mm on 42,
+        and a 6806 is 30 on 42.
+        """
+        return self.hub_diameter + 2.0 * self.housing_wall
+
+    @property
     def disc_phases(self) -> list[float]:
         """Crank phase of each disc in the stack: 180 deg for two, 120 deg for three."""
         import math
@@ -441,8 +511,15 @@ class GearSpec(BaseModel):
 
     @property
     def envelope_length(self) -> float:
-        """Axial length of the assembled gearbox, flange face to housing face."""
-        return self.stack_height + self.output_flange_thickness
+        """Axial length of the assembled gearbox, end plate face to end plate face.
+
+        The plates are part of the gearbox: they close it, they carry the shaft
+        supports and the output bearing, and they are what it bolts to the world
+        by.  Leaving them out of the envelope understated the length of every
+        drive this app has ever sized.
+        """
+        return (self.stack_height + CARRIER_DROP + self.output_flange_thickness
+                + 2.0 * self.plate_thickness)
 
     @property
     def cooling_area_mm2(self) -> float:

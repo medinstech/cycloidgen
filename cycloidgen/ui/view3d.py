@@ -50,6 +50,15 @@ STANDARD_VIEWS: dict[str, tuple[float, float]] = {
 _ORBIT_PER_PIXEL = 0.34
 _ZOOM_PER_NOTCH = 0.86
 
+#: Groups this tab opens with switched off, on a machine that has never run it.
+#:
+#: Only the end plates.  With them on, the assembled view is a closed cylinder
+#: with a shaft out of one end - which is exactly what the gearbox looks like and
+#: exactly no use as the first thing a design tool shows you.  They are one click
+#: away and the checkbox is visibly unticked, so nothing is being hidden from
+#: anyone; the default just starts where the work is.
+_HIDDEN_BY_DEFAULT: frozenset[str] = frozenset({"end_plates"})
+
 
 def _polygon(points: np.ndarray) -> QPolygonF:
     return QPolygonF([QPointF(float(x), float(y)) for x, y in points])
@@ -375,9 +384,10 @@ class Assembly3DTab(QWidget):
         self._groups: dict[str, QCheckBox] = {}
         for group, label in PART_GROUPS:
             box = QCheckBox(label)
-            box.setChecked(True)
+            box.setChecked(group not in _HIDDEN_BY_DEFAULT)
             box.toggled.connect(
                 lambda on, g=group: self.view.set_group_visible(g, on))
+            self.view.set_group_visible(group, box.isChecked())
             show_row.addWidget(box)
             self._groups[group] = box
             if group == "bearings":
@@ -483,7 +493,13 @@ class Assembly3DTab(QWidget):
             self._section.setValue(int(settings.value("view3d_section", 0)))
         self._edges.setChecked(bool(settings.value("view3d_edges", False, type=bool)))
 
-        hidden = settings.value("view3d_hidden") or []
+        # `contains` rather than a falsy check: a stored *empty* list means the
+        # last session had everything on, and treating that as "no preference"
+        # would put the end plates back every time you took them off.
+        if settings.contains("view3d_hidden"):
+            hidden = settings.value("view3d_hidden") or []
+        else:
+            hidden = list(_HIDDEN_BY_DEFAULT)
         if isinstance(hidden, str):
             hidden = [hidden]
         for group, box in self._groups.items():

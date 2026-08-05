@@ -19,7 +19,7 @@ from cycloidgen.analysis.bearings import (
     select_bearings,
 )
 from cycloidgen.analysis.mechanics import analyse_contacts
-from cycloidgen.core.spec import CARRIER_DROP, SHAFT_OVERHANG, Process, preset
+from cycloidgen.core.spec import CARRIER_DROP, Process, preset
 
 
 def _spec(rollers: bool = True):
@@ -254,43 +254,59 @@ def test_the_output_roller_is_a_ring_with_a_wall():
     assert roller.host == "output_flange"
 
 
-def test_the_shaft_supports_stay_on_the_shaft_and_off_the_carrier():
-    """A bearing floating past the end of the shaft it sits on is not a place."""
+def test_the_shaft_supports_sit_in_a_bore_and_not_in_mid_air():
+    """Both are held by something now: the input end plate at one end, the
+    carrier's boss at the other.  They used to be rings on a bare shaft."""
     spec = _spec()
-    supports = _placed(spec)["bearing_shaft_supports"]
-    assert supports.bore >= spec.input_shaft_diameter
-    for ring in supports.rings:
-        assert -SHAFT_OVERHANG <= ring.z0 < ring.z1 <= spec.stack_height + SHAFT_OVERHANG
-        # clear of the disc stack at one end and of the carrier plate at the other
-        assert ring.z0 >= spec.stack_height or ring.z1 <= -CARRIER_DROP - \
-            spec.output_flange_thickness
+    placed = _placed(spec)
+    inboard = spec.stack_height
+    outboard = -CARRIER_DROP - spec.output_flange_thickness
+
+    # Each is hosted on the part that holds it, which is not the same part for
+    # both: the input plate does not move, the carrier's boss turns.
+    assert placed["bearing_shaft_input"].host == "input_end_plate"
+    assert placed["bearing_shaft_output"].host == "output_flange"
+
+    for name, low in (("bearing_shaft_input", inboard),
+                      ("bearing_shaft_output", outboard - spec.plate_thickness)):
+        support = placed[name]
+        assert support.bore >= spec.input_shaft_diameter
+        assert support.outer <= spec.hub_bore
+        ring, = support.rings
+        assert -spec.shaft_overhang <= ring.z0 < ring.z1 <= \
+            spec.stack_height + spec.shaft_overhang
+        assert low <= ring.z0 and ring.z1 <= low + spec.plate_thickness
 
 
-def test_a_support_the_drawn_shaft_cannot_carry_is_left_out_not_moved():
-    """A thick flange eats the room outboard of the carrier.
-
-    Sliding the bearing somewhere it happens to fit would draw a support that is
-    not where the schedule says it goes; leaving it out says so.
-    """
+def test_the_shaft_is_long_enough_to_reach_through_the_boss():
+    """It was not.  A fixed 12 mm overhang predates the boss existing, so the
+    outboard support fell off the end of the shaft it is meant to sit on - and
+    a deeper carrier made it worse rather than better."""
     spec = _spec()
-    both = len(_placed(spec)["bearing_shaft_supports"].rings)
-    spec.output_flange_thickness = SHAFT_OVERHANG      # no room past the plate
-    assert len(_placed(spec)["bearing_shaft_supports"].rings) < both
+    outboard = (-CARRIER_DROP - spec.output_flange_thickness
+                - spec.plate_thickness)
+    assert -spec.shaft_overhang < outboard
+
+    spec.output_flange_thickness = 20.0                # a much deeper carrier
+    placed = _placed(spec)
+    assert "bearing_shaft_input" in placed and "bearing_shaft_output" in placed
 
 
-def test_the_main_output_bearing_is_not_drawn_and_says_why():
-    """The one seat the model does not have, stated rather than fudged.
-
-    It sits between the output flange and the housing, and there is no flange hub
-    and no housing end plate for it to sit in.  Placing it anyway would mean
-    inventing both, and a picture with an invented seat in it is worse than a
-    picture with a gap and a note.
-    """
+def test_the_main_output_bearing_has_a_seat_at_last():
+    """It was the one bearing with nowhere to go: no boss for its bore and no
+    end plate for its outside, so it was sized and then not drawn."""
     spec = _spec()
     choice = next(c for c in _schedule(spec) if c.role == "Main output bearing")
-    assert choice.bearing is not None                  # it is sized...
-    assert not any(p.role == choice.role for p in placements_for_spec(spec))
-    assert "not drawn" in choice.seat
+    assert choice.bearing is not None
+    placed = _placed(spec)["bearing_output_main"]
+    assert placed.bore >= spec.hub_diameter
+    assert placed.outer <= spec.output_bearing_seat_diameter
+    assert placed.host == "output_end_plate"
+
+    # ...and it sits in the plate rather than beside it.
+    top = -CARRIER_DROP - spec.output_flange_thickness
+    ring, = placed.rings
+    assert top - spec.plate_thickness <= ring.z0 < ring.z1 <= top
 
 
 def test_the_picture_carries_every_bearing_the_schedule_placed():
@@ -495,17 +511,17 @@ def test_a_bearing_that_does_not_go_in_is_not_drawn_either():
     _, spec = _named("cam_bearing", "HK2020")
     assert not [p for p in placements_for_spec(spec) if p.name.startswith("bearing_cam")]
     # ...and the seats that are still fine are untouched
-    assert [p for p in placements_for_spec(spec) if p.name == "bearing_shaft_supports"]
+    assert [p for p in placements_for_spec(spec) if p.name.startswith("bearing_shaft")]
 
 
 def test_a_bore_standing_off_its_journal_is_a_fit_but_it_is_reported():
     """A press fit onto nothing.  The sizing study takes any bore at or above
     the journal, so this was reachable on automatic too and said nothing."""
-    schedule, spec = _named("shaft_bearing", "6905")     # 25 mm bore, 10 mm shaft
+    schedule, spec = _named("shaft_bearing", "6801")     # 12 mm bore, 10 mm shaft
     choice = schedule["Input shaft support"]
     assert choice.fits                                   # it goes in, loosely
-    assert "stands 15.00 mm off" in choice.problem
-    assert [p for p in placements_for_spec(spec) if p.name == "bearing_shaft_supports"]
+    assert "stands 2.00 mm off" in choice.problem
+    assert [p for p in placements_for_spec(spec) if p.name.startswith("bearing_shaft")]
 
 
 def test_a_designation_this_build_does_not_know_costs_a_warning_not_a_crash():
@@ -558,3 +574,64 @@ def test_the_panel_offers_every_catalogue_part_and_the_automatic_setting():
     offered = fields["cam_bearing"].choices
     assert offered[0] == AUTOMATIC
     assert set(offered[1:]) == {b.designation for b in CATALOGUE}
+
+
+# ------------------------------------------------- the seats that did not exist
+
+
+def test_every_bearing_the_drive_fits_is_drawn_somewhere():
+    """The point of the end plates and the boss.
+
+    Before them the main output bearing was sized and then not drawn - there was
+    no hub for its bore and no plate for its outside - and the shaft supports
+    were rings on a bare shaft with nothing around them.
+    """
+    spec = _spec(rollers=False)
+    drawn = {p.role for p in placements_for_spec(spec)}
+    for choice in _schedule(spec):
+        if choice.bearing is not None and choice.fits:
+            assert choice.role in drawn, choice.role
+
+
+def test_the_end_plates_are_bored_for_what_goes_in_them():
+    """Two plates, and they are not interchangeable: one takes a shaft support,
+    the other the bearing the whole drive turns on."""
+    from cycloidgen.export import solid
+
+    spec = _spec()
+    assert spec.hub_bore < spec.output_bearing_seat_diameter
+    made = solid.parts(spec)
+    assert {"input_end_plate", "output_end_plate"} <= set(made)
+
+    # The bore is the difference between them, so their volumes must differ.
+    assert made["input_end_plate"].val().Volume() > \
+        made["output_end_plate"].val().Volume()
+
+
+def test_the_boss_is_a_tube_the_shaft_passes_through():
+    """It carries the output bearing outside and a shaft support inside, so it
+    has to be open: a solid boss would have nowhere for the shaft to go."""
+    spec = _spec()
+    assert spec.input_shaft_diameter < spec.hub_bore < spec.hub_diameter
+    assert spec.hub_diameter < spec.output_bearing_seat_diameter
+
+
+def test_the_envelope_counts_the_plates_that_close_it():
+    """They are part of the gearbox - they carry three of its bearings - and
+    leaving them out understated the length of every drive this app has sized."""
+    spec = _spec()
+    assert spec.envelope_length > (spec.stack_height
+                                   + spec.output_flange_thickness)
+    assert spec.envelope_length == pytest.approx(
+        spec.stack_height + CARRIER_DROP + spec.output_flange_thickness
+        + 2.0 * spec.plate_thickness)
+
+
+def test_the_plates_are_weighed():
+    """A third of the assembled mass was simply not being counted."""
+    from cycloidgen.analysis.mass import analyse_mass
+
+    spec = _spec()
+    with_plates = analyse_mass(spec).total_mass_g
+    spec.end_plate_thickness = 0.001                   # as good as none
+    assert analyse_mass(spec).total_mass_g < with_plates

@@ -216,6 +216,13 @@ def main() -> int:
     # preference back afterwards: this is a screenshot run, not a settings change.
     appearance = window.appearance
     window._set_appearance("light")
+
+    # ...and the same for the 3D tab's part visibility, which is restored from
+    # whatever the operator last left it on.  These images are of a fresh
+    # install, so they show what a fresh install shows.
+    from cycloidgen.ui.view3d import _HIDDEN_BY_DEFAULT
+    for group, box in window._view3d._groups.items():
+        box.setChecked(group not in _HIDDEN_BY_DEFAULT)
     settle(app, 600)
 
     window._replace_spec(hero(), record=False)

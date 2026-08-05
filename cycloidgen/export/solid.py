@@ -17,7 +17,7 @@ from ..analysis.bearings import (
     placements_for_spec,
 )
 from ..core import profile as prof
-from ..core.spec import CARRIER_DROP, SHAFT_OVERHANG, GearSpec
+from ..core.spec import CARRIER_DROP, GearSpec
 from ..viz.mesh import PART_COLOURS
 from .manifest import disc_names
 
@@ -105,7 +105,7 @@ def ring_pins(spec: GearSpec, placements: Sequence[BearingPlacement] = ()) -> cq
 
 def eccentric_shaft(spec: GearSpec) -> cq.Workplane:
     """Input shaft with one eccentric cam per disc, phased around the axis."""
-    overhang = SHAFT_OVERHANG
+    overhang = spec.shaft_overhang
     shaft = (cq.Workplane("XY")
              .workplane(offset=-overhang)
              .circle(spec.input_shaft_diameter / 2.0)
@@ -125,18 +125,45 @@ def eccentric_shaft(spec: GearSpec) -> cq.Workplane:
 
 def output_flange(spec: GearSpec,
                   placements: Sequence[BearingPlacement] = ()) -> cq.Workplane:
-    """Carrier plate carrying the output pins that ride in the disc holes."""
+    """Carrier plate, its output pins, and the boss the drive turns on.
+
+    The boss is what makes the output bearing a real part rather than a line on
+    a schedule: it stands out through the output end plate, carries that bearing
+    on its outside, and holds the outboard shaft support on its inside.  Without
+    it the flange was a plate floating on six pins.
+    """
     plate_r = spec.output_bolt_circle_radius + spec.output_pin_diameter
     t = spec.output_flange_thickness
     shank = pin_shank_diameter(placements, "bearing_output_pins",
                                spec.output_pin_diameter)
-    plate = (cq.Workplane("XY").circle(plate_r).extrude(-t)
-             .faces("<Z").workplane().hole(spec.input_shaft_diameter + 1.0))
+    plate = cq.Workplane("XY").circle(plate_r).extrude(-t)
+    hub = (cq.Workplane("XY").workplane(offset=-t)
+           .circle(spec.hub_diameter / 2.0)
+           .extrude(-spec.plate_thickness))
     pins = (cq.Workplane("XY")
             .polarArray(spec.output_bolt_circle_radius, 0, 360, spec.output_pin_count)
             .circle(shank / 2.0)
             .extrude(spec.stack_height))
-    return plate.union(pins)
+    body = plate.union(hub).union(pins)
+    # Bored through the lot in one go, from the far face of the boss: the shaft
+    # passes through both and a two-diameter bore here would be a fit this app
+    # has no reason to claim.
+    return (body.faces("<Z").workplane()
+            .circle(spec.hub_bore / 2.0)
+            .cutThruAll())
+
+
+def housing_end_plate(spec: GearSpec, bore: float) -> cq.Workplane:
+    """One of the two plates that close the housing, as a flat ring.
+
+    Same outside as the housing, because they bolt to it face to face.  What
+    differs between the two is the hole: the input side is bored for the shaft
+    support, the output side for the bearing the whole drive turns on.
+    """
+    return (cq.Workplane("XY")
+            .circle(spec.housing_outer_radius)
+            .circle(max(bore, 1e-3) / 2.0)
+            .extrude(spec.plate_thickness))
 
 
 def bearing_solids(spec: GearSpec,
@@ -206,6 +233,20 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
              color=_colour("carrier"))
     planar["eccentric_shaft"] = planar["output_flange"] = identity
 
+    # The plates close the housing, one on each face.  The output one sits
+    # outboard of the carrier, so the boss passes through it and the pins stay
+    # inside; the input one sits straight on top of the barrel.
+    assy.add(housing_end_plate(spec, spec.hub_bore), name="input_end_plate",
+             loc=cq.Location(cq.Vector(0, 0, spec.stack_height)),
+             color=_colour("end_plates"))
+    assy.add(housing_end_plate(spec, spec.output_bearing_seat_diameter),
+             name="output_end_plate",
+             loc=cq.Location(cq.Vector(
+                 0, 0, -CARRIER_DROP - spec.output_flange_thickness
+                 - spec.plate_thickness)),
+             color=_colour("end_plates"))
+    planar["input_end_plate"] = planar["output_end_plate"] = identity
+
     for name, body in bearing_solids(spec, placements).items():
         host = next(p.host for p in placements if p.name == name)
         assy.add(body, name=name, loc=planar[host], color=_colour("bearings"))
@@ -236,6 +277,9 @@ def parts(spec: GearSpec) -> dict[str, cq.Workplane]:
         "ring_pins": ring_pins(spec, placements),
         "eccentric_shaft": eccentric_shaft(spec),
         "output_flange": output_flange(spec, placements),
+        "input_end_plate": housing_end_plate(spec, spec.hub_bore),
+        "output_end_plate": housing_end_plate(
+            spec, spec.output_bearing_seat_diameter),
     }
     phases = (spec.disc_hole_phases[:1] if spec.discs_are_identical
               else spec.disc_hole_phases)

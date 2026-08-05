@@ -380,7 +380,10 @@ def test_the_animation_follows_whichever_view_is_on_screen(app):
         assert options["azimuth"] == pytest.approx(77.0)
         assert options["elevation"] == pytest.approx(12.0)
         assert options["explode"] == pytest.approx(0.30)
-        assert options["hidden"] == {"housing"}
+        # The end plates start switched off, so what an animation leaves out is
+        # whatever the tab is leaving out - not only what was clicked here.
+        assert "housing" in options["hidden"]
+        assert options["hidden"] == frozenset(w._view3d._hidden())
     finally:
         w._overlay_boxes["trace"].setChecked(False)
         w._view3d._groups["housing"].setChecked(True)

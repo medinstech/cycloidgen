@@ -19,7 +19,7 @@ animation, a bill of materials and a PDF dossier.
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
   a shortlist that passes every check, with the trade-offs side by side.
-- **Nothing is asserted that is not verified.** 543 tests, and where two parts
+- **Nothing is asserted that is not verified.** 552 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -125,7 +125,7 @@ the command line with `--only`, or with the two quick export buttons.
 | `disc.dxf` | drawings | Drawing of the whole drive: disc profile as a closed LWPOLYLINE sampled to the chord tolerance, plus bore, output holes, ring pins and housing, on separate layers |
 | `disc.svg` | drawings | Same drawing, 1 unit = 1 mm |
 | `dxf/` | drawings | One cutting file per part — each disc on its own, the ring plate, and a carrier drilling template drilled for the *press fit*, not for the disc's running hole |
-| `assembly.step` | solids | Full gearbox: housing, ring pins, phased discs, eccentric shaft, output flange, coloured |
+| `assembly.step` | solids | Full gearbox: housing and its two end plates, ring pins, phased discs, eccentric shaft, output flange with its bearing boss, every bearing that fits, coloured |
 | `step/` | solids | Each part as its own solid, in its own frame |
 | `stl/` | solids | Each part separately — STL has no assembly structure. A multi-disc stack gets `disc_1.stl`, `disc_2.stl`, … because **the discs are not the same part** (see below) |
 | `bom.csv` | data | Every part: quantity, material, size, mass, make or buy, and the bearing designations the sizing study picked |
@@ -362,7 +362,9 @@ suggests it.
 
 - **3D** — the assembled drive on the same crank. Drag to orbit, right-drag to
   pan, wheel to zoom, standard viewpoints, an explode slider, per-group
-  visibility so you can take the housing off and watch the mesh, and a capped
+  visibility so you can take the housing off and watch the mesh — the tab opens
+  with the end plates already off, because with them on the assembled view is a
+  closed cylinder with a shaft out of one end — and a capped
   section plane — the cut reads as solid material with the cut faces a shade
   darker, not as a hollow casting. Turning **Edges** on draws the part's
   features — rims, hole lips, the join between a cylinder and its end — and not
@@ -545,7 +547,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          543 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          552 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -561,7 +563,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-543 tests, about 300 s. Most of that is CadQuery writing solids; the pure
+552 tests, about 300 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

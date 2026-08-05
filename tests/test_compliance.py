@@ -134,5 +134,5 @@ def test_the_input_shaft_is_divided_by_the_square_of_the_ratio():
     raw = barrel_torsion_stiffness(
         shear_modulus(spec.shaft_mat),
         0.5 * math.pi * (spec.input_shaft_diameter / 2.0) ** 4,
-        spec.stack_height + 24.0)
+        spec.stack_height + 2.0 * spec.shaft_overhang)
     assert parts.input_shaft_Nmm_per_rad == pytest.approx(raw * spec.ratio ** 2)

@@ -9,7 +9,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from ..core.spec import AUTOMATIC, CARRIER_DROP, SHAFT_OVERHANG, GearSpec
+from ..core.spec import AUTOMATIC, CARRIER_DROP, GearSpec
 
 __all__ = ["CATALOGUE", "Bearing", "BearingChoice", "BearingPlacement", "BearingRing",
            "bearing_placements", "bearing_schedule", "pin_shank_diameter",
@@ -393,10 +393,12 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
                  f"was not necessarily bought to take, so check its rating.",
         ))
     else:
-        shaft = _fill(_Seat(spec.input_shaft_diameter,
-                               2.0 * (spec.pin_circle_radius - spec.pin_radius),
-                               spec.housing_wall * 2.0, shaft_load, spec.input_rpm,
-                               ("ball",), journal="input shaft"),
+        # Both of them sit in a bore of the same size - the plate at one end, the
+        # carrier's boss at the other - which is what lets one part number do for
+        # both.  Width against twice the plate: a bearing may stand proud of it.
+        shaft = _fill(_Seat(spec.input_shaft_diameter, spec.hub_bore,
+                            spec.plate_thickness, shaft_load, spec.input_rpm,
+                            ("ball",), journal="input shaft"),
                       spec.shaft_bearing, spec.bearing_min_life_hours)
         b5, why5 = shaft.bearing, shaft.problem
         out.append(BearingChoice(
@@ -405,13 +407,16 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
             life_hours=_life_hours(b5, shaft_load, spec.input_rpm) if b5 else 0.0,
             carries="half the crank reaction each, plus whatever the driving "
                     "coupling adds",
-            seat=f"in the housing end plates, on the "
-                 f"{spec.input_shaft_diameter:.1f} mm input shaft either side of "
-                 f"the disc stack",
+            seat=f"on the {spec.input_shaft_diameter:.1f} mm shaft, in the "
+                 f"{spec.hub_bore:.1f} mm bore of the input end plate at one end "
+                 f"and of the output carrier's boss at the other",
             problem=why5, fits=shaft.fits,
             note=("" if (b5 or why5) else
-                  "nothing in the catalogue fits between the shaft and the "
-                  "pin circle: a deeper housing or a smaller shaft"),
+                  f"nothing in the catalogue both fits a {spec.hub_bore:.1f} mm "
+                  f"bore {spec.plate_thickness:g} mm deep and lasts "
+                  f"{spec.bearing_min_life_hours:,.0f} h at {shaft_load:.0f} N: "
+                  f"open the carrier boss, thicken the end plates, or take a "
+                  f"shorter life"),
         ))
 
     # 5. main output bearing - carries the external load, turns slowly
@@ -428,10 +433,10 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
                  f"free to tilt loads the output pins unevenly.",
         ))
     else:
-        output = _fill(_Seat(spec.center_bore_diameter,
-                               spec.housing_outer_radius * 2.0,
-                               spec.housing_wall * 2.0, radial, spec.output_rpm,
-                               ("ball",)),
+        output = _fill(_Seat(spec.hub_diameter,
+                             spec.output_bearing_seat_diameter,
+                             spec.plate_thickness, radial, spec.output_rpm,
+                             ("ball",), journal="carrier boss"),
                        spec.output_bearing, spec.bearing_min_life_hours)
         b3, why3 = output.bearing, output.problem
         out.append(BearingChoice(
@@ -439,9 +444,9 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
             bearing=b3, load_N=radial, speed_rpm=spec.output_rpm,
             life_hours=_life_hours(b3, radial, spec.output_rpm) if b3 else 0.0,
             carries="whatever the machine hangs on the output flange",
-            seat="between the output flange and the housing - the only seat this "
-                 "app does not model, so this one is not drawn in the 3D view or "
-                 "the STEP either, and the size is a first pass",
+            seat=f"on the {spec.hub_diameter:.1f} mm carrier boss, in the "
+                 f"{spec.output_bearing_seat_diameter:.1f} mm bore of the output "
+                 f"end plate",
             problem=why3, fits=output.fits,
             note=("" if (b3 or why3) else
                   "consider a crossed-roller or a pair of angular contact "
@@ -565,10 +570,11 @@ def bearing_placements(spec: GearSpec,
       much smaller is not something this app has decided.  A guessed wall
       thickness would be inventing the part.
 
-    The main output bearing is deliberately absent, and that is an answer rather
-    than a gap.  It seats between the output flange and the housing, and the
-    model has neither a flange hub nor a housing end plate for it to sit in;
-    placing it would mean inventing both.  Its schedule note says the same.
+    All five are here.  The main output bearing used to be the one absence -
+    there was no flange hub for its bore and no housing end plate for its
+    outside, so placing it would have meant inventing both.  Both exist now, and
+    the shaft supports sit in them too rather than floating on the shaft with
+    nothing around them.
     """
     # A part that does not go in its seat is not drawn.  It is still on the
     # schedule with the dimension that is wrong beside it - you asked for it by
@@ -654,16 +660,39 @@ def bearing_placements(spec: GearSpec,
     if support is not None and support.bearing is not None:
         width = support.bearing.width
         outboard = -CARRIER_DROP - spec.output_flange_thickness
-        candidates = [(spec.stack_height, spec.stack_height + width),
-                      (outboard - width, outboard)]
-        shaft = (-SHAFT_OVERHANG, spec.stack_height + SHAFT_OVERHANG)
-        rings = [BearingRing(0.0, 0.0, z0, z1) for z0, z1 in candidates
-                 if shaft[0] <= z0 and z1 <= shaft[1]]
-        if rings:
+        # Two placements rather than one with two rings, because they are held by
+        # different parts: the input plate does not move and the carrier's boss
+        # turns with the output.  Hosting both on the housing drew them staying
+        # behind while the very plates that hold them came away.
+        reach = (-spec.shaft_overhang, spec.stack_height + spec.shaft_overhang)
+        seats = (
+            ("bearing_shaft_input", "Input shaft support, input side",
+             _span(spec.stack_height, spec.stack_height + spec.plate_thickness,
+                   width), "input_end_plate"),
+            ("bearing_shaft_output", "Input shaft support, output side",
+             _span(outboard - spec.plate_thickness, outboard, width),
+             "output_flange"),
+        )
+        for name, label, (z0, z1), host in seats:
+            if not (reach[0] <= z0 and z1 <= reach[1]):
+                continue
             out.append(BearingPlacement(
-                name="bearing_shaft_supports", label="Input shaft supports",
-                role=support.role, catalogue=support.bearing.designation,
+                name=name, label=label, role=support.role,
+                catalogue=support.bearing.designation,
                 bore=support.bearing.bore, outer=support.bearing.outer,
-                rings=tuple(rings), host="housing"))
+                rings=(BearingRing(0.0, 0.0, z0, z1),), host=host))
+
+    # 5. Main output bearing.  It has a seat now: on the carrier's boss, inside
+    # the output end plate.  Hosted on the plate, because that is what holds its
+    # outer ring - so it stays put while the carrier turns and pulls away.
+    main = by_role.get("Main output bearing")
+    if main is not None and main.bearing is not None:
+        top = -CARRIER_DROP - spec.output_flange_thickness
+        z0, z1 = _span(top - spec.plate_thickness, top, main.bearing.width)
+        out.append(BearingPlacement(
+            name="bearing_output_main", label="Main output bearing",
+            role=main.role, catalogue=main.bearing.designation,
+            bore=main.bearing.bore, outer=main.bearing.outer,
+            rings=(BearingRing(0.0, 0.0, z0, z1),), host="output_end_plate"))
 
     return out
