@@ -5,6 +5,46 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 3.1.1
+
+**Fixed**
+
+- **The 3D tab no longer takes the application down on macOS.** Opening it hung
+  the window on a spinner and then killed the process. It is the same failure
+  the offscreen platform has, and it was guarded against there and nowhere else:
+  VTK's Python widget builds its GL context directly on the view `winId()`
+  returns, with `WA_PaintOnScreen` set — an attribute Qt documents as X11-only,
+  on a platform whose views have been layer-backed and mandatorily so since
+  10.14. The first render blocks the main thread as the tab opens.
+
+  What made it fatal rather than merely broken is that a process dying is not an
+  exception. `build_view` has always caught a failing renderer and fallen back
+  to the software painter; there was nothing to catch, so the fallback never got
+  its turn. macOS is now refused the hardware path *before* a render window is
+  constructed, exactly as the headless platforms are, and gets the software
+  painter — which draws the same scene from the same mesh and is what the PDF
+  has always used.
+
+  `CYCLOIDGEN_VTK=1` tries VTK anyway, `CYCLOIDGEN_VTK=0` refuses it anywhere.
+  The first is how the proper macOS widget will be developed; the second is the
+  first thing to ask someone whose 3D tab misbehaves.
+
+  This is a guard, not the fix. Making macOS render on the GPU needs a widget of
+  our own over `vtkGenericOpenGLRenderWindow` drawing into the framebuffer Qt
+  hands it, because VTK 9.6's `QOpenGLWidget` support is a base class and
+  nothing else: no `initializeGL`, no `paintGL`, no `QSurfaceFormat`, and still
+  a plain `vtkRenderWindow` given `winId()`.
+
+  None of this was caught by CI, and could not have been: the suite runs
+  offscreen, `available()` returns False offscreen, so **the VTK path is not
+  exercised on any platform**. The macOS job proves the application imports and
+  the software painter works. It says nothing about the hardware viewport, and
+  `tests/test_workspace.py` now says so where somebody will read it.
+
+**Numbers**
+
+Nothing computed changed. This is which renderer draws the 3D tab.
+
 ## 3.1.0
 
 **Added**

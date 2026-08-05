@@ -228,6 +228,35 @@ def test_a_headless_platform_gets_the_software_renderer(app):
         w.close()
 
 
+def test_macos_is_refused_the_hardware_renderer(monkeypatch):
+    """Same class of failure as the headless one, and worse in its symptom.
+
+    VTK's Python widget builds its context on the handle ``winId()`` returns
+    with ``WA_PaintOnScreen`` set, which Qt documents as X11-only; macOS views
+    are layer-backed and have been mandatorily so since 10.14.  The first render
+    blocks the main thread as the tab opens and the application dies with it -
+    so, as with the offscreen platform, this cannot be discovered by trying.
+
+    The escape hatch has to keep working in both directions: it is how the
+    proper macOS widget will be developed, and how a support question gets
+    answered without a rebuild.
+    """
+    import sys
+
+    from cycloidgen.ui import view3d_vtk
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.delenv("CYCLOIDGEN_VTK", raising=False)
+    assert not view3d_vtk.available()
+
+    monkeypatch.setenv("CYCLOIDGEN_VTK", "1")
+    assert view3d_vtk.available() is view3d_vtk._importable()
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("CYCLOIDGEN_VTK", "0")
+    assert not view3d_vtk.available()
+
+
 def test_the_crank_bar_is_hidden_where_it_would_do_nothing(app):
     """A control that does nothing where it is shown teaches people to ignore it."""
     w = _window(app)

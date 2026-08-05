@@ -42,23 +42,61 @@ __all__ = ["VtkAssemblyView", "available"]
 #: offscreen, which is how this was found.
 _HEADLESS_PLATFORMS = frozenset({"offscreen", "minimal", "minimalegl", "vnc"})
 
+#: Force the decision either way: ``1`` to try VTK where it is refused, ``0`` to
+#: refuse it where it would be tried.  Both directions are worth having - the
+#: first is how the macOS path gets developed, the second is the first thing to
+#: ask someone whose 3D tab misbehaves.
+_OVERRIDE = "CYCLOIDGEN_VTK"
+
 
 def available() -> bool:
     """Whether a VTK view can be built on this display.
 
-    Two questions, and both have to be answered before anything is
-    constructed: are the modules importable, and is there a real window system
-    underneath.  Whether the *driver* can then give us a GL context is the one
-    thing left that has to be discovered by trying, and that failure is an
-    ordinary exception, caught where the view is built.
+    Everything here has to be decided *before* a render window is constructed,
+    because the failures this is guarding against are not exceptions.  VTK asks
+    the widget for a native handle and hands it straight to OpenGL; when that is
+    the wrong kind of handle the process goes down, and a process going down is
+    not something the ``try`` in :func:`~cycloidgen.ui.view3d.build_view` can
+    catch.  So the fallback never gets its turn, and what the user sees is not a
+    flat-shaded gearbox but a dead application.
+
+    Three answers, in order:
+
+    * **No native window at all** - the offscreen and minimal platforms. This is
+      how the crash was found, because the test suite runs there.
+    * **macOS.** VTK's Python widget builds its GL context directly on the view
+      ``winId()`` returns, with ``WA_PaintOnScreen`` set - an attribute Qt
+      documents as X11-only. macOS views have been layer-backed, and mandatorily
+      so, since 10.14. What happens is not a blank viewport: the first render
+      blocks the main thread the moment the tab is opened, and the application
+      dies with it. The software painter draws the same scene and always works,
+      so that is what macOS gets until the widget is rewritten on top of
+      ``QOpenGLWidget`` and a ``vtkGenericOpenGLRenderWindow`` - which is a real
+      fix rather than this guard, and it is not written yet.
+    * **Whether the modules are importable**, which is an ordinary question.
+
+    Whether the *driver* can then give a GL context is the one thing left to
+    discover by trying, and that failure is an ordinary exception.
     """
     from PySide6.QtGui import QGuiApplication
+
+    override = os.environ.get(_OVERRIDE, "").strip()
+    if override in {"0", "1"}:
+        return override == "1" and _importable()
 
     app = QGuiApplication.instance()
     platform = (app.platformName() if app is not None
                 else os.environ.get("QT_QPA_PLATFORM", ""))
     if platform.lower() in _HEADLESS_PLATFORMS:
         return False
+    if sys.platform == "darwin":
+        logger.info("3D: macOS uses the software renderer; set %s=1 to try VTK",
+                    _OVERRIDE)
+        return False
+    return _importable()
+
+
+def _importable() -> bool:
     try:
         _imports()
     except Exception:
@@ -77,19 +115,18 @@ def _imports():
     import vtkmodules.qt
     vtkmodules.qt.PyQtImpl = "PySide6"
 
-    # Which Qt class the VTK widget derives from, and on macOS it is not a
-    # detail.  The default base is a plain ``QWidget`` carrying
-    # ``WA_PaintOnScreen``, and VTK then creates its own GL context directly on
-    # the native handle ``winId()`` returns.  Qt documents that attribute as
-    # X11-only, and macOS views have been layer-backed - and mandatorily so -
-    # since 10.14, so what the tab gets is a correctly sized viewport with
-    # nothing drawn in it.  Nothing raises; there is no failure for the fallback
-    # in `build_view` to catch, because from Qt's side everything worked.
+    # Only reachable on macOS by setting CYCLOIDGEN_VTK=1, because `available`
+    # refuses VTK there by default - see the reasoning over there.
     #
-    # ``QOpenGLWidget`` is the path VTK supports for PySide6, and it puts the
-    # context under Qt's control rather than beside it.  Windows and Linux are
-    # left on the default: it is what has been running, and a base class swap is
-    # not a thing to do to a working renderer from a machine that cannot test it.
+    # Necessary but *not* sufficient, and worth writing down so the next person
+    # does not mistake it for the fix.  VTK 9.6's Python widget treats
+    # ``QOpenGLWidget`` as a base class and nothing more: it has no
+    # ``initializeGL``, no ``paintGL``, it never touches ``QSurfaceFormat``, and
+    # it still constructs a plain ``vtkRenderWindow`` and hands it ``winId()``.
+    # So the context is still built beside Qt's rather than inside it.  Making
+    # macOS work needs a widget of our own over ``vtkGenericOpenGLRenderWindow``,
+    # rendering into the framebuffer Qt gives it.  Windows and Linux stay on the
+    # default base: it is what has been running.
     if sys.platform == "darwin":
         vtkmodules.qt.QVTKRWIBase = "QOpenGLWidget"
 
