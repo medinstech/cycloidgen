@@ -297,12 +297,29 @@ EXPLANATIONS: dict[str, Explanation] = {
         keep="above", unit="%"),
     "TORSIONAL_STIFFNESS": Explanation(
         "Torsional stiffness at the output",
-        "contact compliance only; housing, shaft and carrier taken as rigid",
-        "An upper bound, and knowingly so. Real drives measure softer because "
-        "the parts this model treats as rigid are not.",
-        "A thicker disc stack and a stiffer disc material both raise it. Treat "
-        "the number as a comparison between designs rather than a promise.",
+        "the mesh contacts and the structure around them, in series",
+        "How far the output turns under load before the input has moved at all. "
+        "Both halves are counted: the Hertzian contacts at the ring and output "
+        "pins, and the parts they are mounted in - the pin seats, the carrier "
+        "pins in bending, the plate, the disc body, the housing and the shaft.",
+        "Which lever works depends on which half is softer, and the finding "
+        "says which. Joints, fits and fasteners are still not modelled, so a "
+        "real drive measures softer than this - treat it as a comparison "
+        "between designs rather than a promise.",
         keep="", unit="Nm/arcmin"),
+    "STRUCTURAL_COMPLIANCE": Explanation(
+        "Where the give actually is",
+        "structure stiffness  >  contact stiffness",
+        "A cycloidal drive is sold on its mesh, but the mesh is only as good as "
+        "what holds it. Ring pins bed into their housing pockets, carrier pins "
+        "stand off the plate as cantilevers, the plate and the disc carry "
+        "torque across themselves, and the crank winds up. On a printed drive "
+        "those add up to more give than the contacts have.",
+        "Read the softest part off the finding and go at that one. Fatter "
+        "carrier pins are usually the biggest single win - a cantilever goes as "
+        "the fourth power of diameter - followed by a stiffer housing material, "
+        "which is what the pin seats and the carrier plate are made of.",
+        keep="above", unit="Nm/arcmin"),
     "TRANSMISSION_ERROR": Explanation(
         "Ripple in the output angle under load",
         "peak-to-peak of the loaded rotation through the mesh cycle",

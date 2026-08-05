@@ -157,13 +157,66 @@ def test_stiffer_material_is_stiffer():
 
 
 def test_stiffness_stages_are_in_series():
-    """The whole is softer than either half - that is what series means."""
+    """The whole is softer than any part of it - that is what series means.
+
+    Two decompositions of the same number, and both have to hold exactly:
+    the contacts split into their two stages, and the drive splits into its
+    contacts and everything the contacts are mounted in.
+    """
     r = analyse_stiffness(preset(15))
-    assert r.stiffness_Nm_per_arcmin < min(r.ring_stage_Nm_per_arcmin,
-                                           r.output_stage_Nm_per_arcmin)
-    assert r.stiffness_Nm_per_arcmin == pytest.approx(
+    assert r.contact_only_Nm_per_arcmin == pytest.approx(
         1.0 / (1.0 / r.ring_stage_Nm_per_arcmin + 1.0 / r.output_stage_Nm_per_arcmin),
         rel=1e-9)
+    assert r.stiffness_Nm_per_arcmin == pytest.approx(
+        1.0 / (1.0 / r.contact_only_Nm_per_arcmin + 1.0 / r.structure_Nm_per_arcmin),
+        rel=1e-9)
+    assert r.stiffness_Nm_per_arcmin < min(r.ring_stage_Nm_per_arcmin,
+                                           r.output_stage_Nm_per_arcmin,
+                                           r.structure_Nm_per_arcmin)
+
+
+def test_the_structure_is_the_series_of_its_own_parts():
+    r = analyse_stiffness(preset(15))
+    parts = r.structure.items
+    assert len(parts) == 6
+    assert r.structure_Nm_per_arcmin == pytest.approx(
+        1.0 / sum(1.0 / k for _name, k in parts), rel=1e-9)
+    assert r.structure.total_Nm_per_arcmin == pytest.approx(
+        r.structure_Nm_per_arcmin, rel=1e-9)
+    assert r.structure.softest == min(parts, key=lambda kv: kv[1])[0]
+
+
+def test_the_parts_outside_the_mesh_only_ever_make_it_softer():
+    """They used to be rigid, so the old answer is now the upper bound it always
+    said it was - and every design has to sit under it."""
+    for spec in (preset(15), preset(29), preset(10)):
+        r = analyse_stiffness(spec)
+        assert r.stiffness_Nm_per_arcmin < r.contact_only_Nm_per_arcmin
+        assert r.windup_arcmin > 0.0
+
+
+def test_a_stouter_carrier_stiffens_the_drive():
+    """The carrier pins are cantilevers, so their diameter is a fourth power and
+    the biggest single lever on a drive whose mesh is already stiff."""
+    thin, fat = preset(15), preset(15)
+    thin.output_pin_diameter, fat.output_pin_diameter = 5.0, 8.0
+    a, b = analyse_stiffness(thin), analyse_stiffness(fat)
+    assert (b.structure.output_pin_Nm_per_arcmin
+            > 3.0 * a.structure.output_pin_Nm_per_arcmin)
+    assert b.stiffness_Nm_per_arcmin > a.stiffness_Nm_per_arcmin
+
+
+def test_a_softer_housing_shows_up_in_the_parts_it_is_made_of():
+    """Ring, housing and carrier are all housing_material, so switching it moves
+    three of the six terms and none of the others."""
+    printed, machined = preset(15), preset(15)
+    machined.housing_material = "Aluminium 7075-T6"
+    a, b = analyse_stiffness(printed).structure, analyse_stiffness(machined).structure
+    assert b.housing_Nm_per_arcmin > a.housing_Nm_per_arcmin
+    assert b.carrier_plate_Nm_per_arcmin > a.carrier_plate_Nm_per_arcmin
+    assert b.ring_seat_Nm_per_arcmin > a.ring_seat_Nm_per_arcmin
+    assert b.disc_body_Nm_per_arcmin == pytest.approx(a.disc_body_Nm_per_arcmin)
+    assert b.input_shaft_Nm_per_arcmin == pytest.approx(a.input_shaft_Nm_per_arcmin)
 
 
 def test_backlash_is_lost_motion_plus_windup():

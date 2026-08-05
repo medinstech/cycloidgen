@@ -1531,7 +1531,11 @@ class MainWindow(QMainWindow):
             ("Precision", [
                 ("Torsional stiffness",
                  f"{st.stiffness_Nm_per_arcmin:.3f} Nm/arcmin",
-                 "contacts only; housing and shaft taken as rigid"),
+                 f"{st.contact_only_Nm_per_arcmin:.3f} mesh in series with "
+                 f"{st.structure_Nm_per_arcmin:.3f} structure"),
+                ("Softest part outside the mesh",
+                 f"{min(k for _n, k in st.structure.items):.2f} Nm/arcmin",
+                 f"the {st.structure.softest}"),
                 ("Lost motion", f"{st.lost_motion_arcmin:.1f} arcmin",
                  f"{st.lost_motion_ring_arcmin:.1f} profile + "
                  f"{st.lost_motion_output_arcmin:.1f} holes"),

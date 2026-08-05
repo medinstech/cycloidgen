@@ -158,6 +158,8 @@ CODE_FIELDS: dict[str, tuple[str, ...]] = {
     "NO_BEARING_FITS": ("center_bore_diameter", "input_shaft_diameter",
                         "disc_thickness"),
     "TORSIONAL_STIFFNESS": ("disc_thickness", "disc_material"),
+    "STRUCTURAL_COMPLIANCE": ("output_pin_diameter", "housing_material",
+                              "output_flange_thickness", "housing_wall"),
     "TRANSMISSION_ERROR": ("output_pin_count", "disc_count", "disc_thickness"),
     "LOST_MOTION": ("profile_clearance", "hole_clearance", "process"),
     "LOAD_CONCENTRATION": ("profile_clearance", "offset_mode", "process"),

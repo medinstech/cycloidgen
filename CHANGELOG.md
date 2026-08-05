@@ -5,6 +5,98 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 3.0.0
+
+**This release changes computed numbers.** Torsional stiffness falls on every
+design — see **Numbers** — because the model stopped calling half the gearbox
+rigid. Reopen anything you sized on 2.x before you cut it.
+
+**Added**
+
+- **Housing, shaft and carrier compliance** — `analysis/compliance.py`. The
+  stiffness model solved two contact stages and declared everything they were
+  mounted in to be rigid, which made every answer an upper bound and was the
+  largest known error in the model. Six springs now sit in series with the
+  contacts, each a closed form off geometry the app already has:
+
+  | Part | Modelled as |
+  |---|---|
+  | Carrier plate | an annulus in in-plane torsion, bolt circle to rim |
+  | Carrier pins | cantilevers off the plate, in bending **and** in shear |
+  | Disc body | an annulus in in-plane torsion, holes out to the rim |
+  | Ring pin seats | a conforming line contact, pin bedding into its pocket |
+  | Housing | a barrel in torsion, picking the load up along the stack |
+  | Input shaft | a bar in torsion, divided by the *square* of the ratio |
+
+  Each is reported on its own line — in the datasheet, in `report.json` under
+  `stiffness.structure`, and as a table in the PDF — because "everything else"
+  as one number is a number to distrust, and because the softest part is usually
+  a surprise. On a small printed drive it is the ring pin seats, where a steel
+  pin beds into a polymer housing; as soon as the stack gets taller or the mesh
+  gets better it is the carrier pins, which do not care what the mesh is made of.
+  A `STRUCTURAL_COMPLIANCE` finding names the softest part and warns when the
+  parts around the mesh are softer than the mesh itself. On the presets that is
+  the three-disc stack and the ground steel drive — the two whose mesh is good
+  enough for the carrier to become the problem.
+
+  Two things are stated in the module rather than buried, because the geometry
+  does not settle them. **The carrier plate is rim-driven** — its centre bore is
+  clearance for the input shaft passing through, not a hub — and a drive that
+  takes its output from a hub on the axis instead is an order of magnitude softer
+  there, because the formula goes as `1/r²`. **The load reaches the carrier pins
+  at the middle of the stack**, one spring instead of the coupled set a rigorous
+  treatment would need, and exact for a single disc.
+
+  The ring pins are deliberately not in the table. They sit half-buried in
+  pockets cut to their own radius and supported along their whole length, so they
+  bed rather than bend — that is a contact, and it is modelled with the contacts.
+
+  What the numbers say is worth acting on. Fatter carrier pins are the single
+  biggest lever on any drive whose mesh is decent, because a cantilever goes as
+  the fourth power of diameter; a second carrier plate supporting the far ends of
+  those pins would be worth roughly an order of magnitude on that line, which is
+  why production reducers have one. It is also why a **taller stack now costs
+  something**: three discs share the load between three meshes, but they stand
+  the same carrier pins off a plate half again as far, and the 3-disc 21:1 design
+  loses 65% where the 2-disc ones lose 45%. And it is why the headline falls
+  furthest on the *best* drives — a ground steel mesh stiffens by two orders of
+  magnitude and a cantilevered pin does not stiffen at all.
+
+**Fixed**
+
+- **The contact model paired each body's radius with the other body's modulus.**
+  Johnson's line-contact approach carries one logarithmic term per body, each
+  with that body's own radius *and* its own elastic constants. The call passed
+  the pin's radius with the disc's modulus and vice versa. It cancels when both
+  parts are the same material, which is why a steel drive barely notices, and it
+  is worth 12–20% on a printed one, where a steel pin meets a polymer flank whose
+  radius is several times larger. The argument names now say which is which.
+
+**Numbers**
+
+Torsional stiffness falls on every design. Two separate causes, and they are
+worth separating because one is a fix and the other is new physics:
+
+| Design | 2.4.0 | contacts alone | with the structure |
+|---|---|---|---|
+| 15:1 preset, PLA, FDM, 5 Nm | 3.218 | 2.792 (−13%) | **1.769 (−45%)** |
+| 29:1 preset, PLA, FDM, 5 Nm | 6.107 | 5.400 (−12%) | **3.350 (−45%)** |
+| 21:1, three discs, 5 Nm | 6.177 | 5.478 (−11%) | **2.163 (−65%)** |
+| 29:1, hardened steel, EDM, 50 Nm | 239.4 | 239.3 (−0.0%) | **23.40 (−90%)** |
+
+Wind-up at the rated torque rises to match: 2.95 → 4.43 arcmin on the 15:1
+preset, 0.37 → 2.30 on the steel one. Total backlash follows it, by about 1% —
+the play dominates that sum and the play has not changed.
+
+The contact fix also moves the load sharing, because softer contacts turn
+further and pull more pins into mesh. Load concentration falls 6–12% on printed
+designs, so the torque capacity *after* derating rises by the same: 0.681 → 0.728
+Nm on the 15:1 preset, 0.902 → 1.021 on the 29:1. Ring safety factor rises 3–6%
+with it. A steel drive is unaffected to four figures.
+
+Lost motion, transmission error, contact stress, efficiency, thermal, mass,
+bearings and every exported geometry are untouched.
+
 ## 2.4.0
 
 **Added**

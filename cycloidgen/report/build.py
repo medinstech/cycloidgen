@@ -83,6 +83,21 @@ def report_dict(a: DesignAnalysis) -> dict:
         },
         "stiffness": {
             "torsional_stiffness_Nm_per_arcmin": a.stiffness.stiffness_Nm_per_arcmin,
+            "contact_only_Nm_per_arcmin": a.stiffness.contact_only_Nm_per_arcmin,
+            "structure_Nm_per_arcmin": a.stiffness.structure_Nm_per_arcmin,
+            "structure": {
+                "ring_seat_Nm_per_arcmin":
+                    a.stiffness.structure.ring_seat_Nm_per_arcmin,
+                "housing_Nm_per_arcmin": a.stiffness.structure.housing_Nm_per_arcmin,
+                "disc_body_Nm_per_arcmin":
+                    a.stiffness.structure.disc_body_Nm_per_arcmin,
+                "output_pin_Nm_per_arcmin":
+                    a.stiffness.structure.output_pin_Nm_per_arcmin,
+                "carrier_plate_Nm_per_arcmin":
+                    a.stiffness.structure.carrier_plate_Nm_per_arcmin,
+                "input_shaft_Nm_per_arcmin":
+                    a.stiffness.structure.input_shaft_Nm_per_arcmin,
+            },
             "ring_stage_Nm_per_arcmin": a.stiffness.ring_stage_Nm_per_arcmin,
             "output_stage_Nm_per_arcmin": a.stiffness.output_stage_Nm_per_arcmin,
             "windup_arcmin": a.stiffness.windup_arcmin,
@@ -382,10 +397,9 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
         CondPageBreak(80 * mm),
         Paragraph("Stiffness, backlash and what clearance does", h2),
         Paragraph(
-            "Hold the input still and twist the output: the ring contacts and "
-            "the output pins act as two springs in series. Housing, shaft and "
-            "carrier are taken as rigid, so the stiffness below is an upper "
-            "bound. Unlike the load table above, this model does see clearance - "
+            "Hold the input still and twist the output: the ring contacts, the "
+            "output pins and every part they are mounted in act as springs in "
+            "series. Unlike the load table above, this model does see clearance - "
             "the gap at each pin is measured off the manufactured profile - "
             "which is where the lost motion and the load concentration come from.",
             body),
@@ -394,6 +408,9 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
             ["Quantity", "Value", "Quantity", "Value"],
             ["Torsional stiffness", f"{st.stiffness_Nm_per_arcmin:.3f} Nm/arcmin",
              "Wind-up at rated torque", f"{st.windup_arcmin:.2f} arcmin"],
+            ["Mesh contacts", f"{st.contact_only_Nm_per_arcmin:.3f} Nm/arcmin",
+             "Structure around them",
+             f"{st.structure_Nm_per_arcmin:.3f} Nm/arcmin"],
             ["Ring stage", f"{st.ring_stage_Nm_per_arcmin:.3f} Nm/arcmin",
              "Output stage", f"{st.output_stage_Nm_per_arcmin:.3f} Nm/arcmin"],
             ["Lost motion (profile)", f"{st.lost_motion_ring_arcmin:.1f} arcmin",
@@ -427,6 +444,21 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
              "From the ring mesh", f"{te.ring_arcmin:.3f} arcmin "
              f"/ {te.ring_period_deg:.0f} deg"],
         ], [42 * mm, 36 * mm, 42 * mm, 36 * mm]),
+        Spacer(1, 6),
+        Paragraph(
+            "What the mesh is mounted in, part by part. These used to be taken "
+            "as rigid; they are not, and on a printed drive they are the softer "
+            "half. The carrier pins stand off the plate as cantilevers, which is "
+            "what the modelled carrier is - a second plate supporting their far "
+            "ends would be worth roughly an order of magnitude on that line.",
+            body),
+        Spacer(1, 4),
+        _table([["Part", "Nm/arcmin", "Part", "Nm/arcmin"]]
+               + [[a_name, f"{a_k:.2f}", b_name, f"{b_k:.2f}"]
+                  for (a_name, a_k), (b_name, b_k)
+                  in zip(st.structure.items[0::2], st.structure.items[1::2],
+                         strict=True)],
+               [42 * mm, 36 * mm, 42 * mm, 36 * mm]),
     ]
 
     # --- sliding duty and heat -----------------------------------------------

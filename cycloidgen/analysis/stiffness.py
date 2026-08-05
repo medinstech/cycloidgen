@@ -9,16 +9,26 @@ The model
 Hold the input still and twist the output.  The disc and the output carrier turn
 at the same rate in a fixed-ring drive - that is exactly what the output pins
 are for - so with the crank locked the disc's rotation *is* the output rotation,
-and two compliances sit in series between output torque and output angle:
+and the compliances between output torque and output angle sit in series:
 
 1. **ring stage** - the disc rotating against the ring pins, resisted by one
    Hertzian line contact per engaged pin;
 2. **output stage** - the disc rotating relative to the carrier, resisted by the
-   output pins in their holes.
+   output pins in their holes;
+3. **the structure** - the parts those contacts are mounted in, which used to be
+   taken as rigid and are not.  See :mod:`cycloidgen.analysis.compliance`.
 
-Everything else (housing, shaft, carrier plate, pins in bending) is taken as
-rigid, so the result is an **upper bound on stiffness**.  A real drive also has
-a compliant housing and a shaft in torsion, and measures softer.
+Both decompositions are reported, because both are worth knowing: the contacts
+alone are what the mesh can do, and they were the whole of this model until the
+structure went in.  On a printed drive the two halves are comparable, which is
+already enough to cost the answer a third.  The better the mesh, the worse the
+imbalance: a ground steel drive stiffens its contacts by two orders of magnitude
+and its cantilevered carrier pins by nothing at all, and ends up an order of
+magnitude softer than its own mesh.
+
+That is a *first-principles* accounting of the parts, not a calibrated one.  It
+is no longer an upper bound, but a real drive still has joints, fits and
+fasteners that nothing here models, so it will measure softer again.
 
 Clearance
 ---------
@@ -74,6 +84,7 @@ import numpy as np
 
 from ..core.kinematics import SWEEP_STEPS, contacts, mesh_gaps, output_loads, sweep
 from ..core.spec import GearSpec
+from .compliance import StructureStiffness, analyse_parts, series_stiffness
 from .mechanics import effective_modulus
 
 __all__ = [
@@ -163,9 +174,12 @@ def line_contact_approach(force_N: np.ndarray | float, length_mm: float,
 class StiffnessResult:
     """Torsional behaviour of the drive, referred to the output shaft."""
 
-    stiffness_Nm_per_arcmin: float
-    ring_stage_Nm_per_arcmin: float
-    output_stage_Nm_per_arcmin: float
+    stiffness_Nm_per_arcmin: float     # everything in series: the answer
+    contact_only_Nm_per_arcmin: float  # the two contact stages alone
+    structure_Nm_per_arcmin: float     # every part outside the contacts
+    structure: StructureStiffness      # and each of those on its own
+    ring_stage_Nm_per_arcmin: float    # ring contacts only
+    output_stage_Nm_per_arcmin: float  # output contacts only
     windup_arcmin: float               # elastic twist at the rated torque
     lost_motion_arcmin: float          # total play, both directions
     lost_motion_ring_arcmin: float
@@ -181,13 +195,20 @@ class StiffnessResult:
         return self.max_gap_spread_mm < 1e-4
 
 
-def _fit_compliance(force_N: np.ndarray, length: float, r_pin: float,
-                    r_face: np.ndarray | float, disc, pin,
+def _fit_compliance(force_N: np.ndarray, length: float, r_body: float,
+                    r_face: np.ndarray | float, body, face,
                     reference_mm: float) -> np.ndarray:
-    """Per-contact ``c`` in ``delta = c * F**0.9``, fitted at the working load."""
+    """Per-contact ``c`` in ``delta = c * F**0.9``, fitted at the working load.
+
+    ``body`` is the material of the part ``r_body`` is the radius of, and
+    ``face`` the material of ``r_face``.  Each body's own radius sits inside its
+    own logarithm in Johnson's expression, so the pairing is not free to be
+    chosen: crossing them charges the steel pin's radius against the polymer's
+    modulus and comes out a few percent soft.
+    """
     ref = np.maximum(force_N, 1e-6)
-    delta = line_contact_approach(ref, length, r_pin, r_face,
-                                  disc.E_GPa, disc.nu, pin.E_GPa, pin.nu,
+    delta = line_contact_approach(ref, length, r_body, r_face,
+                                  body.E_GPa, body.nu, face.E_GPa, face.nu,
                                   reference_mm=reference_mm)
     # strictly positive: it is about to be a divisor under a fractional power
     return np.maximum(delta, 1e-12) / ref ** _LOAD_EXPONENT
@@ -215,7 +236,7 @@ def _ring_contacts(spec: GearSpec, cs, torque_per_disc: float) -> _Contacts | No
         r_face = np.where(np.abs(cs.curvature[loaded]) > 1e-12,
                           -1.0 / cs.curvature[loaded], 1e9)
     c = _fit_compliance(ideal, spec.disc_thickness, spec.pin_radius, r_face,
-                        spec.disc_mat, spec.pin_mat, spec.pin_circle_radius)
+                        spec.pin_mat, spec.disc_mat, spec.pin_circle_radius)
     gaps = np.maximum(mesh_gaps(spec, cs.phi)[loaded], 0.0)
     return _Contacts(c=c, arms=arms, gaps=gaps, ideal=ideal)
 
@@ -235,7 +256,7 @@ def _output_contacts(spec: GearSpec, phi: float,
     arms = np.abs(ol.moment_arms[live])
     r_p = spec.output_pin_diameter / 2.0
     c = _fit_compliance(ol.forces[live], spec.disc_thickness, r_p,
-                        -(r_p + spec.eccentricity), spec.disc_mat, spec.pin_mat,
+                        -(r_p + spec.eccentricity), spec.pin_mat, spec.disc_mat,
                         spec.pin_circle_radius)
     gaps = np.full(arms.shape, spec.hole_clearance / 2.0)
     return _Contacts(c=c, arms=arms, gaps=gaps, ideal=ol.forces[live])
@@ -278,6 +299,33 @@ def _solve_rotation(c: np.ndarray, arms: np.ndarray, gaps: np.ndarray,
     return theta, torque_at(theta)[1]
 
 
+def _seat_stiffness(spec: GearSpec, forces: np.ndarray,
+                    arms: np.ndarray) -> float:
+    """Ring pins bedding into their housing pockets, Nmm/rad for one disc.
+
+    The pins are half-buried in pockets cut to their own radius and supported
+    along their whole length, so they do not bend - the housing gives way under
+    them instead.  That is a conforming line contact, a pin in a bore its own
+    size, and the fit is the process's hole clearance: enough of a gap to have a
+    finite contact width, which is what makes the problem well posed at all.
+
+    Loaded over the disc thickness, like the contact that caused it.  The pin
+    would really spread some of it along its length into the pockets either
+    side, so this is the soft reading of the two.
+    """
+    live = forces > 0
+    if not live.any():
+        return math.inf
+    f = forces[live]
+    seat_r = spec.pin_radius + spec.hole_clearance / 2.0
+    delta = line_contact_approach(f, spec.disc_thickness, spec.pin_radius, -seat_r,
+                                  spec.pin_mat.E_GPa, spec.pin_mat.nu,
+                                  spec.housing_mat.E_GPa, spec.housing_mat.nu,
+                                  reference_mm=spec.pin_circle_radius)
+    k = f / (_LOAD_EXPONENT * np.maximum(delta, 1e-12))         # N/mm
+    return float((k * arms[live] ** 2).sum())                   # Nmm/rad
+
+
 def _stage_stiffness(c: np.ndarray, arms: np.ndarray, forces: np.ndarray,
                      theta: float, gaps: np.ndarray) -> float:
     """dT/dtheta in Nmm/rad at the solved point.
@@ -297,11 +345,14 @@ def analyse_stiffness(spec: GearSpec, steps: int = _STIFFNESS_STEPS) -> Stiffnes
     """Torsional stiffness, lost motion and clearance-aware load sharing."""
     torque_total_Nmm = spec.output_torque_Nm * 1000.0
     torque_per_disc = torque_total_Nmm / spec.disc_count
+    parts = analyse_parts(spec)
 
     states = sweep(spec, SWEEP_STEPS)
     picked = states[:: max(1, len(states) // max(steps, 1))]
 
     ring_k: list[float] = []
+    seat_k: list[float] = []
+    pin_k: list[float] = []
     ring_theta: list[float] = []
     engaged: list[int] = []
     engaged_ideal: list[int] = []
@@ -322,6 +373,7 @@ def analyse_stiffness(spec: GearSpec, steps: int = _STIFFNESS_STEPS) -> Stiffnes
         k = _stage_stiffness(c, arms, forces, theta, gaps)
         if k > 0:
             ring_k.append(k)
+            seat_k.append(_seat_stiffness(spec, forces, arms))
         engaged.append(int((forces > 0).sum()))
         engaged_ideal.append(int((ideal > 0).sum()))
         if ideal.max() > 0:
@@ -340,15 +392,33 @@ def analyse_stiffness(spec: GearSpec, steps: int = _STIFFNESS_STEPS) -> Stiffnes
         k = _stage_stiffness(c, arms, forces, theta, gaps)
         if k > 0:
             out_k.append(k)
+            # the pins that carry the load are the ones that bend under it
+            live = forces > 0
+            pin_k.append(parts.output_pin_N_per_mm
+                         * float((arms[live] ** 2).sum()))
 
     n = spec.disc_count
     # discs act in parallel on one carrier, so their stiffnesses add
     k_ring = float(np.mean(ring_k)) * n if ring_k else 0.0
     k_out = float(np.mean(out_k)) * n if out_k else 0.0
-    k_series = (1.0 / (1.0 / k_ring + 1.0 / k_out)) if k_ring > 0 and k_out > 0 else 0.0
+    k_contact = series_stiffness(k_ring, k_out)
+
+    # ---- the parts the contacts sit in --------------------------------------
+    # The seats scale with the disc count for the same reason the contacts do -
+    # each disc bears on its own slice of the pocket, and the slices are in
+    # parallel.  The carrier pins do not: there is *one* set of them, carrying
+    # the whole stack, and a taller stack only makes them longer.
+    k_seat = float(np.mean(seat_k)) * n if seat_k else math.inf
+    k_pins = float(np.mean(pin_k)) if pin_k else math.inf
+    k_structure = series_stiffness(k_seat, parts.housing_Nmm_per_rad,
+                                   parts.disc_body_Nmm_per_rad, k_pins,
+                                   parts.carrier_plate_Nmm_per_rad,
+                                   parts.input_shaft_Nmm_per_rad)
+    k_series = series_stiffness(k_contact, k_structure)
 
     def to_nm_arcmin(k_nmm_rad: float) -> float:
-        return k_nmm_rad / 1000.0 * RAD_PER_ARCMIN
+        return k_nmm_rad / 1000.0 * RAD_PER_ARCMIN if math.isfinite(k_nmm_rad) \
+            else math.inf
 
     # ---- lost motion --------------------------------------------------------
     # the drive must traverse each gap in both directions, hence the factor 2
@@ -357,17 +427,30 @@ def analyse_stiffness(spec: GearSpec, steps: int = _STIFFNESS_STEPS) -> Stiffnes
                 / RAD_PER_ARCMIN)
     lost_total = lost_ring + lost_out
 
-    windup = 0.0
+    # the structure has no play to take up, so all of its deflection is windup
+    structural = (torque_total_Nmm / k_structure
+                  if math.isfinite(k_structure) and k_structure > 0 else 0.0)
+    windup = structural / RAD_PER_ARCMIN
     if ring_theta:
         # theta already includes closing the gap; the elastic part is what is
         # left once the play is taken out
         elastic_ring = max(float(np.mean(ring_theta)) - 0.5 * lost_ring * RAD_PER_ARCMIN, 0.0)
         elastic_out = max(float(np.mean(out_theta)) - 0.5 * lost_out * RAD_PER_ARCMIN,
                           0.0) if out_theta else 0.0
-        windup = (elastic_ring + elastic_out) / RAD_PER_ARCMIN
+        windup += (elastic_ring + elastic_out) / RAD_PER_ARCMIN
 
     return StiffnessResult(
         stiffness_Nm_per_arcmin=to_nm_arcmin(k_series),
+        contact_only_Nm_per_arcmin=to_nm_arcmin(k_contact),
+        structure_Nm_per_arcmin=to_nm_arcmin(k_structure),
+        structure=StructureStiffness(
+            ring_seat_Nm_per_arcmin=to_nm_arcmin(k_seat),
+            housing_Nm_per_arcmin=to_nm_arcmin(parts.housing_Nmm_per_rad),
+            disc_body_Nm_per_arcmin=to_nm_arcmin(parts.disc_body_Nmm_per_rad),
+            output_pin_Nm_per_arcmin=to_nm_arcmin(k_pins),
+            carrier_plate_Nm_per_arcmin=to_nm_arcmin(parts.carrier_plate_Nmm_per_rad),
+            input_shaft_Nm_per_arcmin=to_nm_arcmin(parts.input_shaft_Nmm_per_rad),
+        ),
         ring_stage_Nm_per_arcmin=to_nm_arcmin(k_ring),
         output_stage_Nm_per_arcmin=to_nm_arcmin(k_out),
         windup_arcmin=windup,

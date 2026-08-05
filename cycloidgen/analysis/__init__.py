@@ -101,11 +101,30 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
 
     # ---- stiffness, lost motion, and what clearance does to load sharing ----
     rep.add(Severity.INFO, "TORSIONAL_STIFFNESS",
-            f"Torsional stiffness at the output, contacts only - housing, shaft "
-            f"and carrier taken as rigid, so this is an upper bound. Elastic "
+            f"Torsional stiffness at the output: "
+            f"{stiff.contact_only_Nm_per_arcmin:.3f} Nm/arcmin of mesh in series "
+            f"with {stiff.structure_Nm_per_arcmin:.3f} of structure. Elastic "
             f"wind-up at {spec.output_torque_Nm:g} Nm is "
             f"{stiff.windup_arcmin:.2f} arcmin.",
             stiff.stiffness_Nm_per_arcmin)
+
+    softest = stiff.structure.softest
+    if stiff.structure_Nm_per_arcmin < stiff.contact_only_Nm_per_arcmin:
+        rep.add(Severity.WARNING, "STRUCTURAL_COMPLIANCE",
+                f"Most of the give in this drive is not in the mesh: the parts "
+                f"around it are worth {stiff.structure_Nm_per_arcmin:.3f} "
+                f"Nm/arcmin against the contacts' "
+                f"{stiff.contact_only_Nm_per_arcmin:.3f}. First to give way "
+                f"outside the mesh: {softest}. Stiffening the mesh - a harder "
+                f"disc, a thicker stack - cannot get past that.",
+                stiff.structure_Nm_per_arcmin, stiff.contact_only_Nm_per_arcmin)
+    else:
+        rep.add(Severity.INFO, "STRUCTURAL_COMPLIANCE",
+                f"The mesh is the softer half, which is the way round you want "
+                f"it: {stiff.structure_Nm_per_arcmin:.3f} Nm/arcmin of structure "
+                f"around {stiff.contact_only_Nm_per_arcmin:.3f} of contact. "
+                f"First to give way outside the mesh: {softest}.",
+                stiff.structure_Nm_per_arcmin, stiff.contact_only_Nm_per_arcmin)
 
     lost_severity = Severity.WARNING if stiff.lost_motion_arcmin > 60.0 else Severity.INFO
     rep.add(lost_severity, "LOST_MOTION",

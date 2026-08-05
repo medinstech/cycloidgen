@@ -215,9 +215,15 @@ Beyond the geometry checks, every design gets a datasheet:
   clearance actually does to it.
 - **Torsional stiffness** in Nm/arcmin and **lost motion** in arcmin, from
   Hertzian line-contact springs (Johnson's elastic approach) on the ring and
-  output stages in series. A ground steel drive comes out in the single-digit
-  arcmin and hundreds of Nm/arcmin band that commercial reducers of that size
-  quote. Housing, shaft and carrier are taken as rigid, so it is an upper bound.
+  output stages, in series with the parts they are mounted in — the ring pin
+  seats, the carrier pins in bending, the carrier plate, the disc body, the
+  housing barrel and the input shaft. Every one of those is reported on its own
+  line, because "everything else" as a single number is a number to distrust,
+  and because on most designs the softest part is a surprise. On a printed drive
+  the two halves are comparable, which already costs the answer a third. The
+  better the mesh, the worse the imbalance: a ground steel drive stiffens its
+  contacts by two orders of magnitude and its cantilevered carrier pins by
+  nothing at all, and ends up an order of magnitude softer than its own mesh.
 - **Transmission error** — the ripple in output angle under a steady load, which
   is the number that decides whether a drive can *position*. Lost motion is the
   play before the output moves; this is what it does once it is moving, as the
@@ -250,7 +256,7 @@ Errors block export; warnings do not.
 `CLEARANCE_DEFICIT` · `SINGLE_DISC_UNBALANCE` · `UNBALANCE_FORCE` ·
 `PRESSURE_ANGLE` · `HERTZ_STRESS_RING` · `HERTZ_STRESS_OUTPUT` ·
 `LOAD_CONCENTRATION` · `LOST_MOTION` · `TRANSMISSION_ERROR` ·
-`TORSIONAL_STIFFNESS` · `PV_LIMIT_RING` ·
+`TORSIONAL_STIFFNESS` · `STRUCTURAL_COMPLIANCE` · `PV_LIMIT_RING` ·
 `PV_LIMIT_OUTPUT` · `OVERTEMP` · `RUNNING_HOT` · `LOW_EFFICIENCY` ·
 `SHORT_BEARING_LIFE` · `PIN_RADIUS_SUGGESTION` · `MASS` · `DISCS_DIFFER`
 
@@ -389,8 +395,12 @@ what lets the test suite run without rearranging your actual application.
 The ideal load model treats the disc as rigid and each contact as a linear
 spring, so force is proportional to moment arm and only the pushing half of the
 pins carries load — the classical Kudryavtsev/Lehmann assumption. The stiffness
-model *does* see clearance and is what the capacity derating comes from, but it
-still assumes a rigid housing, shaft and carrier. Transmission error is the
+model *does* see clearance and is what the capacity derating comes from, and it
+counts the parts around the mesh rather than calling them rigid — but it counts
+them as ideal parts. Joints, fits and fasteners are not in it, so a real drive
+measures softer again, and two of the six terms rest on an assumption the
+geometry does not settle (see `analysis/compliance.py`, which states both).
+Transmission error is the
 drive's own share only — clearance take-up and deflection, both of which it
 solves; pin position error, profile error and runout are the manufacturing half
 and are not modelled, so a real drive measures worse. The thermal model is a single
@@ -408,7 +418,9 @@ cycloidgen/
 ├── units.py    what lengths are *shown* in; everything inside is millimetres
 ├── core/       spec (the one source of truth), profile, kinematics, validate,
 │               explain (what each check tests, why, and what to change)
-├── analysis/   mechanics (Hertz), stiffness, thermal, mass, efficiency, bearings
+├── analysis/   mechanics (Hertz), stiffness (contacts, backlash, transmission
+│               error), compliance (the parts around the mesh, as springs),
+│               thermal, mass, efficiency, bearings
 ├── design/     optimise (requirements -> geometry), sweep (trade studies)
 ├── viz/        3D geometry and rendering maths, no Qt: mesh, scene (the
 │               software projection), vtkbridge (mesh -> VTK polydata)
@@ -419,7 +431,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          433 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          449 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
