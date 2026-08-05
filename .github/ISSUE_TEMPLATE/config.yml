@@ -3,10 +3,9 @@ contact_links:
   - name: Measured a drive you built?
     url: https://github.com/medinstech/cycloidgen/issues/new?labels=calibration
     about: >
-      Predicted versus measured is the item at the top of the roadmap and is
-      worth more than everything under it. Lost motion, stiffness, efficiency,
-      running temperature, failure torque - open an issue with what you built
-      and what you measured.
+      Predicted versus measured is worth more to this project than any feature
+      anyone could add. Lost motion, stiffness, efficiency, running temperature,
+      failure torque - open an issue with what you built and what you measured.
   - name: Security or privacy issue
     url: https://github.com/medinstech/cycloidgen/security/advisories/new
     about: Report it privately rather than in a public issue. See SECURITY.md.

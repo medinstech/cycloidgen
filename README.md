@@ -550,6 +550,20 @@ so they cannot drift from what it actually draws:
 .venv\Scripts\python docs\make_figures.py
 ```
 
+The two screenshots of the window are taken by a second script, and it needs a
+real desktop session rather than the offscreen platform the tests use — twice
+over. Offscreen Qt has no fonts, so every label renders as tofu; and the 3D
+tab's viewport is a native OpenGL surface that `QWidget.grab` composites *around*,
+leaving a black hole where the gearbox was. So the window is opened, driven —
+hero design, overlays on, a check selected, the camera set — and photographed
+through `PrintWindow` with `PW_RENDERFULLCONTENT`, which asks Windows for the
+window's own rendering including native children and does not care what is
+stacked on top of it:
+
+```powershell
+.venv\Scripts\python tools\make_screenshots.py
+```
+
 ## Performance
 
 A full re-analysis is about 110 ms — every check, every load, the stiffness
@@ -645,19 +659,31 @@ bundle to a fraction of the size.
 
 ## Where it is going
 
-See [ROADMAP.md](ROADMAP.md). The item at the top — calibrating the model
-against measured hardware — is worth more than everything under it, and is
-listed first for that reason.
+One thing is worth more than everything else on the list: **calibration against
+real hardware**. Every number here is a first-principles estimate with a stated
+model and stated limits. That is honest, and it is also the ceiling — the moment
+there is a table of predicted versus measured, this stops being a calculator and
+becomes a calibrated instrument.
+
+After that, in rough order: fatigue rather than only static strength, since the
+disc web and the pins see a fully reversed cycle every input revolution; a
+lubrication regime, because one fixed friction coefficient is carrying
+efficiency, PV and temperature between them; bearing life under combined load
+and misalignment; and more kinds of drive — compound and multi-stage, RV-type,
+a pinwheel output. On the output side, dimensioned drawing sheets with
+tolerances and a title block, which is what a shop actually wants; 3MF with
+per-part colour; STEP AP242 with PMI. [Open an issue](../../issues) if one of
+those is what stands between you and using it — that moves it up the list.
 
 ## Contributing
 
-[CONTRIBUTING.md](CONTRIBUTING.md) covers setup, the house style, and what a
-change looks like here. The short version: numbers are verified rather than
-asserted, comments say *why*, and `ruff format` is deliberately not part of the
-build.
+[CONTRIBUTING.md](CONTRIBUTING.md) covers setup, the house style, the settled
+questions, and what a change looks like here. The short version: numbers are
+verified rather than asserted, comments say *why*, and `ruff format` is
+deliberately not part of the build.
 
 The most valuable contribution needs no code at all — **build one of these and
-measure it**. That is the item at the top of the roadmap.
+measure it**.
 
 Also: [CHANGELOG.md](CHANGELOG.md) · [RELEASING.md](RELEASING.md) ·
 [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)

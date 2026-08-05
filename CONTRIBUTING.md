@@ -5,16 +5,30 @@ Thanks for looking. This is a small, opinionated tool and the bar for changes is
 
 ## Before you start
 
-Read [ROADMAP.md](ROADMAP.md), especially **Deliberately not doing**. FEA,
-involute gears, `ruff format` and rounded corners are all settled questions, and
-a pull request that reopens one will get a polite no. Everything else is open.
-
-The single most valuable contribution is at the top of the roadmap and needs no
-code at all: **build one of these and measure it**. Lost motion, torsional
-stiffness, efficiency, running temperature, failure torque. Every number this
-tool produces is a first-principles estimate with a stated model, and a table of
-predicted-versus-measured is worth more than any feature below it. Open an issue
+The single most valuable contribution needs no code at all: **build one of these
+and measure it**. Lost motion, torsional stiffness, efficiency, running
+temperature, failure torque. Every number this tool produces is a
+first-principles estimate with a stated model, and a table of
+predicted-versus-measured is worth more than any feature anyone could add. It is
+the difference between a calculator and a calibrated instrument. Open an issue
 with what you built and what you measured.
+
+### Settled questions
+
+These are decided, and a pull request that reopens one will get a polite no.
+Everything else is open.
+
+- **FEA.** Out of scope. The point of this tool is to get you to a good design
+  in seconds so that FEA has something worth meshing.
+- **Involute gears.** Well served elsewhere.
+- **`ruff format`.** The repository has a hand-aligned style — continuation
+  lines under their openers, tables laid out to be read as tables — and the
+  formatter would rewrite 46 files to remove it. Lint hunts bug shapes; a
+  formatter enforces a preference. The first is worth a CI job, the second is
+  worth a discussion first.
+- **Shadows, gradients and depth effects.** Structure is *drawn* — a hairline, a
+  fill, a border — rather than implied by a light source that is not in the
+  room.
 
 ## Getting set up
 

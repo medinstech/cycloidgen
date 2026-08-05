@@ -5,10 +5,10 @@ body:
   - type: markdown
     attributes:
       value: |
-        Please check [ROADMAP.md](../blob/main/ROADMAP.md) first. Several things
-        are listed there as **deliberately not doing** — FEA, involute gears,
-        `ruff format`, rounded corners — with the reasoning, and those are
-        settled.
+        Please check **Settled questions** in
+        [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md) first. A few things are
+        listed there as deliberately not done — FEA, involute gears,
+        `ruff format` — with the reasoning, and those are settled.
 
   - type: textarea
     id: problem

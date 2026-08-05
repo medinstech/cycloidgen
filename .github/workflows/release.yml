@@ -117,7 +117,7 @@ jobs:
 
           ---
           The installer is unsigned, so Windows SmartScreen will warn on first
-          run: **More info -> Run anyway**. A signed build is on the roadmap.
+          run: **More info -> Run anyway**. A signed build is planned.
 
           The numbers this produces are preliminary sizing estimates, not a
           certification. Validate against a physical prototype before anything

@@ -42,7 +42,7 @@ surface, and it is mostly *untrusted input*:
   prototype is the user's job. That is a stated limitation, not a vulnerability.
 - **Denial of service by asking for something enormous.** A 200-lobe drive at a
   micron chord tolerance will take a while. That is arithmetic.
-- **The SmartScreen warning on the unsigned Windows build.** Known, and on the
-  roadmap.
+- **The SmartScreen warning on the unsigned Windows build.** Known, and waiting
+  on a code-signing certificate rather than on a code change.
 
 [issues]: https://github.com/medinstech/cycloidgen/issues

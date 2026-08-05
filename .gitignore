@@ -11,3 +11,6 @@ _cli/
 _ci_out/
 _ci_2d/
 releases/
+
+# Internal planning, kept out of the published repository.
+ROADMAP.md

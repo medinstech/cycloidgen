@@ -59,7 +59,6 @@ dev = ["pytest>=8.0", "pyinstaller>=6.5", "pyyaml>=6.0"]
 Homepage = "https://github.com/medinstech/cycloidgen"
 Issues = "https://github.com/medinstech/cycloidgen/issues"
 Changelog = "https://github.com/medinstech/cycloidgen/blob/main/CHANGELOG.md"
-Roadmap = "https://github.com/medinstech/cycloidgen/blob/main/ROADMAP.md"
 Releases = "https://github.com/medinstech/cycloidgen/releases"
 
 [project.scripts]

@@ -76,11 +76,17 @@ def main() -> int:
     _save(plots.sweep_figure(result, Figure(figsize=(9.0, 6.2), dpi=110)),
           "tradestudy.png")
 
-    # The drawing, turning.  Smaller than the exported default and lighter on
-    # frames, because this one is checked into the repository and served on
-    # every view of the README - the point is to show the mesh working, not to
-    # be the highest-fidelity copy of it.  A 21:1 closes exactly at seven turns.
-    plan = animation.plan(spec, pixels=380, frames=84)
+    # The drawing, turning.  Smaller than the exported default, because this one
+    # is checked into the repository and served on every view of the README.
+    #
+    # Paced rather than defaulted.  A 21:1 closes exactly at seven turns, and
+    # seven turns at the export defaults is over two input revolutions a second:
+    # the eccentric becomes a blur and the mesh - the thing the picture exists to
+    # show - is not readable at all.  Twenty degrees of crank per frame and a
+    # nine-second loop is slow enough to follow one pin through its contact.  It
+    # costs about 300 kB over the fast version, which is the right trade for the
+    # one figure most visitors will actually watch.
+    plan = animation.plan(spec, pixels=360, frames=126, fps=14)
     print(f"  motion.gif  {plan.describe()}")
     path = animation.write_gif(spec, DOCS / "motion.gif", animation=plan,
                                theme="light")

@@ -77,14 +77,17 @@ def test_the_readme_lists_every_check_the_app_can_raise():
     fails, and a code that only the README believes in fails too.
     """
     readme = (ROOT.parent / "README.md").read_text(encoding="utf-8")
-    listed = set(re.findall(r"`([A-Z][A-Z0-9_]{3,})`", readme))
+    # Only the Checks section, not the whole file.  Elsewhere the README quotes
+    # environment variables and Win32 constants, which are shaped exactly like
+    # check codes; scanning everything would mean an exception list that grows
+    # every time the prose mentions one.
+    section = re.search(r"^## Checks$(.*?)^## ", readme, re.M | re.S)
+    assert section, "the README no longer has a Checks section"
+    listed = set(re.findall(r"`([A-Z][A-Z0-9_]{3,})`", section.group(1)))
     codes = set(EXPLANATIONS)
     assert not codes - listed, f"not in the README: {sorted(codes - listed)}"
-    # anything else in backticks and shouting is an env var or a constant, and
-    # those are named here so the test can tell them from a stale check code
-    known_shouting = {"CYCLOIDGEN_SETTINGS", "README"}
-    assert not listed - codes - known_shouting, \
-        f"the README names checks that do not exist: {sorted(listed - codes - known_shouting)}"
+    assert not listed - codes, \
+        f"the README names checks that do not exist: {sorted(listed - codes)}"
 
 
 def test_every_explained_check_can_also_point_at_its_parameters():
