@@ -77,3 +77,48 @@ def test_the_release_script_passes_it_first():
     args = re.search(r"\$args = @\((.*?)\)", text, flags=re.S)
     assert args is not None, "release.ps1 no longer builds an argument list"
     assert "'/INPUTCHARSET', 'UTF8'" in args.group(1)
+
+
+# ------------------------------------------------------------- executables
+
+
+SPEC = ROOT / "cycloidgen.spec"
+
+
+def test_the_bundle_carries_a_windowed_app_and_a_console_cli():
+    """Two executables over one analysis - `pythonw.exe` / `python.exe`.
+
+    A single console build put a black window behind the application every time
+    somebody opened it from the Start menu.  A single windowed build would have
+    taken the command line away, and taken it away badly: a frozen windowed
+    process has no stdout at all, so `--version` would not print nothing, it
+    would raise.
+    """
+    text = SPEC.read_text(encoding="utf-8")
+    assert '_exe("cycloidgen", console=False)' in text, "the app must be windowed"
+    assert '_exe("cycloidgen-cli", console=True)' in text, "the CLI needs a console"
+    assert re.search(r"COLLECT\(\s*gui,\s*cli,", text), "both must reach COLLECT"
+
+
+def test_the_shortcuts_point_at_the_windowed_one():
+    """The installer's EXE_NAME is what every shortcut and the Run box use."""
+    nsi = NSI.read_text(encoding="utf-8-sig")
+    assert '!define EXE_NAME    "cycloidgen.exe"' in nsi
+
+
+def test_the_windowed_build_cannot_be_felled_by_a_print():
+    """PyInstaller gives a windowed process ``sys.stdout = None``, and the
+    launcher has to replace it before anything imports and prints."""
+    launcher = (ROOT / "launcher.py").read_text(encoding="utf-8")
+    assert "_ensure_streams()" in launcher
+    assert launcher.index("_ensure_streams()\n\nfrom cycloidgen") < \
+        launcher.index("from cycloidgen.__main__ import main")
+
+
+def test_the_version_is_checked_against_the_build_that_can_answer():
+    """Asking the windowed one would test nothing and look like it tested."""
+    ps1 = RELEASE_PS1.read_text(encoding="utf-8")
+    assert "cycloidgen-cli.exe" in ps1
+    assert re.search(r"\$reported = \(& \$exe --version\)", ps1)
+    workflow = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
+    assert "cycloidgen-cli.exe --version" in workflow

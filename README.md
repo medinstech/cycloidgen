@@ -405,7 +405,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          419 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          423 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -421,7 +421,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-419 tests, about 330 s. Most of that is CadQuery writing solids; the pure
+423 tests, about 300 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in under a second. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own
@@ -503,9 +503,19 @@ Or the two steps by hand:
 
 ```bash
 .venv\Scripts\python -m PyInstaller cycloidgen.spec --noconfirm
-dist\cycloidgen\cycloidgen.exe
+dist\cycloidgen\cycloidgen.exe                         # the window
+dist\cycloidgen\cycloidgen-cli.exe --list-outputs      # the command line
 makensis /INPUTCHARSET UTF8 packaging\cycloidgen.nsi   # needs NSIS 3.x
 ```
+
+The bundle carries **two executables over one analysis**, which is the
+`pythonw.exe` / `python.exe` arrangement and for the same reason.
+`cycloidgen.exe` is windowed — it is what the shortcuts point at, and a console
+build there put a black window behind the application every time somebody opened
+it from the Start menu. `cycloidgen-cli.exe` is the console one, for headless
+runs. A single windowed build would have taken the command line away and taken
+it away badly: a frozen windowed process has no stdout at all, so `--version`
+would not print nothing, it would raise.
 
 The installer upgrades in place — it clears the previous version first, because
 unpacking a PyInstaller bundle *over* another one leaves modules and DLLs from

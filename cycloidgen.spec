@@ -114,18 +114,35 @@ pyz = PYZ(a.pure)
 
 _icon = Path("cycloidgen/ui/assets/cycloidgen.ico")
 
-exe = EXE(
-    pyz, a.scripts, [],
-    exclude_binaries=True,
-    name="cycloidgen",
-    icon=str(_icon) if _icon.exists() else None,
-    version=_version_file,
-    console=True,   # keep the CLI usable and errors visible
-    disable_windowed_traceback=False,
-)
+
+def _exe(name: str, *, console: bool):
+    """One executable over the shared analysis."""
+    return EXE(
+        pyz, a.scripts, [],
+        exclude_binaries=True,
+        name=name,
+        icon=str(_icon) if _icon.exists() else None,
+        version=_version_file,
+        console=console,
+        disable_windowed_traceback=False,
+    )
+
+
+# Two executables over one analysis, which is the `pythonw.exe` / `python.exe`
+# arrangement and for the same reason.  A single console build put a black
+# window behind the application every time somebody opened it from the Start
+# menu; a single windowed build would have taken the command line away, and
+# taken it away *badly* - a frozen windowed process has no stdout at all, so
+# `--version` would not print nothing, it would raise.
+#
+# So the one the shortcuts point at is windowed, and the command line gets its
+# own console build beside it.  `launcher.py` keeps the windowed one from
+# falling over if it is handed arguments anyway.
+gui = _exe("cycloidgen", console=False)
+cli = _exe("cycloidgen-cli", console=True)
 
 coll = COLLECT(
-    exe, a.binaries, a.datas,
+    gui, cli, a.binaries, a.datas,
     strip=False,
     upx=False,            # UPX corrupts some OCCT DLLs
     name="cycloidgen",

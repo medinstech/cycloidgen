@@ -69,8 +69,10 @@ jobs:
       - name: Check the bundle
         shell: bash
         run: |
-          ./dist/cycloidgen/cycloidgen.exe --version
-          ./dist/cycloidgen/cycloidgen.exe --ratio 21 --list-outputs > /dev/null
+          # Both are built; only the console one can be asked anything.
+          test -f ./dist/cycloidgen/cycloidgen.exe
+          ./dist/cycloidgen/cycloidgen-cli.exe --version
+          ./dist/cycloidgen/cycloidgen-cli.exe --ratio 21 --list-outputs > /dev/null
 
       - name: Install NSIS
         run: choco install nsis --no-progress -y

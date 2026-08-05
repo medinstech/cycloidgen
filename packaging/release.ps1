@@ -56,8 +56,14 @@ try {
     & $python -m PyInstaller cycloidgen.spec --noconfirm
     if ($LASTEXITCODE -ne 0) { throw 'PyInstaller failed' }
 
-    $exe = 'dist\cycloidgen\cycloidgen.exe'
-    if (-not (Test-Path $exe)) { throw "PyInstaller produced no $exe" }
+    # The shortcut target is windowed and has no stdout, so the version is
+    # asked of the console build beside it - which is the same code, over the
+    # same analysis, and is what a command line should be pointed at anyway.
+    $gui = 'dist\cycloidgen\cycloidgen.exe'
+    $exe = 'dist\cycloidgen\cycloidgen-cli.exe'
+    foreach ($needed in @($gui, $exe)) {
+        if (-not (Test-Path $needed)) { throw "PyInstaller produced no $needed" }
+    }
     $reported = (& $exe --version).Trim()
     if ($reported -notmatch [regex]::Escape($version)) {
         throw "the bundle reports '$reported' but this release is $version"

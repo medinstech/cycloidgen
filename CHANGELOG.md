@@ -9,6 +9,19 @@ design somebody already built.
 
 **Fixed**
 
+- **No console window behind the application.** The bundle built one
+  executable, with a console, so opening cycloidgen from the Start menu put a
+  black window behind it. It now builds two over the same analysis, which is the
+  `pythonw.exe` / `python.exe` arrangement and for the same reason:
+  `cycloidgen.exe` is windowed and is what every shortcut points at, and
+  `cycloidgen-cli.exe` is the console build for headless runs.
+
+  Simply turning the console off would have taken the command line away, and
+  taken it away badly: a frozen windowed process has no stdout at all, so
+  `--version` would not have printed nothing, it would have raised - and that is
+  the command both `release.ps1` and the release workflow verify the build with.
+  They ask the console build now. `launcher.py` also gives the windowed one a
+  stream to write to, so a stray `print` cannot fell it.
 - **The installer's Turkish pages are Turkish again.** They shipped in 2.3.0 as
   mojibake - the welcome page read "hoÅŸ geldiniz". `makensis` assumes the
   system ANSI codepage unless the script carries a UTF-8 BOM or the charset is
