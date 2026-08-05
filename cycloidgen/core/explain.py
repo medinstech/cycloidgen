@@ -303,6 +303,21 @@ EXPLANATIONS: dict[str, Explanation] = {
         "A thicker disc stack and a stiffer disc material both raise it. Treat "
         "the number as a comparison between designs rather than a promise.",
         keep="", unit="Nm/arcmin"),
+    "TRANSMISSION_ERROR": Explanation(
+        "Ripple in the output angle under load",
+        "peak-to-peak of the loaded rotation through the mesh cycle",
+        "Lost motion is the play before the output moves; this is what the "
+        "output does once it *is* moving. Turning the drive hands load from one "
+        "contact to the next, and both the gap that has to be taken up and the "
+        "deflection under load change at the handover - so the output leads and "
+        "lags the exact ratio by this band. It is what limits contouring "
+        "accuracy, and unlike lost motion you cannot preload it out.",
+        "More output pins is the biggest lever, because the output stage is "
+        "usually most of it and more pins make each handover smaller. A tighter "
+        "hole fit and a phased multi-disc stack take out much of the rest. Note "
+        "what does *not* work: a stiffer disc material leaves the clearance term "
+        "untouched and puts the load on fewer pins, which can make it worse.",
+        keep="", unit="arcmin"),
     "LOST_MOTION": Explanation(
         "Backlash at the output",
         "lost motion  <  60 arcmin",

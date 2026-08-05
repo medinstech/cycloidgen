@@ -37,23 +37,53 @@ Two things fall out of that, and they are the point of this module:
   more than their ideal share - the **load concentration** the rest of the app
   warns it cannot see.  An equidistant offset produces a uniform gap and so no
   concentration at all; growing the pin circle instead does not.
+
+Transmission error
+------------------
+Stiffness is the *average* of that solve; :func:`analyse_transmission_error` is
+its **ripple**.  Hold the load steady and turn the input: the rotation solved
+above does not stay put, because the mesh keeps handing load from one contact to
+the next.  What comes out of the output shaft is therefore not exactly
+``input / ratio``, and the difference is the number that decides whether a drive
+can position.  The rotation this module already solves at each crank angle *is*
+that curve; the peak-to-peak of it is the transmission error.
+
+Two things move it, and the solve sees both:
+
+* **taking up the clearance** - which contact bites first changes through the
+  cycle, and a contact with a short lever arm needs more rotation to close the
+  same gap, so the rest position itself wanders;
+* **deflecting** the contacts that are biting.
+
+Which of the two dominates shifts with load, so this is *not* a number that
+simply grows with torque.  It is also why a stiffer disc is not the fix it looks
+like: stiffening the parts leaves the clearance term alone and puts what is left
+on fewer pins.  A tighter fit, more output pins and a phased disc stack are the
+levers that work.
+
+Not modelled: pin position error, profile error and runout - the *manufacturing*
+half of transmission error, which needs a tolerance input the app does not have.
 """
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import NamedTuple
 
 import numpy as np
 
-from ..core.kinematics import SWEEP_STEPS, mesh_gaps, output_loads, sweep
+from ..core.kinematics import SWEEP_STEPS, contacts, mesh_gaps, output_loads, sweep
 from ..core.spec import GearSpec
 from .mechanics import effective_modulus
 
 __all__ = [
     "RAD_PER_ARCMIN",
     "StiffnessResult",
+    "TransmissionErrorResult",
     "analyse_stiffness",
+    "analyse_transmission_error",
     "line_contact_approach",
+    "output_stage_period",
 ]
 
 RAD_PER_ARCMIN = math.pi / (180.0 * 60.0)
@@ -68,6 +98,19 @@ _LOAD_EXPONENT = 0.9
 #: Crank angles per lobe pitch for the stiffness sweep.  Stiffness barely moves
 #: through the mesh cycle, so a coarse sweep is enough and keeps this cheap.
 _STIFFNESS_STEPS = 8
+
+#: Steps per period for the output stage of the transmission-error sweep.  A
+#: ripple has to be *resolved*, not averaged - a mean over one period converges
+#: whatever the step count, a peak-to-peak only ever comes out too small - so
+#: this is much finer than the stiffness sweep.  It is also nearly free: the
+#: output stage needs no profile measurement.
+_TE_STEPS = 48
+
+#: The same for the ring stage, where every angle costs a profile measurement
+#: per disc.  Twelve is where it stops mattering: the shipped pair lands within
+#: a quarter of a percent of a sweep six times finer, and eight - the stiffness
+#: sweep's own count - can be 30% low on the ring share.
+_TE_RING_STEPS = 12
 
 
 def line_contact_approach(force_N: np.ndarray | float, length_mm: float,
@@ -150,6 +193,54 @@ def _fit_compliance(force_N: np.ndarray, length: float, r_pin: float,
     return np.maximum(delta, 1e-12) / ref ** _LOAD_EXPONENT
 
 
+class _Contacts(NamedTuple):
+    """One stage's contacts at one crank angle, ready for the solver."""
+
+    c: np.ndarray        # per-contact compliance in delta = c * F**0.9
+    arms: np.ndarray     # |moment arm| of each contact about the axis
+    gaps: np.ndarray     # clearance each contact has to close before it bites
+    ideal: np.ndarray    # the rigid-disc share of the load, for reference
+
+
+def _ring_contacts(spec: GearSpec, cs, torque_per_disc: float) -> _Contacts | None:
+    """Ring-pin contacts of one disc at one crank angle, or ``None`` if none bite."""
+    loaded = cs.loaded_mask
+    if not loaded.any():
+        return None
+    arms = np.abs(cs.moment_arms[loaded])
+    ideal = cs.forces(torque_per_disc)[loaded]
+
+    # counterface radius at the contact, negative where the disc is concave
+    with np.errstate(divide="ignore"):
+        r_face = np.where(np.abs(cs.curvature[loaded]) > 1e-12,
+                          -1.0 / cs.curvature[loaded], 1e9)
+    c = _fit_compliance(ideal, spec.disc_thickness, spec.pin_radius, r_face,
+                        spec.disc_mat, spec.pin_mat, spec.pin_circle_radius)
+    gaps = np.maximum(mesh_gaps(spec, cs.phi)[loaded], 0.0)
+    return _Contacts(c=c, arms=arms, gaps=gaps, ideal=ideal)
+
+
+def _output_contacts(spec: GearSpec, phi: float,
+                     torque_per_disc: float) -> _Contacts | None:
+    """Output pin/hole contacts of one disc at one crank angle.
+
+    The pin sits in a hole ``E`` larger in radius, so the counterface is
+    conforming and its radius is negative - the same convention the ring stage
+    uses for a valley of the profile.
+    """
+    ol = output_loads(spec, phi, torque_per_disc)
+    live = ol.forces > 0
+    if not live.any():
+        return None
+    arms = np.abs(ol.moment_arms[live])
+    r_p = spec.output_pin_diameter / 2.0
+    c = _fit_compliance(ol.forces[live], spec.disc_thickness, r_p,
+                        -(r_p + spec.eccentricity), spec.disc_mat, spec.pin_mat,
+                        spec.pin_circle_radius)
+    gaps = np.full(arms.shape, spec.hole_clearance / 2.0)
+    return _Contacts(c=c, arms=arms, gaps=gaps, ideal=ol.forces[live])
+
+
 def _solve_rotation(c: np.ndarray, arms: np.ndarray, gaps: np.ndarray,
                     torque_Nmm: float) -> tuple[float, np.ndarray]:
     """Rotation that transmits ``torque_Nmm`` through gapped nonlinear contacts.
@@ -206,8 +297,6 @@ def analyse_stiffness(spec: GearSpec, steps: int = _STIFFNESS_STEPS) -> Stiffnes
     """Torsional stiffness, lost motion and clearance-aware load sharing."""
     torque_total_Nmm = spec.output_torque_Nm * 1000.0
     torque_per_disc = torque_total_Nmm / spec.disc_count
-    length = spec.disc_thickness
-    disc, pin = spec.disc_mat, spec.pin_mat
 
     states = sweep(spec, SWEEP_STEPS)
     picked = states[:: max(1, len(states) // max(steps, 1))]
@@ -221,20 +310,10 @@ def analyse_stiffness(spec: GearSpec, steps: int = _STIFFNESS_STEPS) -> Stiffnes
     ring_gap_close: list[float] = []
 
     for cs in picked:
-        loaded = cs.loaded_mask
-        if not loaded.any():
+        stage = _ring_contacts(spec, cs, torque_per_disc)
+        if stage is None:
             continue
-        arms = np.abs(cs.moment_arms[loaded])
-        ideal = cs.forces(torque_per_disc)[loaded]
-
-        # counterface radius at the contact, negative where the disc is concave
-        with np.errstate(divide="ignore"):
-            r_face = np.where(np.abs(cs.curvature[loaded]) > 1e-12,
-                              -1.0 / cs.curvature[loaded], 1e9)
-        c = _fit_compliance(ideal, length, spec.pin_radius, r_face, disc, pin,
-                            spec.pin_circle_radius)
-
-        gaps = np.maximum(mesh_gaps(spec, cs.phi)[loaded], 0.0)
+        c, arms, gaps, ideal = stage
         spreads.append(float(gaps.max() - gaps.min()))
         ring_gap_close.append(float((gaps / np.maximum(arms, 1e-9)).min()))
 
@@ -249,19 +328,13 @@ def analyse_stiffness(spec: GearSpec, steps: int = _STIFFNESS_STEPS) -> Stiffnes
             concentration.append(float(forces.max() / ideal.max()))
 
     # ---- output pin stage ---------------------------------------------------
-    r_p = spec.output_pin_diameter / 2.0
-    r_hole = r_p + spec.eccentricity
     out_k: list[float] = []
     out_theta: list[float] = []
     for cs in picked:
-        ol = output_loads(spec, cs.phi, torque_per_disc)
-        live = ol.forces > 0
-        if not live.any():
+        stage = _output_contacts(spec, cs.phi, torque_per_disc)
+        if stage is None:
             continue
-        arms = np.abs(ol.moment_arms[live])
-        c = _fit_compliance(ol.forces[live], length, r_p, -r_hole, disc, pin,
-                            spec.pin_circle_radius)
-        gaps = np.full(arms.shape, spec.hole_clearance / 2.0)
+        c, arms, gaps, _ideal = stage
         theta, forces = _solve_rotation(c, arms, gaps, torque_per_disc)
         out_theta.append(theta)
         k = _stage_stiffness(c, arms, forces, theta, gaps)
@@ -306,4 +379,119 @@ def analyse_stiffness(spec: GearSpec, steps: int = _STIFFNESS_STEPS) -> Stiffnes
         pins_engaged_ideal=float(np.mean(engaged_ideal)) if engaged_ideal else 0.0,
         load_concentration=float(np.mean(concentration)) if concentration else 1.0,
         max_gap_spread_mm=float(np.max(spreads)) if spreads else 0.0,
+    )
+
+
+# --------------------------------------------------------- transmission error --
+
+
+@dataclass
+class TransmissionErrorResult:
+    """Ripple in the output angle under a steady load, referred to the output."""
+
+    peak_to_peak_arcmin: float       # the headline: the whole error band
+    rms_arcmin: float
+    ring_arcmin: float               # the ring stage's own share, peak to peak
+    output_arcmin: float             # the output stage's own share
+    ring_period_deg: float           # of crank, one lobe pitch
+    output_period_deg: float         # of crank, one output-hole pitch
+
+    @property
+    def dominant_stage(self) -> str:
+        return "ring" if self.ring_arcmin > self.output_arcmin else "output"
+
+
+def output_stage_period(spec: GearSpec) -> float:
+    """Crank angle over which the output-pin engagement pattern repeats, rad.
+
+    Not the lobe pitch, and getting that wrong is the easy mistake here.  The
+    disc's eccentricity direction, *seen from the carrier*, advances at
+    ``(N-1)/N`` of the crank; the pin pattern repeats every ``2*pi/n`` of that.
+    So the output stage's period is ``2*pi*N / (n*(N-1))`` - two and a half lobe
+    pitches on a typical drive, and sampling only one lobe pitch of it reports
+    about half the ripple that is really there.
+    """
+    return (2.0 * math.pi * spec.lobes
+            / (spec.output_pin_count * (spec.lobes - 1)))
+
+
+def _stack_rotation(parts: list[_Contacts], torque_Nmm: float) -> float:
+    """Output rotation with every disc in the stack solved at once.
+
+    The discs sit on different crank phases but drive one carrier, so they share
+    a single rotation and split the torque between them however their own
+    contacts decide.  Concatenating the stack's contacts into one system and
+    solving it for the total torque is exactly that statement.
+
+    :func:`analyse_stiffness` does not need this - phasing a stack does not move
+    the *mean*, so multiplying one disc's stiffness by the disc count is right
+    there.  It moves the *ripple* a great deal: discs half a lobe pitch apart
+    are near antiphase, and most of the fundamental cancels.
+    """
+    if not parts:
+        return 0.0
+    theta, _forces = _solve_rotation(
+        np.concatenate([p.c for p in parts]),
+        np.concatenate([p.arms for p in parts]),
+        np.concatenate([p.gaps for p in parts]),
+        torque_Nmm)
+    return theta
+
+
+def _ripple(values: list[float]) -> tuple[float, float]:
+    """Peak-to-peak and rms of a sampled cycle, both in arcmin."""
+    a = np.asarray(values, dtype=float)
+    if not a.size:
+        return 0.0, 0.0
+    return (float(a.max() - a.min()) / RAD_PER_ARCMIN,
+            float(a.std()) / RAD_PER_ARCMIN)
+
+
+def analyse_transmission_error(spec: GearSpec, steps: int = _TE_STEPS,
+                               ring_steps: int = _TE_RING_STEPS
+                               ) -> TransmissionErrorResult:
+    """Ripple in the output angle through the mesh cycle, at the rated torque.
+
+    Each stage is swept over **its own** period - see
+    :func:`output_stage_period` - and the two are added.  The periods are
+    incommensurate on any ordinary drive, so over a full output revolution the
+    two ripples do eventually line up: the band the output wanders in is the sum
+    of the two bands, and the variances add for the rms.
+
+    Both halves of the error are in here, the clearance take-up and the elastic
+    deflection, because the solve does not separate them and neither does the
+    output shaft.  See the module docstring for what that means for reading the
+    number - in particular that it does not simply grow with load.
+    """
+    torque_total = spec.output_torque_Nm * 1000.0
+    torque_per_disc = torque_total / spec.disc_count
+    phases = spec.disc_phases
+
+    ring: list[float] = []
+    states = sweep(spec, SWEEP_STEPS)
+    for cs in states[:: max(1, len(states) // max(ring_steps, 1))]:
+        parts = [p for p in (_ring_contacts(spec, contacts(spec, cs.phi + phase),
+                                            torque_per_disc)
+                             for phase in phases) if p is not None]
+        if parts:
+            ring.append(_stack_rotation(parts, torque_total))
+
+    out: list[float] = []
+    period = output_stage_period(spec)
+    for phi in np.linspace(0.0, period, max(steps, 1), endpoint=False):
+        parts = [p for p in (_output_contacts(spec, float(phi) + phase,
+                                              torque_per_disc)
+                             for phase in phases) if p is not None]
+        if parts:
+            out.append(_stack_rotation(parts, torque_total))
+
+    ring_pp, ring_rms = _ripple(ring)
+    out_pp, out_rms = _ripple(out)
+    return TransmissionErrorResult(
+        peak_to_peak_arcmin=ring_pp + out_pp,
+        rms_arcmin=math.hypot(ring_rms, out_rms),
+        ring_arcmin=ring_pp,
+        output_arcmin=out_pp,
+        ring_period_deg=360.0 / spec.lobes,
+        output_period_deg=math.degrees(period),
     )

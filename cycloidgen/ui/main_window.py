@@ -1510,6 +1510,7 @@ class MainWindow(QMainWindow):
         a = self.analysis
         assert a is not None
         s, st, th, m = self.spec, a.stiffness, a.thermal, a.mass
+        te = a.transmission_error
         self._datasheet.clear()
         sections = [
             ("Ratings", [
@@ -1537,6 +1538,9 @@ class MainWindow(QMainWindow):
                 ("Wind-up at rated torque", f"{st.windup_arcmin:.2f} arcmin", "elastic"),
                 ("Total backlash", f"{st.backlash_total_arcmin:.1f} arcmin",
                  "lost motion plus wind-up"),
+                ("Transmission error",
+                 f"{te.peak_to_peak_arcmin:.3f} arcmin p-p",
+                 f"{te.rms_arcmin:.3f} rms; no manufacturing error in it"),
                 ("Pins carrying load",
                  f"{st.pins_engaged:.1f} of {st.pins_engaged_ideal:.0f}",
                  "clearance keeps the rest out of mesh"),
@@ -1627,6 +1631,9 @@ class MainWindow(QMainWindow):
              cur.stiffness.stiffness_Nm_per_arcmin, True),
             ("Lost motion", "arcmin", ref.stiffness.lost_motion_arcmin,
              cur.stiffness.lost_motion_arcmin, False),
+            ("Transmission error", "arcmin",
+             ref.transmission_error.peak_to_peak_arcmin,
+             cur.transmission_error.peak_to_peak_arcmin, False),
             ("Outer diameter", "mm", 2 * self._pinned.housing_outer_radius,
              2 * self.spec.housing_outer_radius, False),
             ("Overall length", "mm", self._pinned.envelope_length,

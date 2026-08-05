@@ -94,6 +94,14 @@ def report_dict(a: DesignAnalysis) -> dict:
             "pins_engaged_ideal": a.stiffness.pins_engaged_ideal,
             "load_concentration": a.stiffness.load_concentration,
         },
+        "transmission_error": {
+            "peak_to_peak_arcmin": a.transmission_error.peak_to_peak_arcmin,
+            "rms_arcmin": a.transmission_error.rms_arcmin,
+            "ring_arcmin": a.transmission_error.ring_arcmin,
+            "output_arcmin": a.transmission_error.output_arcmin,
+            "ring_period_deg": a.transmission_error.ring_period_deg,
+            "output_period_deg": a.transmission_error.output_period_deg,
+        },
         "thermal": {
             "pv_ring_MPa_m_s": a.thermal.pv_ring_MPa_m_s,
             "pv_ring_limit_MPa_m_s": a.thermal.pv_ring_limit_MPa_m_s,
@@ -369,7 +377,7 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
     ]
 
     # --- stiffness and backlash ----------------------------------------------
-    st = a.stiffness
+    st, te = a.stiffness, a.transmission_error
     story += [
         CondPageBreak(80 * mm),
         Paragraph("Stiffness, backlash and what clearance does", h2),
@@ -396,6 +404,28 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
             ["Load concentration", f"{st.load_concentration:.2f} x",
              "Capacity after derating",
              f"{a.torque_capacity_with_clearance_Nm:.2f} Nm"],
+        ], [42 * mm, 36 * mm, 42 * mm, 36 * mm]),
+        Spacer(1, 6),
+        Paragraph(
+            "Lost motion is the play before the output moves. <b>Transmission "
+            "error</b> is what the output does once it is moving: turning the "
+            "drive hands load from one contact to the next, and both the gap to "
+            "be taken up and the deflection under load change at the handover, "
+            "so the output leads and lags the exact ratio by the band below. "
+            "Each stage is swept over its own period - they are different, and "
+            "the output stage's is the longer of the two. Pin position error, "
+            "profile error and runout are not modelled, so this is the drive's "
+            "own share of the error and not the whole of it.",
+            body),
+        Spacer(1, 4),
+        _table([
+            ["Quantity", "Value", "Quantity", "Value"],
+            ["Transmission error", f"{te.peak_to_peak_arcmin:.3f} arcmin p-p",
+             "rms", f"{te.rms_arcmin:.3f} arcmin"],
+            ["From the output pins", f"{te.output_arcmin:.3f} arcmin "
+             f"/ {te.output_period_deg:.0f} deg",
+             "From the ring mesh", f"{te.ring_arcmin:.3f} arcmin "
+             f"/ {te.ring_period_deg:.0f} deg"],
         ], [42 * mm, 36 * mm, 42 * mm, 36 * mm]),
     ]
 

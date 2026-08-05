@@ -5,6 +5,73 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 2.4.0
+
+**Added**
+
+- **Transmission error.** The ripple in output angle under a steady load — the
+  number that decides whether a drive can *position*, as opposed to lost motion,
+  which is only the play before it starts moving. It appears on the datasheet
+  and in the comparison table, in `report.json` under `transmission_error`, in
+  the PDF beside the backlash table, and as a `TRANSMISSION_ERROR` finding with
+  its own explanation.
+
+  The solve it comes out of was already there: `analyse_stiffness` finds the
+  loaded rotation at every crank angle, and the peak-to-peak of that curve *is*
+  the transmission error. Three things had to be got right on top of that.
+
+  **The two stages have different periods.** The ring mesh repeats every lobe
+  pitch. The output stage does not: the eccentricity direction seen from the
+  carrier advances at `(N−1)/N` of the crank, so its pattern repeats every
+  `2·pi·N/(n·(N−1))` — about two and a half lobe pitches on a typical drive.
+  Sweeping a lobe pitch, which is what the existing sweep covers, reports about
+  half the ripple that is there (1.27 against 2.07 arcmin on the 29:1 preset).
+  Each stage is now swept over its own period and the two are added; the periods
+  are incommensurate, so over an output revolution they do line up.
+
+  **A phased disc stack cancels much of it.** Discs half a lobe pitch apart ride
+  opposite halves of the same cycle. So the stack is solved as one system — every
+  disc at its own crank phase, sharing one carrier rotation — rather than one
+  disc scaled by the disc count. That is worth a third of the ripple on two
+  discs and five sixths of the ring share on three. It is invisible to the
+  stiffness model, and correctly so: phasing does not move the *mean*, which is
+  all stiffness is.
+
+  **A ripple has to be resolved, not averaged.** A mean over one period converges
+  at any step count; a peak-to-peak only ever comes out too small. The output
+  stage gets 48 steps per period and the ring 12, which lands within a quarter of
+  a percent of a sweep six times finer — the stiffness sweep's own eight steps
+  can be 30% low on the ring share.
+
+  What it says is worth knowing: the output pins, not the ring mesh, are where
+  nearly all of it comes from, so **more output pins** is the biggest lever
+  (4 pins 5.4 arcmin, 16 pins 0.22 arcmin on the 15:1 preset), then the hole fit,
+  then a phased stack. A stiffer disc material is *not* a fix — it leaves the
+  clearance to be taken up exactly where it was and pulls fewer pins into mesh
+  while it is at it, which makes the ring share worse. `tests/test_stiffness.py`
+  pins that, because it is the fix everybody reaches for first.
+
+  Both halves of the error are in the number, the clearance take-up and the
+  elastic deflection, because the solve does not separate them and neither does
+  the output shaft. What is *not* in it is the manufacturing half — pin position
+  error, profile error, runout — which needs a tolerance input the app does not
+  have yet.
+
+**Changed**
+
+- **Mesh clearances are measured once and cached.** `mesh_gaps` is a pure
+  function of the geometry and the crank angle, and the checks, the stiffness
+  study and now the transmission-error study ask for the same angles. It is
+  handed out read-only, like the contact sweep, for the same reason: a cached
+  array is one everybody else is still holding.
+
+**Numbers**
+
+Nothing that was there moved — checked field by field over six designs across
+the offset modes, disc counts, processes and materials, and every one of the 500
+values is bit-identical. A saved design reopens on exactly the answers it gave
+before, with one number on the datasheet that was not there yesterday.
+
 ## 2.3.1
 
 **Fixed**

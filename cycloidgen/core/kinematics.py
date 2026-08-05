@@ -161,6 +161,26 @@ def sweep(spec: GearSpec, steps: int = SWEEP_STEPS) -> tuple[ContactState, ...]:
                   spec.lobes, steps)
 
 
+@lru_cache(maxsize=1024)
+def _mesh_gaps(R_eff: float, Rr_eff: float, R: float, Rr: float, E: float,
+               lobes: int, phi: float, n: int) -> np.ndarray:
+    """:func:`mesh_gaps` on plain numbers, so results can be cached and shared.
+
+    Worth caching: this is the one part of a design update that samples the
+    profile and measures against it, the checks and the stiffness and
+    transmission-error studies all ask for the same crank angles, and it is a
+    pure function of the numbers below.  Handed out read-only, like the sweep.
+    """
+    p = prof.sampled_profile(R_eff, Rr_eff, E, lobes, n)
+    pins = lobes + 1
+    alpha = 2.0 * np.pi * np.arange(pins) / pins
+    pins_world = R * np.column_stack([np.cos(alpha), np.sin(alpha)])
+    pins_disc = to_disc_frame(pins_world, phi, E, lobes)
+    gaps = prof.distance_to_polyline(pins_disc, p.points) - Rr
+    gaps.flags.writeable = False
+    return gaps
+
+
 def mesh_gaps(spec: GearSpec, phi: float, n: int = 2000) -> np.ndarray:
     """Normal clearance at every ring pin at crank angle ``phi``, mm.
 
@@ -171,11 +191,9 @@ def mesh_gaps(spec: GearSpec, phi: float, n: int = 2000) -> np.ndarray:
 
     A negative value means the disc and that pin occupy the same space.
     """
-    p = prof.profile_from_spec(spec, n=n)
-    alpha = 2.0 * np.pi * np.arange(spec.pin_count) / spec.pin_count
-    pins_world = spec.pin_circle_radius * np.column_stack([np.cos(alpha), np.sin(alpha)])
-    pins_disc = to_disc_frame(pins_world, float(phi), spec.eccentricity, spec.lobes)
-    return prof.distance_to_polyline(pins_disc, p.points) - spec.pin_radius
+    return _mesh_gaps(spec.effective_R, spec.effective_Rr, spec.pin_circle_radius,
+                      spec.pin_radius, spec.eccentricity, spec.lobes,
+                      float(phi), int(n))
 
 
 @dataclass(frozen=True)

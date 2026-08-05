@@ -15,7 +15,12 @@ from .bearings import BearingChoice, select_bearings
 from .efficiency import EfficiencyResult, analyse_efficiency
 from .mass import MassResult, analyse_mass
 from .mechanics import ContactResult, analyse_contacts, torque_capacity
-from .stiffness import StiffnessResult, analyse_stiffness
+from .stiffness import (
+    StiffnessResult,
+    TransmissionErrorResult,
+    analyse_stiffness,
+    analyse_transmission_error,
+)
 from .thermal import ThermalResult, analyse_thermal
 
 __all__ = ["DesignAnalysis", "analyse"]
@@ -28,6 +33,7 @@ class DesignAnalysis:
     contact: ContactResult
     efficiency: EfficiencyResult
     stiffness: StiffnessResult
+    transmission_error: TransmissionErrorResult
     thermal: ThermalResult
     mass: MassResult
     bearings: list[BearingChoice]
@@ -65,6 +71,7 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     contact = analyse_contacts(spec)
     eff = analyse_efficiency(spec)
     stiff = analyse_stiffness(spec)
+    te = analyse_transmission_error(spec)
     therm = analyse_thermal(spec, efficiency=eff)
     mass = analyse_mass(spec)
     bearings = select_bearings(spec, contact.eccentric_bearing_load_N,
@@ -106,6 +113,16 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
             f"from the profile clearance and {stiff.lost_motion_output_arcmin:.1f} "
             f"from the output holes. Tighten the process or the hole fit to cut it.",
             stiff.lost_motion_arcmin, 60.0)
+
+    rep.add(Severity.INFO, "TRANSMISSION_ERROR",
+            f"Ripple in the output angle at {spec.output_torque_Nm:g} Nm: "
+            f"{te.peak_to_peak_arcmin:.2f} arcmin peak to peak, "
+            f"{te.rms_arcmin:.2f} rms - {te.output_arcmin:.2f} from the output "
+            f"pins handing load between each other every "
+            f"{te.output_period_deg:.0f} deg of crank, {te.ring_arcmin:.2f} from "
+            f"the ring mesh every {te.ring_period_deg:.0f} deg. Clearance take-up "
+            f"and elastic deflection together; pin position and profile error "
+            f"are not in it.", te.peak_to_peak_arcmin)
 
     if stiff.load_concentration > 1.5:
         rep.add(Severity.WARNING, "LOAD_CONCENTRATION",
@@ -192,5 +209,6 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                     choice.life_hours, 5000.0)
 
     return DesignAnalysis(spec=spec, report=rep, contact=contact, efficiency=eff,
-                          stiffness=stiff, thermal=therm, mass=mass,
-                          bearings=bearings, torque_capacity_Nm=capacity)
+                          stiffness=stiff, transmission_error=te, thermal=therm,
+                          mass=mass, bearings=bearings,
+                          torque_capacity_Nm=capacity)

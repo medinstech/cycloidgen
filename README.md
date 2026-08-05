@@ -218,6 +218,16 @@ Beyond the geometry checks, every design gets a datasheet:
   output stages in series. A ground steel drive comes out in the single-digit
   arcmin and hundreds of Nm/arcmin band that commercial reducers of that size
   quote. Housing, shaft and carrier are taken as rigid, so it is an upper bound.
+- **Transmission error** — the ripple in output angle under a steady load, which
+  is the number that decides whether a drive can *position*. Lost motion is the
+  play before the output moves; this is what it does once it is moving, as the
+  mesh hands load from one contact to the next. Each stage is swept over its own
+  period, and they are not the same: the output stage repeats every
+  `2·pi·N/(n·(N−1))` of crank, about two and a half lobe pitches, and measuring
+  it over a lobe pitch instead reports about half the ripple that is there.
+  A phased disc stack cancels much of it — the discs ride opposite halves of the
+  same cycle — which a stiffness average cannot see, because phasing leaves the
+  mean alone and only moves the ripple.
 - **PV and running temperature.** PV is the wear limit, and it is what actually
   finishes a printed drive — a PLA disc can sit well inside its stress allowable
   and still wear round in an afternoon. Quoted on the projected-area convention
@@ -239,7 +249,8 @@ Errors block export; warnings do not.
 `OUTPUT_HOLES_OVERLAP` · `THIN_INNER_WEB` · `THIN_OUTER_WEB` · `WEB_SHEAR` ·
 `CLEARANCE_DEFICIT` · `SINGLE_DISC_UNBALANCE` · `UNBALANCE_FORCE` ·
 `PRESSURE_ANGLE` · `HERTZ_STRESS_RING` · `HERTZ_STRESS_OUTPUT` ·
-`LOAD_CONCENTRATION` · `LOST_MOTION` · `TORSIONAL_STIFFNESS` · `PV_LIMIT_RING` ·
+`LOAD_CONCENTRATION` · `LOST_MOTION` · `TRANSMISSION_ERROR` ·
+`TORSIONAL_STIFFNESS` · `PV_LIMIT_RING` ·
 `PV_LIMIT_OUTPUT` · `OVERTEMP` · `RUNNING_HOT` · `LOW_EFFICIENCY` ·
 `SHORT_BEARING_LIFE` · `PIN_RADIUS_SUGGESTION` · `MASS` · `DISCS_DIFFER`
 
@@ -379,7 +390,10 @@ The ideal load model treats the disc as rigid and each contact as a linear
 spring, so force is proportional to moment arm and only the pushing half of the
 pins carries load — the classical Kudryavtsev/Lehmann assumption. The stiffness
 model *does* see clearance and is what the capacity derating comes from, but it
-still assumes a rigid housing, shaft and carrier. The thermal model is a single
+still assumes a rigid housing, shaft and carrier. Transmission error is the
+drive's own share only — clearance take-up and deflection, both of which it
+solves; pin position error, profile error and runout are the manufacturing half
+and are not modelled, so a real drive measures worse. The thermal model is a single
 lumped body in still air with no conduction into whatever the gearbox is bolted
 to. Bearing catalogue values are nominal metric-series figures. PV limits are
 dry-against-steel design-guide values.
@@ -405,7 +419,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          423 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          433 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
