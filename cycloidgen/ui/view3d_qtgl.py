@@ -48,18 +48,31 @@ of trying - instrumenting shows ``initializeGL`` once, ``paintGL`` five times,
 widget, two renderers and twelve actors.  VTK believes it is drawing a full
 scene and none of it survives to what Qt composites.
 
+The blank is **black**, not the renderer's background - which is
+``(238, 237, 255)`` and would be there if VTK were drawing at all.  So nothing
+reaches the surface Qt composites, rather than a scene being drawn and then
+culled.  The camera is not the problem either: it sits 350 mm out with a
+clipping range of 178 to 596 around bounds of about +-65.
+
+**The scene is not the problem.**  Substituting a plain cone into the assembly
+view's own renderer, in the real window, is equally black.  A cone in the same
+widget outside that window draws.
+
 Ruled out, each measured rather than reasoned about: VTK's own multisampling
 (now left to Qt), FXAA, SSAO, the orientation marker's second renderer, the
 ``StartEvent`` observer, layered rendering, the surface format (a 3.2 core
 profile draws as happily as the 4.6 compatibility one the driver gives by
-default), and rebinding Qt's framebuffer before an explicit
-``BlitDisplayFramebuffer``.  What is left is the difference between a cone and
-this scene: actors built from numpy buffers, the light kit, the background, the
-section-plane clipping, and the camera.  That is where the next attempt starts,
-and building the scene up from the cone will find it faster than taking the
-assembly view apart - subtracting from the view has now been tried twice and
-each answer was the same, which usually means the cause is something not on the
-list.
+default), rebinding Qt's framebuffer before an explicit
+``BlitDisplayFramebuffer``, nesting in a layout, nesting in a tab that has to be
+switched to, the application-wide stylesheet, and importing VTK's own Qt widget
+module first.
+
+So the cause is in how :class:`~cycloidgen.ui.main_window.MainWindow` builds and
+hosts the thing, and it is not any of the pieces above.  Both directions of
+subtraction have been tried and both said "still blank", which is the signature
+of a cause nobody has named yet.  The next attempt should go the other way for
+real: start from the tab probe that works and add ``MainWindow``'s construction
+to it a step at a time, rather than removing things from a window that does not.
 
 Three traps, all of them paid for, and all of them the same lesson - **check the
 measurement before believing the result**:
