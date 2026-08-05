@@ -48,6 +48,12 @@ _HEADLESS_PLATFORMS = frozenset({"offscreen", "minimal", "minimalegl", "vnc"})
 #: ask someone whose 3D tab misbehaves.
 _OVERRIDE = "CYCLOIDGEN_VTK"
 
+#: Force the *backend* either way, independently of whether VTK runs at all.
+#: ``1`` renders into Qt's own GL context, which is the only thing that can work
+#: on macOS and the only way to exercise that path from a machine where the
+#: older one already does.
+_QT_GL_OVERRIDE = "CYCLOIDGEN_VTK_QTGL"
+
 
 def available() -> bool:
     """Whether a VTK view can be built on this display.
@@ -69,21 +75,14 @@ def available() -> bool:
       documents as X11-only. macOS views have been layer-backed, and mandatorily
       so, since 10.14. What happens is not a blank viewport: the first render
       blocks the main thread the moment the tab is opened, and the application
-      dies with it. The software painter draws the same scene and always works,
-      so that is what macOS gets.
+      dies with it.
 
-      The obvious repair does not work, and the next person should not spend the
-      day finding that out again. Rendering *inside* Qt's context - a
-      ``QOpenGLWidget`` of our own over a ``vtkGenericOpenGLRenderWindow``,
-      which is what VTK's C++ ``QVTKOpenGLNativeWidget`` does and its Python
-      side does not - was written and measured on Windows, where the ordinary
-      path works. It logs ``Failed to initialize OpenGL functions`` and takes
-      the process down inside ``show()``, in a context Qt reports as 4.6
-      compatibility and which a plain ``QOpenGLWidget`` paints in happily.
-      Stripped to a bare render window with no configuration at all, it still
-      dies before ``initializeGL`` runs. Whatever the reason, embedding that
-      class from Python is not supported by the wheel VTK 9.6 ships, so there
-      is nothing here to build a macOS viewport on.
+      :mod:`cycloidgen.ui.view3d_qtgl` is the repair being built - a viewport
+      that renders *inside* Qt's context instead of building one beside it, so
+      there is no native handle to get wrong. It is not finished, it is off by
+      default everywhere, and the software painter is what macOS gets until it
+      is: the failure guarded against here kills the application, and an
+      unfinished renderer is not a trade against one that certainly works.
     * **Whether the modules are importable**, which is an ordinary question.
 
     Whether the *driver* can then give a GL context is the one thing left to
@@ -157,6 +156,28 @@ def _imports():
     }
 
 
+def qt_context_wanted() -> bool:
+    """Whether to render inside Qt's GL context instead of beside it.
+
+    **Off everywhere by default, including macOS, because it is not finished.**
+    See :mod:`cycloidgen.ui.view3d_qtgl` for where it got to: it renders a scene
+    correctly on its own and comes out empty inside
+    :class:`VtkAssemblyView`, with every GL callback firing, the context
+    adopted, the right size and twelve actors present.  Until that is
+    understood it is a thing to develop, not a thing to select.
+    """
+    return os.environ.get(_QT_GL_OVERRIDE, "").strip() == "1"
+
+
+def _render_widget(v: dict, parent):
+    """The viewport, on whichever of the two backends this machine wants."""
+    if qt_context_wanted():
+        from .view3d_qtgl import QtGLRenderWidget
+        logger.info("3D: rendering into Qt's own GL context")
+        return QtGLRenderWidget(parent)
+    return v["QVTKRenderWindowInteractor"](parent)
+
+
 class VtkAssemblyView(QWidget):
     """Same interface as the software view, so the tab can hold either."""
 
@@ -181,7 +202,7 @@ class VtkAssemblyView(QWidget):
         self._section = 0.0
         self._mode = "light"
 
-        self._widget = v["QVTKRenderWindowInteractor"](self)
+        self._widget = _render_widget(v, self)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._widget)
@@ -191,8 +212,16 @@ class VtkAssemblyView(QWidget):
         window.AddRenderer(self._renderer)
         # Multisampling is the cheap, universally supported anti-aliasing;
         # FXAA is the fallback for drivers that quietly give zero samples.
-        window.SetMultiSamples(8)
-        self._renderer.UseFXAAOn()
+        #
+        # Not on the Qt-context backend: there VTK renders into its own
+        # framebuffer and blits into the one Qt bound, and a multisampled source
+        # cannot be blitted into a single-sampled destination - the frame is
+        # dropped and the viewport comes out empty rather than aliased.  Qt is
+        # already asked for a multisampled surface in `app.prepare_opengl`, so
+        # the samples are not lost, they are just the ones Qt owns.
+        if not qt_context_wanted():
+            window.SetMultiSamples(8)
+            self._renderer.UseFXAAOn()
 
         # A three-point kit rather than the single head-on light VTK starts
         # with: a flat frontal light on a machined part removes exactly the
@@ -560,15 +589,20 @@ class VtkAssemblyView(QWidget):
             points.Modified()
 
     def _render(self) -> None:
+        # Through the widget rather than straight at the render window.  On the
+        # Qt-context backend a frame has to be drawn inside `paintGL`, where Qt
+        # has made the context current, and `Render` there schedules one.  VTK's
+        # own widget spells it the same way, so this reads identically on both.
         if self.isVisible():
-            self._widget.GetRenderWindow().Render()
+            self._widget.Render()
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
-        self._widget.GetRenderWindow().Render()
+        self._widget.Render()
 
     def closeEvent(self, event) -> None:
         # The interactor holds the window; letting it go with the widget still
-        # attached leaves a GL context behind on shutdown.
-        self._widget.GetRenderWindow().Finalize()
+        # attached leaves a GL context behind on shutdown.  Both backends spell
+        # the cleanup `Finalize`.
+        self._widget.Finalize()
         super().closeEvent(event)

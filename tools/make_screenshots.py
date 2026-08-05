@@ -41,6 +41,7 @@ from PySide6.QtCore import QEventLoop, QPoint, QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from cycloidgen.core.spec import GearSpec, Process, preset  # noqa: E402
+from cycloidgen.ui.app import prepare_opengl  # noqa: E402
 from cycloidgen.ui.main_window import MainWindow  # noqa: E402
 
 #: Matches the committed screenshots, so the README's images stay one size.
@@ -198,6 +199,9 @@ def main() -> int:
     if sys.platform != "win32":
         raise SystemExit("PrintWindow is a Win32 call; run this one on Windows")
 
+    # The same GL preparation the real entry point does, or a run with
+    # CYCLOIDGEN_VTK_QTGL=1 would be measuring a different program.
+    prepare_opengl()
     app = QApplication.instance() or QApplication(sys.argv)
     window = MainWindow()
     window.resize(*WINDOW)
