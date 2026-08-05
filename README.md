@@ -9,6 +9,30 @@ takes a handful of parameters — or a set of requirements — runs the drive li
 2D and 3D, checks it, sizes it, and writes DXF, SVG, STEP, STL, a looping
 animation, a bill of materials and a PDF dossier.
 
+- **Exact geometry.** The conjugate profile in closed form, verified to sit at
+  exactly the pin radius from the pin-centre locus — envelope deviation 0.0 µm.
+- **A datasheet, not a drawing.** Contact stress, torque capacity, efficiency,
+  torsional stiffness, lost motion, transmission error, PV and running
+  temperature, mass and inertia, bearing life.
+- **Forty-four checks that explain themselves.** Each says what it tests, what
+  goes wrong physically when it fails, and which parameter to move — and lights
+  that parameter up in the panel.
+- **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
+  a shortlist that passes every check, with the trade-offs side by side.
+- **Nothing is asserted that is not verified.** 464 tests, and where two parts
+  of the app describe the same gearbox they are checked against each other —
+  the 3D mesh against the volume the exported solid encloses, the export
+  manifest against the files that land on disk.
+
+**Preliminary sizing numbers, not a certification.** See
+[*How far to trust the analysis*](#how-far-to-trust-the-analysis).
+
+**Jump to** — [Run it](#run-it) · [Two ways to use it](#two-ways-to-use-it) ·
+[What it produces](#what-it-produces) · [The geometry](#the-geometry) ·
+[What it tells you](#what-it-tells-you) · [Checks](#checks) ·
+[In the app](#in-the-app) · [Tests](#tests) · [Performance](#performance) ·
+[Contributing](#contributing)
+
 ![the application](docs/app-drawing.png)
 
 Selecting a check tells you what it tests, why it matters and what to change;
@@ -33,11 +57,23 @@ kernel and cannot drift from what you get in the STEP file.
 
 ## Run it
 
-```bash
-py -3.12 -m venv .venv
+Python 3.10 – 3.12, on Windows, Linux or macOS.
+
+```powershell
+py -3.12 -m venv .venv                          # Windows
 .venv\Scripts\python -m pip install -e ".[dev]"
 .venv\Scripts\python -m cycloidgen
 ```
+
+```bash
+python3 -m venv .venv                           # Linux, macOS
+.venv/bin/python -m pip install -e ".[dev]"
+.venv/bin/python -m cycloidgen
+```
+
+Windows also has a [standalone installer](#standalone-build-and-installer) that
+needs no Python at all. It is unsigned, so SmartScreen will want a *More info ▸
+Run anyway* — see [RELEASING.md](RELEASING.md).
 
 Headless, without opening the window:
 
@@ -258,20 +294,38 @@ Beyond the geometry checks, every design gets a datasheet:
 
 ## Checks
 
-Errors block export; warnings do not.
+Forty-four of them. Errors block export; warnings do not; several are readings
+rather than tests.
 
-`UNDERCUT` · `K1_TOO_HIGH` · `PROFILE_SELF_INTERSECT` · `PROFILE_INTERFERENCE` ·
-`CLEARANCE_NOT_DELIVERED` · `PIN_OVERLAP` · `HOLE_HITS_BORE` · `HOLE_BREAKS_RIM` ·
-`OUTPUT_HOLES_OVERLAP` · `THIN_INNER_WEB` · `THIN_OUTER_WEB` · `WEB_SHEAR` ·
-`CLEARANCE_DEFICIT` · `SINGLE_DISC_UNBALANCE` · `UNBALANCE_FORCE` ·
-`PRESSURE_ANGLE` · `HERTZ_STRESS_RING` · `HERTZ_STRESS_OUTPUT` ·
-`LOAD_CONCENTRATION` · `LOST_MOTION` · `TRANSMISSION_ERROR` · `PIN_POSITION` ·
-`TORSIONAL_STIFFNESS` · `STRUCTURAL_COMPLIANCE` · `PV_LIMIT_RING` ·
-`PV_LIMIT_OUTPUT` · `OVERTEMP` · `RUNNING_HOT` · `LOW_EFFICIENCY` ·
-`SHORT_BEARING_LIFE` · `PIN_RADIUS_SUGGESTION` · `MASS` · `DISCS_DIFFER`
+**Profile** — `K1_TOO_HIGH` · `K1_HIGH` · `UNDERCUT` · `UNDERCUT_MARGIN` ·
+`PROFILE_SELF_INTERSECT` · `PROFILE_INTERFERENCE` · `CLEARANCE_NOT_DELIVERED` ·
+`PIN_RADIUS_SUGGESTION`
+
+**Layout** — `PIN_OVERLAP` · `PIN_SPACING` · `HOLE_HITS_BORE` ·
+`HOLE_BREAKS_RIM` · `THIN_INNER_WEB` · `THIN_OUTER_WEB` ·
+`OUTPUT_HOLES_OVERLAP` · `OUTPUT_HOLE_SPACING` · `ECCENTRIC_TIGHT` ·
+`DISCS_DIFFER`
+
+**Manufacturing** — `CLEARANCE_DEFICIT` · `HOLE_CLEARANCE_DEFICIT` ·
+`TOOL_RADIUS` · `PIN_POSITION`
+
+**Load and stress** — `PRESSURE_ANGLE` · `HERTZ_STRESS_RING` ·
+`HERTZ_STRESS_MARGIN` · `HERTZ_STRESS_OUTPUT` · `LOAD_CONCENTRATION` ·
+`WEB_SHEAR` · `WEB_SHEAR_MARGIN`
+
+**Precision** — `TORSIONAL_STIFFNESS` · `STRUCTURAL_COMPLIANCE` ·
+`LOST_MOTION` · `TRANSMISSION_ERROR`
+
+**Wear, heat and life** — `LOW_EFFICIENCY` · `PV_LIMIT_RING` · `PV_MARGIN_RING` ·
+`PV_LIMIT_OUTPUT` · `OVERTEMP` · `RUNNING_HOT` · `SHORT_BEARING_LIFE` ·
+`NO_BEARING_FITS`
+
+**Dynamics and mass** — `SINGLE_DISC_UNBALANCE` · `UNBALANCE_FORCE` · `MASS`
 
 Selecting a check in the app highlights the parameters it is actually about, so
 you are not left guessing which of twenty-odd numbers it wants you to change.
+That list is not maintained by hand: the codes are parsed out of the calls that
+raise them, and a check added without an explanation fails the suite.
 
 `PIN_RADIUS_SUGGESTION` is worth knowing about: the equivalent contact radius
 works out to `R_eq = Rr·(1 − Rr/rho_c)`, a parabola peaking at `Rr = rho_c/2`.
@@ -443,7 +497,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          463 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          464 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -459,8 +513,8 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-423 tests, about 300 s. Most of that is CadQuery writing solids; the pure
-analysis tests run in under a second. The Qt tests run headless
+464 tests, about 315 s. Most of that is CadQuery writing solids; the pure
+analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own
 application.
@@ -498,12 +552,18 @@ so they cannot drift from what it actually draws:
 
 ## Performance
 
-A full re-analysis is about 50 ms, down from 106 ms while doing considerably
-more work. Three things did it: the mesh sweep is computed once and shared
-instead of three modules each running their own, the profile and the undercut
-limit are cached, and the self-intersection test uses a uniform-grid broad phase
-instead of sampling every other segment against all the rest — which was also
-skipping over crossings it should have caught.
+A full re-analysis is about 110 ms — every check, every load, the stiffness
+model, transmission error and the whole datasheet, on each parameter edit. It
+was 106 ms when it did a fraction of that work, and three things bought the room
+the rest of it went into: the mesh sweep is computed once and shared instead of
+three modules each running their own, the profile, the undercut limit and the
+measured mesh clearances are cached, and the self-intersection test uses a
+uniform-grid broad phase instead of sampling every other segment against all the
+rest — which was also skipping over crossings it should have caught.
+
+Entering a pin position tolerance is the one thing that costs real time, about
+half a second, because it stops analysing *a* gearbox and starts analysing a
+batch of them. It is off unless you ask for it.
 
 Animation runs on a 33 ms tick and both views fit inside it. The drawing costs
 about 10 ms a frame, down from 25: the artists are built when the *design*

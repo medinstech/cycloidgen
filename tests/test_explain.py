@@ -9,6 +9,7 @@ fails too.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -66,6 +67,24 @@ def test_every_explanation_answers_all_three_questions():
         assert len(detail.why) > 60, f"{code}: 'why' is a restatement, not a reason"
         assert len(detail.fix) > 30, f"{code}: 'fix' does not say what to change"
         assert detail.keep in ("below", "above", ""), code
+
+
+def test_the_readme_lists_every_check_the_app_can_raise():
+    """The README is the shop window, and a checklist that is quietly missing a
+    quarter of its entries is worse than one that admits to being a sample.
+
+    Both directions, as everywhere else here: a check added without being listed
+    fails, and a code that only the README believes in fails too.
+    """
+    readme = (ROOT.parent / "README.md").read_text(encoding="utf-8")
+    listed = set(re.findall(r"`([A-Z][A-Z0-9_]{3,})`", readme))
+    codes = set(EXPLANATIONS)
+    assert not codes - listed, f"not in the README: {sorted(codes - listed)}"
+    # anything else in backticks and shouting is an env var or a constant, and
+    # those are named here so the test can tell them from a stale check code
+    known_shouting = {"CYCLOIDGEN_SETTINGS", "README"}
+    assert not listed - codes - known_shouting, \
+        f"the README names checks that do not exist: {sorted(listed - codes - known_shouting)}"
 
 
 def test_every_explained_check_can_also_point_at_its_parameters():

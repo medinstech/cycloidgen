@@ -18,11 +18,18 @@ with what you built and what you measured.
 
 ## Getting set up
 
-```bash
-py -3.12 -m venv .venv
+```powershell
+py -3.12 -m venv .venv                          # Windows
 .venv\Scripts\python -m pip install -e ".[dev]"
 .venv\Scripts\python -m pytest -q
 .venv\Scripts\python -m ruff check .
+```
+
+```bash
+python3 -m venv .venv                           # Linux, macOS
+.venv/bin/python -m pip install -e ".[dev]"
+.venv/bin/python -m pytest -q
+.venv/bin/python -m ruff check .
 ```
 
 Both have to pass. CI runs them on Linux, Windows and macOS across the oldest
@@ -68,11 +75,15 @@ the version policy, which is built around the same question.
 
 ```
 cycloidgen/
-├── core/       spec (the one source of truth), profile, kinematics, validate
-├── analysis/   mechanics (Hertz), stiffness, thermal, mass, efficiency, bearings
+├── core/       spec (the one source of truth), profile, kinematics, validate,
+│               explain (what each check tests, why, and what to change)
+├── analysis/   mechanics (Hertz), stiffness (contacts, backlash, transmission
+│               error), compliance (the parts around the mesh, as springs),
+│               tolerance (where the pins actually are), thermal, mass,
+│               efficiency, bearings
 ├── design/     optimise (requirements -> geometry), sweep (trade studies)
 ├── viz/        mesh and scene: 3D geometry and rendering maths, no Qt
-├── export/     manifest (what a bundle contains), dxf, svg, solid, bom
+├── export/     manifest (what a bundle contains), dxf, svg, solid, bom, animation
 ├── report/     plots (shared by the app and the PDF), build
 └── ui/         PySide6 window, 3D viewer, outputs tab, trade study, log panel
 ```
