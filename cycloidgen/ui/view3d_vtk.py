@@ -17,6 +17,7 @@ which is why this runs at the display's refresh rate instead of the timer's.
 from __future__ import annotations
 
 import os
+import sys
 import traceback
 
 import numpy as np
@@ -75,6 +76,22 @@ def _imports():
     """
     import vtkmodules.qt
     vtkmodules.qt.PyQtImpl = "PySide6"
+
+    # Which Qt class the VTK widget derives from, and on macOS it is not a
+    # detail.  The default base is a plain ``QWidget`` carrying
+    # ``WA_PaintOnScreen``, and VTK then creates its own GL context directly on
+    # the native handle ``winId()`` returns.  Qt documents that attribute as
+    # X11-only, and macOS views have been layer-backed - and mandatorily so -
+    # since 10.14, so what the tab gets is a correctly sized viewport with
+    # nothing drawn in it.  Nothing raises; there is no failure for the fallback
+    # in `build_view` to catch, because from Qt's side everything worked.
+    #
+    # ``QOpenGLWidget`` is the path VTK supports for PySide6, and it puts the
+    # context under Qt's control rather than beside it.  Windows and Linux are
+    # left on the default: it is what has been running, and a base class swap is
+    # not a thing to do to a working renderer from a machine that cannot test it.
+    if sys.platform == "darwin":
+        vtkmodules.qt.QVTKRWIBase = "QOpenGLWidget"
 
     # These two are imported for their side effect: importing them is what
     # registers the OpenGL backend and the interactor styles with VTK's object
