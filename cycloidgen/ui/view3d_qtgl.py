@@ -36,32 +36,44 @@ Where this got to, so the next attempt starts here
 **Unfinished.**  Off by default everywhere, including macOS, and selected only
 by ``CYCLOIDGEN_VTK_QTGL=1``.
 
-Working: on its own, in a bare ``QOpenGLWidget`` with one renderer and one
-actor, it adopts the context and draws - measured on Windows at 33 distinct
-on-screen colours against a control that draws nothing.
+**Working**, on Windows, measured by photographing the top-level window: a cone
+in this widget draws whether the widget is top-level, inside a layout, or inside
+a tab that has to be switched to.  A control with no VTK in it draws nothing, so
+the measurement discriminates.
 
-Not working: the same widget inside :class:`~cycloidgen.ui.view3d_vtk.VtkAssemblyView`
-comes out empty.  Not for want of trying to render - instrumenting it shows
-``initializeGL`` once, ``paintGL`` five times, ``resizeGL`` four, the context
-adopted, the render window sized 682x432 to match the widget, two renderers and
-twelve actors.  VTK believes it is drawing a full scene; none of it reaches the
-framebuffer Qt composites.  Ruled out so far: multisampling (VTK's own, now left
-to Qt), FXAA, and the surface format - a 3.2 core profile renders as happily as
-the 4.6 compatibility one the driver gives by default.  Still to try: the
-orientation marker's second renderer, the ``StartEvent`` observer, and whether
-anything in the assembly view rebinds a framebuffer VTK then blits into.
+**Not working**: the same widget inside
+:class:`~cycloidgen.ui.view3d_vtk.VtkAssemblyView` comes out empty.  Not for want
+of trying - instrumenting shows ``initializeGL`` once, ``paintGL`` five times,
+``resizeGL`` four, the context adopted, the render window sized to match the
+widget, two renderers and twelve actors.  VTK believes it is drawing a full
+scene and none of it survives to what Qt composites.
 
-Two warnings, both paid for:
+Ruled out, each measured rather than reasoned about: VTK's own multisampling
+(now left to Qt), FXAA, SSAO, the orientation marker's second renderer, the
+``StartEvent`` observer, layered rendering, the surface format (a 3.2 core
+profile draws as happily as the 4.6 compatibility one the driver gives by
+default), and rebinding Qt's framebuffer before an explicit
+``BlitDisplayFramebuffer``.  What is left is the difference between a cone and
+this scene: actors built from numpy buffers, the light kit, the background, the
+section-plane clipping, and the camera.  That is where the next attempt starts,
+and building the scene up from the cone will find it faster than taking the
+assembly view apart - subtracting from the view has now been tried twice and
+each answer was the same, which usually means the cause is something not on the
+list.
 
-* **Do not measure it with** ``QOpenGLWidget.grabFramebuffer``.  It reports a
-  uniform image for a viewport that is demonstrably drawing on screen, because
-  what VTK blits into is not what that call reads back.  Photograph the window -
-  ``PrintWindow`` with ``PW_RENDERFULLCONTENT``, as ``tools/make_screenshots.py``
-  does.
-* **Do not write** ``mapper.SetInputConnection(vtkConeSource().GetOutputPort())``
-  in a test.  The temporary source is collected immediately, the port does not
-  keep it alive, and the segfault that follows looks exactly like a broken GL
-  integration.  An afternoon went into that one.
+Three traps, all of them paid for, and all of them the same lesson - **check the
+measurement before believing the result**:
+
+* ``QOpenGLWidget.grabFramebuffer`` is not a measurement here.  It reports a
+  uniform image for a viewport demonstrably drawing on screen.
+* Neither is ``PrintWindow`` on a *child* widget's own ``winId()``.  It reported
+  blank for the same widget that a top-level capture showed rendering, which
+  cost a whole false conclusion about nesting.  Photograph the top-level window
+  and crop, as ``tools/make_screenshots.py`` does.
+* ``mapper.SetInputConnection(vtkConeSource().GetOutputPort())`` segfaults.  The
+  temporary source is collected the moment the call returns, the port does not
+  keep it alive, and the crash looks exactly like a broken GL integration.  It
+  cost an afternoon and a wrong bug report that was very nearly filed upstream.
 """
 from __future__ import annotations
 
