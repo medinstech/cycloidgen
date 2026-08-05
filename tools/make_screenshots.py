@@ -37,7 +37,7 @@ DOCS = ROOT / "docs"
 os.environ.pop("QT_QPA_PLATFORM", None)
 
 from PIL import Image  # noqa: E402
-from PySide6.QtCore import QEventLoop, QTimer  # noqa: E402
+from PySide6.QtCore import QEventLoop, QPoint, QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from cycloidgen.core.spec import GearSpec, Process, preset  # noqa: E402
@@ -100,8 +100,38 @@ def select_finding(window: MainWindow, code: str) -> bool:
     return False
 
 
-def capture(window: MainWindow, path: Path) -> None:
-    """Photograph the window through PrintWindow, including native children."""
+def verify_hue(image: Image.Image) -> None:
+    """Refuse to write a screenshot whose channels are the wrong way round.
+
+    A red/blue swap is the one defect in this pipeline that cannot be caught by
+    looking: BGRA arrives from GDI, and the picture that comes out of getting
+    the conversion wrong is a perfectly composed window in a plausible-looking
+    palette.  It shipped once.
+
+    Every surface in the light theme is a *blue*-tinted white - the window is
+    ``#eeedff`` and a panel is ``#f5f5ff`` - because they are white mixed with
+    the brand blue.  Which of them covers the most pixels depends on the tab, so
+    the test is not which one it is; it is that the background is still tinted
+    the way the brand tints it.  Reverse the channels and the same pixels come
+    out warm, which is the one thing that cannot happen by accident.
+    """
+    red, _green, blue = max(image.getcolors(maxcolors=1 << 24),
+                            key=lambda kv: kv[0])[1]
+    if blue < red:
+        raise SystemExit(
+            f"the red and blue channels look swapped: the background came out "
+            f"({red}, {_green}, {blue}), which is warm, and every surface in "
+            f"the light theme is a blue-tinted white")
+
+
+def capture(window: MainWindow, path: Path, widget=None) -> None:
+    """Photograph the window through PrintWindow, including native children.
+
+    ``widget`` crops the result to one child - which is how the bare gearbox
+    figures are taken.  They have to come from here rather than from
+    ``docs/make_figures.py``: that renders through the *software* painter, and
+    next to a screenshot of the real viewport it reads as a different program.
+    """
     hwnd = int(window.winId())
     user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
 
@@ -138,11 +168,30 @@ def capture(window: MainWindow, path: Path) -> None:
     gdi32.DeleteDC(memory_dc)
     user32.ReleaseDC(hwnd, window_dc)
 
-    # BGRA off the wire, and the alpha channel is meaningless for a screenshot
+    # GDI hands back BGRA, and the `raw` decoder's "BGRA" mode is what reorders
+    # it - doing that *and* swapping the channels by hand afterwards puts them
+    # straight back, which is a mistake that survives review because the result
+    # is a perfectly plausible picture in the wrong hue.  The alpha channel is
+    # meaningless for a screenshot, so it goes.
     image = Image.frombuffer("RGBA", (width, height), buffer, "raw", "BGRA", 0, 1)
-    b, g, r, _a = image.split()
-    Image.merge("RGB", (r, g, b)).save(path)
-    print(f"  {path.name}  {width}x{height}  {path.stat().st_size / 1024:.0f} kB")
+    image = image.convert("RGB")
+    verify_hue(image)
+
+    if widget is not None:
+        # PrintWindow photographs the frame as well, so the widget's position
+        # inside the client area has to be shifted by however much of that frame
+        # sits above and to the left of it.
+        scale = width / max(window.frameGeometry().width(), 1)
+        inset = window.geometry().topLeft() - window.frameGeometry().topLeft()
+        origin = widget.mapTo(window, QPoint(0, 0))
+        left, top = origin.x() + inset.x(), origin.y() + inset.y()
+        image = image.crop((round(left * scale), round(top * scale),
+                            round((left + widget.width()) * scale),
+                            round((top + widget.height()) * scale)))
+
+    image.save(path)
+    print(f"  {path.name}  {image.width}x{image.height}  "
+          f"{path.stat().st_size / 1024:.0f} kB")
 
 
 def main() -> int:
@@ -192,6 +241,26 @@ def main() -> int:
     window._view3d.view.fit()
     settle(app, 1500)
     capture(window, DOCS / "app-3d.png")
+
+    # The gearbox on its own, assembled and pulled apart, cropped out of the
+    # same viewport.  The README puts these next to the window shots, so they
+    # have to be the same renderer or the reader is looking at two programs.
+    #
+    # The window is reshaped first.  In the normal layout the viewport is a wide
+    # letterbox, and `fit` fits to its *shortest* side - so a gearbox cropped
+    # out of it is a small object adrift in a field of background. A squarer
+    # window gives a squarer viewport and the part fills it.
+    viewport = window._view3d.view
+    window.resize(1080, 1020)
+    settle(app, 900)
+    window._view3d.view.fit()
+    settle(app, 900)
+    capture(window, DOCS / "assembly.png", widget=viewport)
+
+    window._view3d.view.set_explode(0.85)
+    window._view3d.view.fit()
+    settle(app, 1200)
+    capture(window, DOCS / "exploded.png", widget=viewport)
 
     window.close()
     return 0

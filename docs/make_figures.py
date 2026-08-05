@@ -59,14 +59,14 @@ def main() -> int:
                                                        trace=True)),
           "drawing.png")
 
-    # The same scene the 3D tab paints, rendered through matplotlib instead of
-    # QPainter - so the picture in the README is the picture in the window.
-    _save(plots.assembly_figure(spec, Figure(figsize=(7.0, 5.0), dpi=110),
-                                crank_deg=28.0),
-          "assembly.png")
-    _save(plots.assembly_figure(spec, Figure(figsize=(7.0, 5.2), dpi=110),
-                                explode=0.85, azimuth=32.0, elevation=20.0),
-          "exploded.png")
+    # `assembly.png` and `exploded.png` are *not* written here, though this
+    # module has the code that could: `plots.assembly_figure` is the software
+    # painter, the fallback for a machine with no OpenGL, and it renders flat
+    # facets with no anti-aliasing.  On its own that is honest work - it is what
+    # the PDF report embeds, and it is why a headless export still has a picture
+    # of the gearbox in it.  Next to a screenshot of the real viewport in the
+    # same README it reads as a different program.  `tools/make_screenshots.py`
+    # crops those two out of the running 3D tab instead.
 
     # The trade study: one parameter moved, four consequences reported. Pin
     # radius is the clearest example - it has a genuine interior optimum rather

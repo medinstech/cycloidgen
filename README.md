@@ -52,8 +52,12 @@ the input, one of the output.
 
 The 3D view turns on the same crank as the drawing, so the mechanism is the same
 mechanism in both. It is built from the same closed-form profile — not
-tessellated from the exported solids — so it works in a build without the CAD
-kernel and cannot drift from what you get in the STEP file.
+tessellated from the exported solids — so it cannot drift from what you get in
+the STEP file, and it still works in a build with the CAD kernel stripped out.
+
+That second picture is the viewport itself, cropped out of the running window
+rather than redrawn. On a machine with no OpenGL the same scene comes out of a
+software painter instead, which is what the PDF report embeds.
 
 ## Run it
 
