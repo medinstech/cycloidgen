@@ -5,6 +5,50 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 3.2.0
+
+**Added**
+
+- **Fatigue, not just static strength.** Every other strength check in the app
+  asks whether a part survives its peak load once. For two of them that is the
+  wrong question: the disc web and the output pins are loaded and unloaded once
+  per input revolution — the web because the load sweeps a whole turn around it,
+  the pins because the push rotates about them — so both see a fully reversed
+  cycle, and a part can sit well inside yield and still crack.
+
+  Marin-corrected infinite life against Goodman, at the running temperature from
+  the thermal solve rather than at ambient, and at 99% reliability because the
+  published strengths are means. Surface finish is a real term in it and the
+  biggest one: a ground disc and a printed one differ by a factor of three on
+  the same alloy, which makes a manufacturing choice into a strength decision.
+
+  Polymers get no number. Printed-part fatigue turns on layer orientation and
+  void content far more than on tensile strength, and a rule fitted to wrought
+  metal applied to PLA would be a confident answer with nothing behind it — so
+  the report says the question is not being answered rather than answering it
+  badly. Aluminium and bronze are reported on a 5e8-cycle basis and say so; they
+  have no endurance limit to quote.
+
+**Fixed**
+
+- **The design search was returning drives whose output pins bend on the first
+  turn.** Nothing in the app had ever looked at output pin bending, and the pins
+  are cantilevers — `export.solid` extrudes them from one carrier plate and
+  nothing catches their free ends. Asked the question for the first time, every
+  design the search returned for its own steel requirements came back between
+  0.11 and 0.99 on fatigue, and the thin ones were past yield in bending as
+  well. It varies pin diameter and count already, so it can find its way out; it
+  had simply never been told this was a constraint. It is now, and there is a
+  test that the designs it hands back survive being turned.
+
+**Changed**
+
+- **The material table gains an ultimate tensile strength and a fatigue
+  strength.** The ultimate is needed for Goodman and for the surface factor. The
+  fatigue strength is stated per material rather than derived from it, because
+  the usual 0.5×Sut stops holding above about 1400 MPa — 100Cr6 would otherwise
+  be credited with 1000 MPa of endurance limit it does not have.
+
 ## 3.1.1
 
 **Fixed**
