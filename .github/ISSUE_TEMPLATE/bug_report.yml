@@ -43,7 +43,7 @@ body:
     attributes:
       label: Version
       description: "`Help ▸ About cycloidgen`, or `pip show cycloidgen`."
-      placeholder: "2.3.0"
+      placeholder: "2.3.1"
     validations:
       required: true
 

@@ -101,7 +101,7 @@ jobs:
           # NSIS will not create the folder its OutFile lives in: it fails with
           # "Can't open output file".
           New-Item -ItemType Directory -Force releases | Out-Null
-          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" /V2 /DFASTPACK "/DBUILD_DIR=$stub" packaging\cycloidgen.nsi
+          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" /V2 /INPUTCHARSET UTF8 /DFASTPACK "/DBUILD_DIR=$stub" packaging\cycloidgen.nsi
           if ($LASTEXITCODE -ne 0) { throw "makensis failed" }
           $setup = Get-ChildItem releases\*.exe
           "built $($setup.Name)"

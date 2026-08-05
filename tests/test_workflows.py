@@ -87,7 +87,12 @@ def test_the_release_notes_are_built_on_an_unhelpful_stdout():
     try:
         assert result.returncode == 0, result.stderr[-400:]
         notes = written.read_text(encoding="utf-8")
-        assert len(notes) > 500
-        assert "**Added**" in notes
+        assert len(notes) > 200
+        # Some section, not a particular one: a fix-only release has no
+        # **Added**, and asserting on the shape of this release's contents
+        # would make the test fail on the next one for no reason.
+        assert any(h in notes for h in ("**Added**", "**Changed**", "**Fixed**"))
+        # and the split stopped at the next version rather than running on
+        assert "\n## " not in notes
     finally:
         written.unlink(missing_ok=True)

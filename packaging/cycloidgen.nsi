@@ -1,4 +1,4 @@
-; ============================================================================
+﻿; ============================================================================
 ; cycloidgen - Windows installer
 ;
 ;   pyinstaller cycloidgen.spec --noconfirm     (writes dist\cycloidgen)
