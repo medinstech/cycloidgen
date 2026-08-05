@@ -452,3 +452,109 @@ def test_the_plain_cam_gets_a_wear_check_and_a_fitted_one_does_not():
     assert duty.pv_cam_MPa_m_s > 0.0
     assert duty.cam_pv_margin < 1.0                  # PLA on steel, dry, at speed
     assert "PV_LIMIT_CAM" in {f.code for f in analyse(plain).report.findings}
+
+
+# -------------------------------------------------------------- named by hand
+#
+# The sizing study takes the smallest part that fits the seat and lasts, which
+# is the right default and the wrong answer whenever something outside the
+# geometry is deciding: a bearing already in the drawer, one the supplier
+# stocks, or simply a bigger one than the smallest that will do.
+
+
+def _named(role_field, designation, spec=None):
+    spec = spec or _spec(rollers=False)
+    setattr(spec, role_field, designation)
+    return {c.role: c for c in _schedule(spec)}, spec
+
+
+def test_a_named_bearing_is_used_instead_of_the_smallest_that_fits():
+    auto = {c.role: c for c in _schedule(_spec(rollers=False))}
+    assert auto["Input shaft support"].bearing.designation == "6800"
+
+    schedule, _ = _named("shaft_bearing", "6004")
+    chosen = schedule["Input shaft support"].bearing
+    assert chosen.designation == "6004"
+    assert chosen.outer > auto["Input shaft support"].bearing.outer
+
+
+def test_a_named_bearing_that_does_not_fit_is_reported_not_replaced():
+    """'This is the bearing I have' is exactly the case where quietly handing
+    back a different one is useless."""
+    schedule, spec = _named("cam_bearing", "HK2020")     # 20 mm wide, 8 mm disc
+    choice = schedule["Eccentric cam bearing"]
+    assert choice.bearing.designation == "HK2020"        # not swapped
+    assert not choice.fits
+    assert "20 mm wide" in choice.problem
+    assert "BEARING_DOES_NOT_FIT" in {f.code for f in analyse(spec).report.findings}
+
+
+def test_a_bearing_that_does_not_go_in_is_not_drawn_either():
+    """Drawing it would mean shrinking it to the seat, and a picture of a part
+    at a size it is not is worse than no picture."""
+    _, spec = _named("cam_bearing", "HK2020")
+    assert not [p for p in placements_for_spec(spec) if p.name.startswith("bearing_cam")]
+    # ...and the seats that are still fine are untouched
+    assert [p for p in placements_for_spec(spec) if p.name == "bearing_shaft_supports"]
+
+
+def test_a_bore_standing_off_its_journal_is_a_fit_but_it_is_reported():
+    """A press fit onto nothing.  The sizing study takes any bore at or above
+    the journal, so this was reachable on automatic too and said nothing."""
+    schedule, spec = _named("shaft_bearing", "6905")     # 25 mm bore, 10 mm shaft
+    choice = schedule["Input shaft support"]
+    assert choice.fits                                   # it goes in, loosely
+    assert "stands 15.00 mm off" in choice.problem
+    assert [p for p in placements_for_spec(spec) if p.name == "bearing_shaft_supports"]
+
+
+def test_a_designation_this_build_does_not_know_costs_a_warning_not_a_crash():
+    """A design saved by a later version must open, not fail to load - so the
+    field is a plain string with no validator, and this is where it is caught."""
+    schedule, spec = _named("cam_bearing", "HK9999")
+    choice = schedule["Eccentric cam bearing"]
+    assert choice.bearing is None
+    assert "not a designation this build knows" in choice.problem
+    assert analyse(spec).report is not None
+
+
+def test_a_ball_bearing_is_refused_where_the_seat_wants_a_needle():
+    schedule, _ = _named("ring_pin_roller", "6800", spec=_big_pins())
+    assert "is a ball bearing" in schedule["Ring pin roller"].problem
+
+
+def test_the_required_life_is_the_design_s_and_not_two_hidden_numbers():
+    """Selection used to accept 1000 h while the report warned below 5000, so a
+    bearing could be picked and complained about in the same breath."""
+    spec = _spec(rollers=False)
+    assert spec.bearing_min_life_hours == 5000.0
+    for choice in _schedule(spec):
+        if choice.bearing is not None:
+            assert choice.life_hours >= spec.bearing_min_life_hours
+
+    # Ask for more than anything can give and the seats come back empty rather
+    # than filled with something that does not meet the requirement.
+    spec.bearing_min_life_hours = 5e8
+    assert all(c.bearing is None for c in _schedule(spec) if c.fitted)
+
+
+def test_a_named_bearing_short_of_the_required_life_is_the_one_case_that_warns():
+    """The study will not return one under the line, so only a hand-picked part
+    can be - which is why the two numbers have to be the same number."""
+    spec = _spec(rollers=False)
+    spec.shaft_bearing = "6800"
+    spec.bearing_min_life_hours = 1e7          # past what 6800 gives here
+    codes = {f.code for f in analyse(spec).report.findings}
+    assert "SHORT_BEARING_LIFE" in codes
+
+
+def test_the_panel_offers_every_catalogue_part_and_the_automatic_setting():
+    """A bearing added to the catalogue has to appear in the panel without
+    anyone remembering to add it there as well."""
+    from cycloidgen.core.spec import AUTOMATIC
+    from cycloidgen.ui.fields import GROUPS
+
+    fields = {f.name: f for _, group in GROUPS for f in group}
+    offered = fields["cam_bearing"].choices
+    assert offered[0] == AUTOMATIC
+    assert set(offered[1:]) == {b.designation for b in CATALOGUE}

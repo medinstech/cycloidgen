@@ -8,9 +8,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from ..core.spec import MATERIALS, OffsetMode, Process
+from ..analysis.bearings import CATALOGUE
+from ..core.spec import AUTOMATIC, MATERIALS, OffsetMode, Process
 
 Kind = Literal["float", "int", "bool", "choice"]
+
+#: What a bearing seat can be set to: let the study choose, or name a part.
+#: Straight off the catalogue, so a bearing added to it appears in the panel
+#: without anyone remembering to add it here as well.
+_BEARINGS: tuple[str, ...] = (AUTOMATIC, *(b.designation for b in CATALOGUE))
 
 
 @dataclass(frozen=True)
@@ -112,7 +118,7 @@ GROUPS: list[tuple[str, list[Field]]] = [
         Field("ring_pins_are_rollers", "Ring pins are rollers", "bool",
               tip="Needle rollers on the ring pins remove the largest loss."),
     ]),
-    ("Bearings fitted", [
+    ("Bearings", [
         Field("cam_bearing_fitted", "Cam bearing", "bool",
               tip="Off means the disc bore runs straight on the cam - a plain "
                   "journal at nearly full input speed, and the cam grows to "
@@ -123,6 +129,20 @@ GROUPS: list[tuple[str, list[Field]]] = [
         Field("output_bearing_fitted", "Main output bearing", "bool",
               tip="Off means the machine being driven locates the output "
                   "flange."),
+        Field("cam_bearing", "Cam bearing size", "choice", choices=_BEARINGS,
+              tip="'auto' takes the smallest that fits the seat and lasts. Name "
+                  "one and it is checked against the seat, not swapped for one "
+                  "that fits."),
+        Field("shaft_bearing", "Shaft bearing size", "choice", choices=_BEARINGS),
+        Field("output_bearing", "Output bearing size", "choice", choices=_BEARINGS),
+        Field("ring_pin_roller", "Ring pin roller", "choice", choices=_BEARINGS,
+              tip="Only used when the ring pins are rollers."),
+        Field("output_pin_roller", "Output pin roller", "choice", choices=_BEARINGS,
+              tip="Only used when the output pins carry rollers."),
+        Field("bearing_min_life_hours", "Minimum L10 life", "float", 10, 1e6, 1000,
+              decimals=0, suffix=" h",
+              tip="What a bearing has to reach before the study will take it, "
+                  "and what the short-life warning is measured against."),
     ]),
     ("Duty", [
         Field("input_rpm", "Input speed", "float", 1, 30000, 50, decimals=1,
@@ -186,6 +206,8 @@ CODE_FIELDS: dict[str, tuple[str, ...]] = {
     "PV_MARGIN_RING": ("ring_pins_are_rollers", "input_rpm"),
     "PV_LIMIT_OUTPUT": ("output_pins_are_rollers", "output_pin_diameter"),
     "PV_LIMIT_CAM": ("cam_bearing_fitted", "input_rpm", "disc_material"),
+    "BEARING_DOES_NOT_FIT": ("cam_bearing", "shaft_bearing", "output_bearing",
+                             "eccentric_cam_diameter", "center_bore_diameter"),
     "BEARINGS_OMITTED": ("cam_bearing_fitted", "shaft_bearings_fitted",
                          "output_bearing_fitted"),
     "OVERTEMP": ("input_rpm", "ring_pins_are_rollers", "housing_material"),

@@ -333,13 +333,23 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     # substring in the note, which is the same trick that got the BOM quantities
     # wrong; `fitted` says it outright.
     for choice in bearings:
-        if choice.fitted and choice.bearing is None and choice.note:
+        if choice.problem:
+            rep.add(Severity.WARNING, "BEARING_DOES_NOT_FIT",
+                    f"{choice.role}: {choice.problem}.")
+        elif choice.fitted and choice.bearing is None and choice.note:
             rep.add(Severity.WARNING, "NO_BEARING_FITS",
                     f"{choice.role}: {choice.note}")
-        elif choice.bearing is not None and choice.life_hours < 5000:
+        if choice.bearing is not None and \
+                choice.life_hours < spec.bearing_min_life_hours:
+            # Only reachable for a bearing asked for by name: the sizing study
+            # will not return one under this line, which is why the two numbers
+            # have to be the same one.  They were 1000 and 5000, so a bearing
+            # could be selected and then complained about in the same breath.
             rep.add(Severity.WARNING, "SHORT_BEARING_LIFE",
-                    f"{choice.role} ({choice.bearing.designation}) L10 life is short.",
-                    choice.life_hours, 5000.0)
+                    f"{choice.role} ({choice.bearing.designation}) reaches "
+                    f"{choice.life_hours:,.0f} h against the "
+                    f"{spec.bearing_min_life_hours:,.0f} h this design asks for.",
+                    choice.life_hours, spec.bearing_min_life_hours)
 
     return DesignAnalysis(spec=spec, report=rep, contact=contact, efficiency=eff,
                           stiffness=stiff, transmission_error=te, thermal=therm,

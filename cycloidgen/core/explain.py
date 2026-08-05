@@ -393,6 +393,16 @@ EXPLANATIONS: dict[str, Explanation] = {
         "path set by the eccentricity, and the holes are in the disc material.",
         "Bushings or rollers on the output pins fix this directly. Larger or "
         "more numerous pins drop the pressure term.", unit="MPa m/s"),
+    "BEARING_DOES_NOT_FIT": Explanation(
+        "The bearing named for a seat will not go in it",
+        "bore >= what it sits on, outside <= what it sits in, width <= the room",
+        "A bearing asked for by name is checked against its seat and never "
+        "quietly swapped for one that fits, because 'this is the bearing I "
+        "have' is exactly the case where a substitution is useless. A bore "
+        "larger than the shaft or cam it goes on is reported too: that is a fit, "
+        "but a loose one, and a press fit onto nothing is not a fit at all.",
+        "Turn the journal to the bearing's bore, open the housing around it, or "
+        "put the seat back on automatic and take what the study picks."),
     "PV_LIMIT_CAM": Explanation(
         "Cam journal sliding duty past the wear limit",
         "p*v at the cam/bore contact  <  the PV limit for the pair",

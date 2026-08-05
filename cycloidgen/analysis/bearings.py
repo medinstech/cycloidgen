@@ -9,7 +9,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from ..core.spec import CARRIER_DROP, SHAFT_OVERHANG, GearSpec
+from ..core.spec import AUTOMATIC, CARRIER_DROP, SHAFT_OVERHANG, GearSpec
 
 __all__ = ["CATALOGUE", "Bearing", "BearingChoice", "BearingPlacement", "BearingRing",
            "bearing_placements", "bearing_schedule", "pin_shank_diameter",
@@ -110,11 +110,15 @@ class BearingChoice:
     #: the force, sliding; a drive hung on its motor's bearings does not carry it
     #: at all.  Only the second needs whatever is on the other end to be up to it.
     carried_elsewhere: bool = False
-
-    @property
-    def ok(self) -> bool:
-        return not self.fitted or (
-            self.bearing is not None and self.life_hours >= 1000.0)
+    #: What is wrong with the part in this seat, if anything: a named bearing
+    #: that does not go in, a designation this build does not know, a bore
+    #: standing off the shaft it is meant to be pressed onto.  Empty otherwise.
+    #: Separate from ``note``, which is advice for a seat nothing fits at all -
+    #: "no catalogue bearing fits, open the bore" is unhelpful when the real
+    #: answer is "the one you asked for is 2 mm too wide".
+    problem: str = ""
+    #: Whether the part physically goes in the seat.  See :class:`_Filled`.
+    fits: bool = True
 
 
 def _life_hours(b: Bearing, load_N: float, rpm: float) -> float:
@@ -155,20 +159,100 @@ def _stacked(width: float, length: float) -> int:
     return max(1, math.ceil(length / width - 1e-9))
 
 
-def _pick(bore_min: float, outer_max: float, width_max: float,
-          load_N: float, rpm: float, kinds: tuple[str, ...]) -> Bearing | None:
-    """Smallest catalogue bearing that fits the envelope and lasts 1000 h."""
+#: Every catalogue part by designation, for the seats where one is named.
+BY_NAME: dict[str, Bearing] = {b.designation: b for b in CATALOGUE}
+
+
+@dataclass(frozen=True)
+class _Seat:
+    """What a seat will take, and what the drive asks of whatever goes in it."""
+
+    bore_min: float
+    outer_max: float
+    width_max: float
+    load_N: float
+    rpm: float
+    kinds: tuple[str, ...]
+    #: What the bore goes on, named, so a bearing standing off it can say what
+    #: to turn the shaft or cam to.
+    journal: str = ""
+
+    def misfit(self, b: Bearing) -> str:
+        """Why ``b`` will not go in, in one clause.  Empty when it will."""
+        if b.bore < self.bore_min - 1e-6:
+            return (f"its {b.bore:g} mm bore is smaller than the "
+                    f"{self.bore_min:.1f} mm it has to sit on")
+        if b.outer > self.outer_max + 1e-6:
+            return (f"its {b.outer:g} mm outside is larger than the "
+                    f"{self.outer_max:.1f} mm it has to sit in")
+        if b.width > self.width_max + 1e-6:
+            return (f"it is {b.width:g} mm wide against {self.width_max:.1f} mm "
+                    f"of room")
+        return ""
+
+    def standoff(self, b: Bearing) -> str:
+        """A bore larger than what it sits on: a fit, but a loose one."""
+        gap = b.bore - self.bore_min
+        if self.journal and self.bore_min > 0.0 and gap > 0.05:
+            return (f"its {b.bore:g} mm bore stands {gap:.2f} mm off the "
+                    f"{self.bore_min:.1f} mm {self.journal}; turn the {self.journal} "
+                    f"to {b.bore:g} mm or it is a press fit onto nothing")
+        return ""
+
+
+def _pick(seat: _Seat, min_life_hours: float) -> Bearing | None:
+    """Smallest catalogue bearing that fits the seat and lasts long enough."""
     candidates = [
         b for b in CATALOGUE
-        if b.kind in kinds
-        and b.bore >= bore_min - 1e-6
-        and b.outer <= outer_max + 1e-6
-        and b.width <= width_max + 1e-6
-        and _life_hours(b, load_N, rpm) >= 1000.0
+        if b.kind in seat.kinds
+        and not seat.misfit(b)
+        and _life_hours(b, seat.load_N, seat.rpm) >= min_life_hours
     ]
     if not candidates:
         return None
     return min(candidates, key=lambda b: (b.outer, b.width))
+
+
+@dataclass(frozen=True)
+class _Filled:
+    """What went into a seat, and what has to be said about it."""
+
+    bearing: Bearing | None
+    problem: str = ""
+    #: Whether it physically goes in.  A part that does not is still reported -
+    #: you asked for it by name and want to know which dimension is wrong - but
+    #: it is not drawn, because the drawing would have to shrink it to the seat
+    #: to fit it in, and a picture of a part at a size it is not is worse than
+    #: no picture at all.  A bore standing off its shaft is a *loose* fit, not a
+    #: failed one, so that stays drawn.
+    fits: bool = True
+
+
+def _fill(seat: _Seat, named: str, min_life_hours: float) -> _Filled:
+    """The bearing for one seat, and whatever has to be said about it.
+
+    A named part is taken as given and then checked; it is never swapped for one
+    that fits, because "this is the bearing I have" is exactly the case where a
+    silent substitution is useless.
+    """
+    if not named or named == AUTOMATIC:
+        # The standoff is checked here too, not only for named parts: the sizing
+        # study takes any bore at or above what it sits on, so a hand-set cam
+        # diameter between two catalogue sizes has always been able to come back
+        # with a bearing that does not touch it, and say nothing.
+        chosen = _pick(seat, min_life_hours)
+        return _Filled(chosen, seat.standoff(chosen) if chosen else "")
+    chosen = BY_NAME.get(named)
+    if chosen is None:
+        return _Filled(None, f"{named!r} is not a designation this build knows; "
+                             f"leave it on {AUTOMATIC} or pick one from the list")
+    if chosen.kind not in seat.kinds:
+        return _Filled(chosen, f"{named} is a {chosen.kind} bearing and this seat "
+                               f"wants " + " or ".join(seat.kinds), fits=False)
+    reason = seat.misfit(chosen)
+    if reason:
+        return _Filled(chosen, f"{named} does not fit: {reason}", fits=False)
+    return _Filled(chosen, seat.standoff(chosen))
 
 
 def select_bearings(spec: GearSpec, eccentric_load_N: float,
@@ -204,8 +288,11 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
                  "life-limited - see the PV check.",
         ))
     else:
-        b = _pick(spec.cam_diameter, spec.center_bore_diameter,
-                  spec.disc_thickness, eccentric_load_N, rpm, ("needle", "ball"))
+        cam = _fill(_Seat(spec.cam_diameter, spec.center_bore_diameter,
+                             spec.disc_thickness, eccentric_load_N, rpm,
+                             ("needle", "ball"), journal="cam"),
+                    spec.cam_bearing, spec.bearing_min_life_hours)
+        b, why = cam.bearing, cam.problem
         out.append(BearingChoice(
             role="Eccentric cam bearing", count=spec.disc_count,
             bearing=b, load_N=eccentric_load_N, speed_rpm=rpm,
@@ -213,9 +300,10 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
             carries="the radial force the disc pushes back into the crank",
             seat=f"on the {spec.cam_diameter:.1f} mm cam, inside the "
                  f"{spec.center_bore_diameter:.1f} mm disc bore",
-            note=("" if b else
-                  "no catalogue bearing fits: enlarge the central bore or thicken "
-                  "the disc"),
+            problem=why, fits=cam.fits,
+            note=("" if (b or why) else
+                  "no catalogue bearing fits: enlarge the central bore or "
+                  "thicken the disc"),
         ))
 
     # 2. output pin rollers - optional, and the biggest single sliding loss
@@ -227,8 +315,10 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
         # eccentricity comes to - was asking for a ring with no wall, and it is
         # why nothing has ever been selected here.
         outer = spec.output_pin_diameter
-        b2 = _pick(0.0, outer, spec.disc_thickness,
-                   output_pin_load_N, spec.input_rpm, ("needle",))
+        outpin = _fill(_Seat(0.0, outer, spec.disc_thickness, output_pin_load_N,
+                               spec.input_rpm, ("needle",)),
+                       spec.output_pin_roller, spec.bearing_min_life_hours)
+        b2, why2 = outpin.bearing, outpin.problem
         per_seat = _stacked(b2.width, spec.disc_thickness) if b2 else 1
         out.append(BearingChoice(
             role="Output pin roller",
@@ -241,10 +331,11 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
                  f"{spec.output_hole_diameter:.1f} mm hole, one per disc"
                  + (f" - {per_seat} of them end to end to cover the "
                     f"{spec.disc_thickness:g} mm disc" if per_seat > 1 else ""),
-            note=("" if b2 else
-                  "no drawn-cup needle is this small: a bronze bushing here means "
-                  "turning the pin down to suit it, and by how much is a diameter "
-                  "this app does not choose for you"),
+            problem=why2, fits=outpin.fits,
+            note=("" if (b2 or why2) else
+                  "no drawn-cup needle is this small: a bronze bushing here "
+                  "means turning the pin down to suit it, and by how much "
+                  "is a diameter this app does not choose for you"),
         ))
     else:
         out.append(BearingChoice(
@@ -264,8 +355,10 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
         # pin proper shrinks to whatever is left of the bore.
         outer = 2.0 * spec.pin_radius
         roller_rpm = _roller_rpm(spec)
-        b4 = _pick(0.0, outer, spec.stack_height, ring_pin_load_N,
-                   roller_rpm, ("needle",))
+        ringpin = _fill(_Seat(0.0, outer, spec.stack_height, ring_pin_load_N,
+                               roller_rpm, ("needle",)),
+                        spec.ring_pin_roller, spec.bearing_min_life_hours)
+        b4, why4 = ringpin.bearing, ringpin.problem
         per_pin = _stacked(b4.width, spec.stack_height) if b4 else 1
         out.append(BearingChoice(
             role="Ring pin roller", count=spec.pin_count * per_pin,
@@ -275,9 +368,11 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
             seat=f"over each ring pin, {2 * spec.pin_radius:.1f} mm OD working "
                  f"surface, {spec.stack_height:.1f} mm long"
                  + (f" - {per_pin} of them end to end per pin" if per_pin > 1 else ""),
-            note=("" if b4 else
-                  "no drawn-cup needle is this small: use a hardened sleeve turning "
-                  "on a smaller pin, which is what most builds at this size do"),
+            problem=why4, fits=ringpin.fits,
+            note=("" if (b4 or why4) else
+                  "no drawn-cup needle is this small: use a hardened sleeve "
+                  "turning on a smaller pin, which is what most builds at "
+                  "this size do"),
         ))
 
     # 4. input shaft support - two of them, and until now nothing held the shaft
@@ -298,9 +393,12 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
                  f"was not necessarily bought to take, so check its rating.",
         ))
     else:
-        b5 = _pick(spec.input_shaft_diameter,
-                   2.0 * (spec.pin_circle_radius - spec.pin_radius),
-                   spec.housing_wall * 2.0, shaft_load, spec.input_rpm, ("ball",))
+        shaft = _fill(_Seat(spec.input_shaft_diameter,
+                               2.0 * (spec.pin_circle_radius - spec.pin_radius),
+                               spec.housing_wall * 2.0, shaft_load, spec.input_rpm,
+                               ("ball",), journal="input shaft"),
+                      spec.shaft_bearing, spec.bearing_min_life_hours)
+        b5, why5 = shaft.bearing, shaft.problem
         out.append(BearingChoice(
             role="Input shaft support", count=2,
             bearing=b5, load_N=shaft_load, speed_rpm=spec.input_rpm,
@@ -310,9 +408,10 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
             seat=f"in the housing end plates, on the "
                  f"{spec.input_shaft_diameter:.1f} mm input shaft either side of "
                  f"the disc stack",
-            note=("" if b5 else
-                  "nothing in the catalogue fits between the shaft and the pin "
-                  "circle: a deeper housing or a smaller shaft"),
+            problem=why5, fits=shaft.fits,
+            note=("" if (b5 or why5) else
+                  "nothing in the catalogue fits between the shaft and the "
+                  "pin circle: a deeper housing or a smaller shaft"),
         ))
 
     # 5. main output bearing - carries the external load, turns slowly
@@ -329,8 +428,12 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
                  f"free to tilt loads the output pins unevenly.",
         ))
     else:
-        b3 = _pick(spec.center_bore_diameter, spec.housing_outer_radius * 2.0,
-                   spec.housing_wall * 2.0, radial, spec.output_rpm, ("ball",))
+        output = _fill(_Seat(spec.center_bore_diameter,
+                               spec.housing_outer_radius * 2.0,
+                               spec.housing_wall * 2.0, radial, spec.output_rpm,
+                               ("ball",)),
+                       spec.output_bearing, spec.bearing_min_life_hours)
+        b3, why3 = output.bearing, output.problem
         out.append(BearingChoice(
             role="Main output bearing", count=1,
             bearing=b3, load_N=radial, speed_rpm=spec.output_rpm,
@@ -339,8 +442,10 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
             seat="between the output flange and the housing - the only seat this "
                  "app does not model, so this one is not drawn in the 3D view or "
                  "the STEP either, and the size is a first pass",
-            note=("" if b3 else
-                  "consider a crossed-roller or a pair of angular contact bearings"),
+            problem=why3, fits=output.fits,
+            note=("" if (b3 or why3) else
+                  "consider a crossed-roller or a pair of angular contact "
+                  "bearings"),
         ))
     return out
 
@@ -465,7 +570,12 @@ def bearing_placements(spec: GearSpec,
     model has neither a flange hub nor a housing end plate for it to sit in;
     placing it would mean inventing both.  Its schedule note says the same.
     """
-    by_role = {c.role: c for c in choices}
+    # A part that does not go in its seat is not drawn.  It is still on the
+    # schedule with the dimension that is wrong beside it - you asked for it by
+    # name and that is what you need to know - but drawing it would mean shrinking
+    # it to the seat to make it fit, and a picture of a part at a size it is not
+    # is worse than no picture.
+    by_role = {c.role: c for c in choices if c.fits}
     out: list[BearingPlacement] = []
     thickness = spec.disc_thickness
     pitch = thickness + spec.disc_gap

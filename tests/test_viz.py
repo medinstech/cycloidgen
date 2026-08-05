@@ -248,7 +248,8 @@ def test_an_unchanged_fingerprint_means_an_unchanged_mesh(field):
     """
     from enum import Enum
 
-    from cycloidgen.core.spec import MATERIALS
+    from cycloidgen.analysis.bearings import BY_NAME, CATALOGUE
+    from cycloidgen.core.spec import AUTOMATIC, MATERIALS
     from cycloidgen.viz.mesh import mesh_fingerprint
 
     base = preset(15)
@@ -268,6 +269,12 @@ def test_an_unchanged_fingerprint_means_an_unchanged_mesh(field):
         setattr(other, field, 12.0)          # eccentric_cam_diameter: auto -> set
     elif isinstance(value, str) and value in MATERIALS:
         setattr(other, field, next(m for m in MATERIALS if m != value))
+    elif isinstance(value, str) and (value == AUTOMATIC or value in BY_NAME):
+        # Naming a bearing for a seat changes what is drawn there, so the key
+        # has to move with it.  Without this branch the five bearing fields
+        # skipped, which is the quietest way for a cache key to go wrong.
+        setattr(other, field, next(b.designation for b in CATALOGUE
+                                   if b.designation != value))
     else:
         pytest.skip(f"{field} is not a value this test knows how to move")
 

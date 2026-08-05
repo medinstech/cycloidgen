@@ -82,7 +82,34 @@ design somebody already built.
   wears its own bore oval in an afternoon. `BEARINGS_OMITTED` states, as a note,
   which paths have been handed to something the app cannot see.
 
+- **Bearing sizes you can set, instead of only the smallest one that fits.**
+  Each of the five seats takes a designation instead of `auto`, which is what
+  you want whenever something outside the geometry is deciding: a bearing
+  already in the drawer, one your supplier stocks, or simply a bigger one than
+  the smallest that will do.
+
+  A named part is checked against its seat and **never quietly swapped** for one
+  that fits — "this is the bearing I have" is exactly the case where a
+  substitution is useless — so `BEARING_DOES_NOT_FIT` names the dimension that
+  is wrong: the bore against what it sits on, the outside against what it sits
+  in, the width against the room. A part that does not go in stays on the
+  schedule and is not drawn, because drawing it would mean shrinking it to the
+  seat, and a picture of a part at a size it is not is worse than no picture.
+
+  The same check caught something that was always reachable on automatic: the
+  study takes any bore at or above the shaft or cam, so a hand-set cam diameter
+  between two catalogue sizes could come back with a bearing that does not touch
+  it, and said nothing. It now says what to turn the journal to.
+
 **Fixed**
+
+- **Bearing selection and the short-life warning disagreed by a factor of five.**
+  The study took anything lasting 1000 hours; the report warned below 5000. So
+  the app could pick a bearing and complain about it in the same breath. There
+  is one number now, `bearing_min_life_hours`, it is the design's rather than the
+  code's, and it defaults to the 5000 the warning already used — which is the
+  stricter of the two, so a design at the margin may now be handed a larger
+  bearing than it was before.
 
 - **The design search was returning drives whose output pins bend on the first
   turn.** Nothing in the app had ever looked at output pin bending, and the pins

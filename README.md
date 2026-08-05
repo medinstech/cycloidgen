@@ -14,12 +14,12 @@ animation, a bill of materials and a PDF dossier.
 - **A datasheet, not a drawing.** Contact stress, torque capacity, efficiency,
   torsional stiffness, lost motion, transmission error, PV and running
   temperature, mass and inertia, bearing life.
-- **Forty-four checks that explain themselves.** Each says what it tests, what
+- **Fifty checks that explain themselves.** Each says what it tests, what
   goes wrong physically when it fails, and which parameter to move — and lights
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
   a shortlist that passes every check, with the trade-offs side by side.
-- **Nothing is asserted that is not verified.** 528 tests, and where two parts
+- **Nothing is asserted that is not verified.** 543 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -299,7 +299,7 @@ Beyond the geometry checks, every design gets a datasheet:
 
 ## Checks
 
-Forty-four of them. Errors block export; warnings do not; several are readings
+Fifty of them. Errors block export; warnings do not; several are readings
 rather than tests.
 
 **Profile** — `K1_TOO_HIGH` · `K1_HIGH` · `UNDERCUT` · `UNDERCUT_MARGIN` ·
@@ -324,7 +324,8 @@ rather than tests.
 
 **Wear, heat and life** — `LOW_EFFICIENCY` · `PV_LIMIT_RING` · `PV_MARGIN_RING` ·
 `PV_LIMIT_OUTPUT` · `PV_LIMIT_CAM` · `OVERTEMP` · `RUNNING_HOT` ·
-`SHORT_BEARING_LIFE` · `NO_BEARING_FITS` · `BEARINGS_OMITTED`
+`SHORT_BEARING_LIFE` · `NO_BEARING_FITS` · `BEARING_DOES_NOT_FIT` ·
+`BEARINGS_OMITTED`
 
 **Dynamics and mass** — `SINGLE_DISC_UNBALANCE` · `UNBALANCE_FORCE` · `MASS`
 
@@ -378,9 +379,17 @@ suggests it.
   in four different places, and looking at the cam bearing down its bore means
   putting the others away rather than putting all of them away.
 
-  That is the *picture*. Whether the drive actually has them is a design
-  decision, under **Bearings fitted** in the parameter panel — three of the five
-  load paths can be built without one, and plenty of drives are. Switching one
+  That is the *picture*. Whether the drive actually has them, and which ones,
+  is a design decision, under **Bearings** in the parameter panel. Each seat can
+  be left on `auto` — the smallest catalogue part that fits it and lasts the
+  life you ask for — or given a designation, which is what you want when a
+  bearing you already own is doing the deciding. A named part is checked against
+  its seat and never quietly swapped for one that fits; if it will not go in,
+  the check names the dimension that is wrong and the 3D view leaves it out
+  rather than drawing it shrunk to size.
+
+  Three of the five load paths can also be built without a bearing at all, and
+  plenty of drives are. Switching one
   off takes the part out of the schedule, the BOM, the STEP and the 3D view, and
   changes the physics with it: a drive with no cam bearing runs its disc bore
   straight on the cam, which grows to fill it, and pays the sliding coefficient
@@ -536,7 +545,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          528 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          543 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -552,7 +561,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-528 tests, about 300 s. Most of that is CadQuery writing solids; the pure
+543 tests, about 300 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

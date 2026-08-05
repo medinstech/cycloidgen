@@ -116,6 +116,12 @@ MATERIALS: dict[str, Material] = {
 }
 
 
+#: What a bearing field says when the sizing study is to choose the part.
+#: A sentinel rather than an empty string or ``None``: it is a value the user
+#: picks from a list beside forty real designations, and "auto" is what that
+#: entry has to be called for the list to make sense.
+AUTOMATIC = "auto"
+
 #: How far the input shaft stands out past the disc stack at each end, mm.
 #: A modelling choice rather than a design input, but four modules were each
 #: carrying their own copy of it with a comment pointing at a fifth, and the
@@ -259,6 +265,32 @@ class GearSpec(BaseModel):
         True,
         description="the drive carries its own output flange; off means the driven "
                     "machine locates it",
+    )
+
+    # ---- which bearing goes in each seat --------------------------------------
+    #
+    # ``AUTOMATIC`` leaves it to the sizing study, which takes the smallest
+    # catalogue part that fits the seat and lasts the required life.  Name one
+    # instead when the seat is not the only thing deciding: a bearing you already
+    # have, one your supplier stocks, or simply a bigger one than the smallest
+    # that will do.  A named part is *checked* against its seat rather than
+    # quietly replaced - being told a bearing does not fit is the point of
+    # asking for it by name.
+    #
+    # Deliberately plain strings with no validator.  A designation this build
+    # does not know should cost a warning on one line of the schedule, not a
+    # design file that will not load - which is what a validator would make of
+    # opening tomorrow's saved design in today's application.
+    cam_bearing: str = Field(AUTOMATIC, description="eccentric cam bearing")
+    shaft_bearing: str = Field(AUTOMATIC, description="input shaft supports")
+    output_bearing: str = Field(AUTOMATIC, description="main output bearing")
+    ring_pin_roller: str = Field(AUTOMATIC, description="ring pin needle rollers")
+    output_pin_roller: str = Field(AUTOMATIC, description="output pin rollers")
+
+    bearing_min_life_hours: float = Field(
+        5000.0, gt=0,
+        description="L10 life a bearing has to reach before the sizing study will "
+                    "take it; also what the short-life warning is measured against",
     )
 
     # ---- duty -----------------------------------------------------------------
