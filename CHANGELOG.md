@@ -5,6 +5,32 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 2.3.1
+
+**Fixed**
+
+- **The installer's Turkish pages are Turkish again.** They shipped in 2.3.0 as
+  mojibake - the welcome page read "hoÅŸ geldiniz". `makensis` assumes the
+  system ANSI codepage unless the script carries a UTF-8 BOM or the charset is
+  named on the command line, so the UTF-8 bytes of `ş` were read as two Latin-1
+  characters. The script now has a BOM, which covers a hand-run, and every
+  caller passes `/INPUTCHARSET UTF8`, which covers a BOM that some tool has
+  helpfully removed.
+
+  Nothing about this fails a build. The installer compiles, the suite passes and
+  CI is green; it only appears to somebody who runs the setup and reads Turkish,
+  which is how it reached a release. `tests/test_packaging.py` holds both ends
+  now: the file says what it is, and every tool that reads it is told.
+
+  **The published 2.3.0 installer still has it.** A corrected one needs a new
+  tag.
+
+**Numbers**
+
+Nothing computed moved. This is the installer's own text; the application, the
+analysis and every exported file are untouched, and a saved design reopens on
+exactly the answers it gave before.
+
 ## 2.3.0
 
 **Added**

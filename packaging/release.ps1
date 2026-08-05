@@ -73,7 +73,12 @@ try {
     }
 
     New-Item -ItemType Directory -Force -Path 'releases' | Out-Null
-    $args = @()
+    # The script is UTF-8 and its Turkish strings depend on makensis
+    # knowing that.  Without it makensis assumes the system ANSI codepage
+    # and the welcome page reads "hoÅŸ geldiniz".  The file also carries
+    # a BOM, which covers a hand-run; this covers a BOM that some tool has
+    # helpfully removed.
+    $args = @('/INPUTCHARSET', 'UTF8')
     if ($FastPack) { $args += '/DFASTPACK' }
     if ($SignCmd)  { $args += "/DSIGNCMD=$SignCmd" }
     $args += 'packaging\cycloidgen.nsi'

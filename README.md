@@ -405,7 +405,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          410 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          419 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -421,7 +421,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-410 tests, about 285 s. Most of that is CadQuery writing solids; the pure
+419 tests, about 330 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in under a second. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own
@@ -504,7 +504,7 @@ Or the two steps by hand:
 ```bash
 .venv\Scripts\python -m PyInstaller cycloidgen.spec --noconfirm
 dist\cycloidgen\cycloidgen.exe
-makensis packaging\cycloidgen.nsi               # needs NSIS 3.x
+makensis /INPUTCHARSET UTF8 packaging\cycloidgen.nsi   # needs NSIS 3.x
 ```
 
 The installer upgrades in place — it clears the previous version first, because
