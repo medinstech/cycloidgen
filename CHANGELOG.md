@@ -5,7 +5,7 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
-## 3.2.0
+## 4.0.0
 
 **Added**
 
@@ -121,8 +121,6 @@ design somebody already built.
   had simply never been told this was a constraint. It is now, and there is a
   test that the designs it hands back survive being turned.
 
-**Fixed**
-
 - **The BOM was under-ordering bearings.** The quantity was read out of the role
   *string* — `disc_count if "per disc" in role else 1` — which worked only while
   the roles happened to be worded that way. Once they were not, the list said one
@@ -149,6 +147,31 @@ design somebody already built.
   fatigue strength is stated per material rather than derived from it, because
   the usual 0.5×Sut stops holding above about 1400 MPa — 100Cr6 would otherwise
   be credited with 1000 MPa of endurance limit it does not have.
+
+**Numbers**
+
+Numbers moved, and one of them is on a list people order from.
+
+- **Bearing quantities in `bom.csv` were wrong and are now right.** A two-disc
+  stack was listed as needing one eccentric cam bearing and one input shaft
+  support; it needs two of each. Anyone who ordered off a 3.1.x bill of
+  materials is short. Roller quantities move too, and further: a sleeve is now
+  counted as many times as it takes to cover the surface it is the surface of.
+- **A bearing has to reach 5000 hours to be selected, not 1000.** On every
+  preset nothing changes — those seats run 10⁵ to 10⁷ hours — but a heavily
+  loaded design near the old line will be handed a larger bearing than it was.
+- **Output pin rollers can be selected at all.** The seat asked for a ring with
+  no wall, so `output_pins_are_rollers` never produced a part. Designs with that
+  switch on and pins large enough now gain rollers in the schedule, the BOM and
+  the geometry, and their pins shrink to the roller bore — in the STEP, the 3D
+  view and the carrier drilling template alike.
+- **The design search returns different drives**, because it now knows output
+  pins bend.
+
+Unchanged for any design that keeps the new switches at their defaults: contact
+stress, torque capacity, efficiency, stiffness, backlash, transmission error,
+temperature and mass. The new bearing switches default to fitted and the new
+seat fields to `auto`, so a saved design reopens as the drive it was.
 
 ## 3.1.1
 
