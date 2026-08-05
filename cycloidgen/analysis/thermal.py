@@ -65,10 +65,17 @@ class ThermalResult:
     pv_ring_limit_MPa_m_s: float
     pv_output_MPa_m_s: float
     pv_output_limit_MPa_m_s: float
+    #: The cam journal, and zero whenever a cam bearing is fitted: with a needle
+    #: between the cam and the bore there is no sliding contact there to have a
+    #: duty.  Without one there is, and it is the fastest in the drive.
+    pv_cam_MPa_m_s: float
+    pv_cam_limit_MPa_m_s: float
     ring_pressure_MPa: float          # projected area, not Hertzian
     ring_sliding_speed_m_s: float
     output_pressure_MPa: float
     output_sliding_speed_m_s: float
+    cam_pressure_MPa: float
+    cam_sliding_speed_m_s: float
     loss_W: float
     cooling_area_mm2: float
     temperature_rise_C: float
@@ -85,6 +92,12 @@ class ThermalResult:
     def output_pv_margin(self) -> float:
         return (self.pv_output_limit_MPa_m_s / self.pv_output_MPa_m_s
                 if self.pv_output_MPa_m_s > 0 else float("inf"))
+
+    @property
+    def cam_pv_margin(self) -> float:
+        """Infinite when a cam bearing is fitted - there is nothing rubbing."""
+        return (self.pv_cam_limit_MPa_m_s / self.pv_cam_MPa_m_s
+                if self.pv_cam_MPa_m_s > 0 else float("inf"))
 
     @property
     def temperature_margin_C(self) -> float:
@@ -104,8 +117,13 @@ def analyse_thermal(spec: GearSpec, efficiency: EfficiencyResult | None = None,
     peak_pv = 0.0
     peak_p = 0.0
     peak_v = 0.0
+    peak_cam_f = 0.0
     for cs in sweep(spec, steps):
         f = cs.forces(torque_per_disc)                  # N
+        # The crank reaction, off the same contact forces: the vector sum of what
+        # the pins push back is what the cam has to hold.
+        peak_cam_f = max(peak_cam_f, float(np.hypot(
+            *(f[:, None] * cs.normals).sum(axis=0))))
         live = f > 0
         if not live.any():
             continue
@@ -134,6 +152,21 @@ def analyse_thermal(spec: GearSpec, efficiency: EfficiencyResult | None = None,
     if spec.output_pins_are_rollers:
         pv_out *= _ROLLING_PV_FACTOR
 
+    # ---- cam journal --------------------------------------------------------
+    # Only when there is no bearing there.  A plain cam is the classic
+    # PV-limited contact of this whole drive: the largest single force in it,
+    # rubbing at nearly the input speed, usually with the disc material on one
+    # side.  Left unchecked, a drive can pass every stress test in the app and
+    # still wear its own bore oval in an afternoon.
+    if spec.cam_bearing_fitted:
+        p_cam = v_cam = pv_cam = 0.0
+    else:
+        p_cam = peak_cam_f / max(spec.cam_diameter * length, 1e-9)
+        v_cam = (omega_in * (1.0 - 1.0 / spec.ratio)
+                 * spec.cam_diameter / 2.0 / 1000.0)
+        pv_cam = p_cam * v_cam
+    limit_cam = min(spec.disc_mat.pv_limit_MPa_m_s, spec.shaft_mat.pv_limit_MPa_m_s)
+
     # ---- temperature --------------------------------------------------------
     # the softer of the two rubbing materials sets the limit at each interface
     limit_ring = min(spec.disc_mat.pv_limit_MPa_m_s, spec.pin_mat.pv_limit_MPa_m_s)
@@ -149,10 +182,14 @@ def analyse_thermal(spec: GearSpec, efficiency: EfficiencyResult | None = None,
         pv_ring_limit_MPa_m_s=limit_ring,
         pv_output_MPa_m_s=pv_out,
         pv_output_limit_MPa_m_s=limit_out,
+        pv_cam_MPa_m_s=pv_cam,
+        pv_cam_limit_MPa_m_s=limit_cam,
         ring_pressure_MPa=peak_p,
         ring_sliding_speed_m_s=peak_v,
         output_pressure_MPa=p_out,
         output_sliding_speed_m_s=v_out,
+        cam_pressure_MPa=p_cam,
+        cam_sliding_speed_m_s=v_cam,
         loss_W=eff.total_loss_W,
         cooling_area_mm2=spec.cooling_area_mm2,
         temperature_rise_C=rise,

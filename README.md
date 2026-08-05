@@ -19,7 +19,7 @@ animation, a bill of materials and a PDF dossier.
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
   a shortlist that passes every check, with the trade-offs side by side.
-- **Nothing is asserted that is not verified.** 517 tests, and where two parts
+- **Nothing is asserted that is not verified.** 528 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -84,6 +84,7 @@ Headless, without opening the window:
 ```bash
 python -m cycloidgen --ratio 29 --out ./my_gearbox
 python -m cycloidgen --design saved.json --out ./x --no-solids
+python -m cycloidgen --ratio 29 --no-cam-bearing --no-shaft-bearings --out ./x
 ```
 
 Or state what you need and let it find the geometry:
@@ -322,8 +323,8 @@ rather than tests.
 `LOST_MOTION` · `TRANSMISSION_ERROR`
 
 **Wear, heat and life** — `LOW_EFFICIENCY` · `PV_LIMIT_RING` · `PV_MARGIN_RING` ·
-`PV_LIMIT_OUTPUT` · `OVERTEMP` · `RUNNING_HOT` · `SHORT_BEARING_LIFE` ·
-`NO_BEARING_FITS`
+`PV_LIMIT_OUTPUT` · `PV_LIMIT_CAM` · `OVERTEMP` · `RUNNING_HOT` ·
+`SHORT_BEARING_LIFE` · `NO_BEARING_FITS` · `BEARINGS_OMITTED`
 
 **Dynamics and mass** — `SINGLE_DISC_UNBALANCE` · `UNBALANCE_FORCE` · `MASS`
 
@@ -376,6 +377,16 @@ suggests it.
   They also switch off one at a time, from the **…** beside the group: they sit
   in four different places, and looking at the cam bearing down its bore means
   putting the others away rather than putting all of them away.
+
+  That is the *picture*. Whether the drive actually has them is a design
+  decision, under **Bearings fitted** in the parameter panel — three of the five
+  load paths can be built without one, and plenty of drives are. Switching one
+  off takes the part out of the schedule, the BOM, the STEP and the 3D view, and
+  changes the physics with it: a drive with no cam bearing runs its disc bore
+  straight on the cam, which grows to fill it, and pays the sliding coefficient
+  at the fastest contact in the machine. The load path stays on the schedule
+  either way, saying what is carrying it instead — a motor's own bearings do not
+  stop the crank reaction existing.
 
   ![exploded](docs/exploded.png)
 
@@ -525,7 +536,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          517 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          528 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -541,7 +552,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-517 tests, about 300 s. Most of that is CadQuery writing solids; the pure
+528 tests, about 300 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

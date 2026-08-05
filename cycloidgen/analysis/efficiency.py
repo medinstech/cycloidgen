@@ -11,7 +11,12 @@ than from a rule of thumb:
 4. main output bearing drag         - slow but carries the whole reaction
 
 Rolling elements (needle rollers on the ring pins, bushings on the output pins)
-replace the sliding coefficient with a much smaller rolling one.
+replace the sliding coefficient with a much smaller rolling one.  The same
+choice runs the other way at the cam: a drive built without a cam bearing has a
+plain journal there instead, at nearly full input speed, and pays the sliding
+coefficient for it.  A bearing the drive does not carry - a flange located by
+the machine it drives - is not counted here at all, because that drag is the
+machine's and not this gearbox's.
 
 Not modelled: seal drag, lubricant churning, bearing preload, and any losses from
 misalignment or clearance take-up.  The result is therefore an **upper bound**.
@@ -75,6 +80,16 @@ def analyse_efficiency(spec: GearSpec, steps: int = SWEEP_STEPS) -> EfficiencyRe
     omega_rel = omega_in * (1.0 - 1.0 / spec.ratio)
     d_mean = (spec.input_shaft_diameter + spec.center_bore_diameter) / 2.0
 
+    # With no cam bearing the disc bore is a plain journal on the cam: the same
+    # torque expression, but the sliding coefficient instead of the rolling one
+    # and the cam's own radius as the arm.  It is the fastest-turning contact in
+    # the drive, so this is not a small difference - which is the point of being
+    # able to choose it.
+    if spec.cam_bearing_fitted:
+        mu_ecc, r_ecc = BEARING_MU, d_mean / 2.0
+    else:
+        mu_ecc, r_ecc = spec.friction_coefficient, spec.cam_diameter / 2.0
+
     for cs in sweep(spec, steps):
         f = cs.forces(torque_per_disc)                       # N
         v = cs.sliding_speed * omega_in                      # mm/s
@@ -85,17 +100,20 @@ def analyse_efficiency(spec: GearSpec, steps: int = SWEEP_STEPS) -> EfficiencyRe
 
         fv = (f[:, None] * cs.normals).sum(axis=0)
         f_ecc = float(np.hypot(*fv))
-        ecc_losses.append(BEARING_MU * f_ecc * (d_mean / 2.0) * omega_rel / 1000.0)
+        ecc_losses.append(mu_ecc * f_ecc * r_ecc * omega_rel / 1000.0)
 
     n = spec.disc_count
     loss_ring = float(np.mean(ring_losses)) * n
     loss_out = float(np.mean(out_losses)) * n
     loss_ecc = float(np.mean(ecc_losses)) * n
 
-    # main output bearing: slow, but it reacts the whole output torque
+    # Main output bearing: slow, but it reacts the whole output torque.  With no
+    # bearing fitted the flange is located by the machine it drives, so that drag
+    # belongs to the machine and not to this gearbox - it does not disappear, it
+    # stops being ours to count.
     f_main = 2.0 * spec.output_torque_Nm * 1000.0 / spec.output_bolt_circle_radius
     loss_main = (BEARING_MU * f_main * spec.center_bore_diameter / 2.0
-                 * omega_out / 1000.0)
+                 * omega_out / 1000.0) if spec.output_bearing_fitted else 0.0
 
     p_out = spec.output_torque_Nm * omega_out
     p_in = p_out + loss_ring + loss_out + loss_ecc + loss_main

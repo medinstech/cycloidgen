@@ -332,3 +332,123 @@ def test_a_roller_covers_the_surface_it_is_the_surface_of():
     assert spans[-1][1] == pytest.approx(spec.stack_height)
     for (_, end), (start, _) in itertools.pairwise(spans):
         assert start == pytest.approx(end)       # end to end, no bare pin between
+
+
+# ------------------------------------------------------- built without one
+#
+# Three of the five load paths can be built without a bearing, and plenty of
+# drives are: a printed one usually runs its disc bore straight on the cam, and
+# a drive bolted to a motor face lets that motor's bearings hold the shaft.
+# These are design decisions, not display ones - the difference being that the
+# part is not bought, not drawn, not exported, and the physics changes.
+
+
+def _stripped():
+    spec = _spec(rollers=False)
+    spec.cam_bearing_fitted = False
+    spec.shaft_bearings_fitted = False
+    spec.output_bearing_fitted = False
+    return spec
+
+
+def test_an_omitted_bearing_is_not_bought_drawn_or_exported():
+    """The whole difference between this and hiding it in the viewer."""
+    from cycloidgen.export import solid
+    from cycloidgen.export.bom import bom_items
+
+    spec = _stripped()
+    assert not placements_for_spec(spec)
+    assert not solid.bearing_solids(spec)
+    assert not [i for i in bom_items(analyse(spec)) if i.material == "bearing steel"]
+
+
+def test_the_load_path_stays_in_the_schedule_when_the_bearing_does_not():
+    """A row that vanishes reads as a load path that does not exist.
+
+    That was the bug this schedule was rewritten to fix, and leaving a bearing
+    out is not a licence to reintroduce it: the force is still there, and the
+    row is what says who is taking it.
+    """
+    schedule = {c.role: c for c in _schedule(_stripped())}
+    assert set(schedule) == {"Eccentric cam bearing", "Output pin roller",
+                             "Input shaft support", "Main output bearing"}
+    for role in ("Eccentric cam bearing", "Input shaft support",
+                 "Main output bearing"):
+        assert not schedule[role].fitted
+        assert schedule[role].count == 0
+        assert schedule[role].carries
+        assert schedule[role].note
+
+
+def test_a_bearing_left_out_is_not_a_bearing_that_does_not_fit():
+    """Two different answers, and only one of them is a problem.
+
+    Telling them apart used to mean looking for a phrase in the note - the same
+    trick that got the BOM quantities wrong - so it is a field now.  The default
+    design has fixed output pins, which is also a deliberate omission and must
+    not warn either.
+    """
+    for spec in (_stripped(), _spec(rollers=False), preset(15)):
+        codes = {f.code for f in analyse(spec).report.findings}
+        assert "NO_BEARING_FITS" not in codes
+
+
+def test_only_a_load_that_leaves_the_gearbox_is_reported_as_omitted():
+    """A plain cam has no bearing, but the drive still carries that force -
+    sliding, which is the PV check's business.  A drive hung on its motor's
+    bearings does not carry it at all, and that is what has to be said out loud."""
+    schedule = {c.role: c for c in _schedule(_stripped())}
+    assert not schedule["Eccentric cam bearing"].carried_elsewhere
+    assert schedule["Input shaft support"].carried_elsewhere
+    assert schedule["Main output bearing"].carried_elsewhere
+
+    finding = next(f for f in analyse(_stripped()).report.findings
+                   if f.code == "BEARINGS_OMITTED")
+    assert "input shaft support" in finding.message
+    assert "main output bearing" in finding.message
+    assert "eccentric cam bearing" not in finding.message
+
+
+def test_the_cam_grows_to_fill_the_bore_when_nothing_sits_between_them():
+    """The default cam is the bore less 8 mm to leave a bearing wall.  Keeping
+    that gap with no bearing in it is a disc flopping about on a shaft."""
+    fitted, plain = _spec(), _stripped()
+    assert fitted.cam_diameter == pytest.approx(fitted.center_bore_diameter - 8.0)
+    assert plain.cam_diameter == pytest.approx(plain.center_bore_diameter)
+
+
+def test_a_plain_cam_costs_what_a_plain_cam_costs():
+    """It is the fastest-turning contact in the drive; swapping a rolling
+    coefficient for a sliding one there is not a rounding difference."""
+    from cycloidgen.analysis.efficiency import analyse_efficiency
+
+    fitted = _spec(rollers=False)
+    plain = fitted.model_copy(update={"cam_bearing_fitted": False})
+    assert analyse_efficiency(plain).efficiency < \
+        0.8 * analyse_efficiency(fitted).efficiency
+
+
+def test_a_bearing_the_drive_does_not_carry_is_not_its_loss_either():
+    """Drag on a flange the driven machine locates belongs to that machine."""
+    from cycloidgen.analysis.efficiency import analyse_efficiency
+
+    fitted = _spec(rollers=False)
+    without = fitted.model_copy(update={"output_bearing_fitted": False})
+    assert analyse_efficiency(without).loss_bearings_W < \
+        analyse_efficiency(fitted).loss_bearings_W
+
+
+def test_the_plain_cam_gets_a_wear_check_and_a_fitted_one_does_not():
+    """A printed disc running dry on a steel cam is the textbook PV failure, and
+    nothing in the app had ever asked about that contact."""
+    from cycloidgen.analysis.thermal import analyse_thermal
+
+    fitted = preset(15)
+    assert analyse_thermal(fitted).pv_cam_MPa_m_s == 0.0
+    assert analyse_thermal(fitted).cam_pv_margin == float("inf")
+
+    plain = fitted.model_copy(update={"cam_bearing_fitted": False})
+    duty = analyse_thermal(plain)
+    assert duty.pv_cam_MPa_m_s > 0.0
+    assert duty.cam_pv_margin < 1.0                  # PLA on steel, dry, at speed
+    assert "PV_LIMIT_CAM" in {f.code for f in analyse(plain).report.findings}

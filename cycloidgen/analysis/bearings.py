@@ -99,10 +99,22 @@ class BearingChoice:
     carries: str = ""
     #: Where it sits, said in terms of the geometry the app already exports.
     seat: str = ""
+    #: Whether this drive has a bearing part here at all.  A path left without
+    #: one on purpose - fixed pins, a plain cam - and one where nothing in the
+    #: catalogue fits are different answers, and only the second is a problem.
+    #: A field rather than a phrase in the note, because reading the note is how
+    #: the quantities went wrong once already.
+    fitted: bool = True
+    #: Whether the *load* leaves this gearbox.  Separate from ``fitted`` and not
+    #: the same question: a plain cam has no bearing but the drive still carries
+    #: the force, sliding; a drive hung on its motor's bearings does not carry it
+    #: at all.  Only the second needs whatever is on the other end to be up to it.
+    carried_elsewhere: bool = False
 
     @property
     def ok(self) -> bool:
-        return self.bearing is not None and self.life_hours >= 1000.0
+        return not self.fitted or (
+            self.bearing is not None and self.life_hours >= 1000.0)
 
 
 def _life_hours(b: Bearing, load_N: float, rpm: float) -> float:
@@ -180,18 +192,31 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
     # leave room for this bearing's wall, so the two numbers were never
     # interchangeable.
     rpm = spec.input_rpm * (1.0 - 1.0 / spec.ratio)
-    b = _pick(spec.cam_diameter, spec.center_bore_diameter,
-              spec.disc_thickness, eccentric_load_N, rpm, ("needle", "ball"))
-    out.append(BearingChoice(
-        role="Eccentric cam bearing", count=spec.disc_count,
-        bearing=b, load_N=eccentric_load_N, speed_rpm=rpm,
-        life_hours=_life_hours(b, eccentric_load_N, rpm) if b else 0.0,
-        carries="the radial force the disc pushes back into the crank",
-        seat=f"on the {spec.cam_diameter:.1f} mm cam, inside the "
-             f"{spec.center_bore_diameter:.1f} mm disc bore",
-        note=("" if b else
-              "no catalogue bearing fits: enlarge the central bore or thicken the disc"),
-    ))
+    if not spec.cam_bearing_fitted:
+        out.append(BearingChoice(
+            role="Eccentric cam bearing", fitted=False, count=0, bearing=None,
+            load_N=eccentric_load_N, speed_rpm=rpm, life_hours=float("inf"),
+            carries="the radial force the disc pushes back into the crank",
+            seat=f"none - the {spec.center_bore_diameter:.1f} mm disc bore runs "
+                 f"straight on the cam",
+            note="No cam bearing: the bore is a plain journal at nearly the "
+                 "input speed, so this contact is wear-limited rather than "
+                 "life-limited - see the PV check.",
+        ))
+    else:
+        b = _pick(spec.cam_diameter, spec.center_bore_diameter,
+                  spec.disc_thickness, eccentric_load_N, rpm, ("needle", "ball"))
+        out.append(BearingChoice(
+            role="Eccentric cam bearing", count=spec.disc_count,
+            bearing=b, load_N=eccentric_load_N, speed_rpm=rpm,
+            life_hours=_life_hours(b, eccentric_load_N, rpm) if b else 0.0,
+            carries="the radial force the disc pushes back into the crank",
+            seat=f"on the {spec.cam_diameter:.1f} mm cam, inside the "
+                 f"{spec.center_bore_diameter:.1f} mm disc bore",
+            note=("" if b else
+                  "no catalogue bearing fits: enlarge the central bore or thicken "
+                  "the disc"),
+        ))
 
     # 2. output pin rollers - optional, and the biggest single sliding loss
     if spec.output_pins_are_rollers:
@@ -223,7 +248,7 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
         ))
     else:
         out.append(BearingChoice(
-            role="Output pin roller", count=0, bearing=None,
+            role="Output pin roller", fitted=False, count=0, bearing=None,
             load_N=output_pin_load_N, speed_rpm=spec.input_rpm,
             life_hours=float("inf"),
             carries="nothing - the pin rubs directly in the hole",
@@ -260,37 +285,63 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
     # discs push back; an overhung cam loads the inner one far harder and this
     # does not model that.
     shaft_load = eccentric_load_N * spec.disc_count / 2.0
-    b5 = _pick(spec.input_shaft_diameter,
-               2.0 * (spec.pin_circle_radius - spec.pin_radius),
-               spec.housing_wall * 2.0, shaft_load, spec.input_rpm, ("ball",))
-    out.append(BearingChoice(
-        role="Input shaft support", count=2,
-        bearing=b5, load_N=shaft_load, speed_rpm=spec.input_rpm,
-        life_hours=_life_hours(b5, shaft_load, spec.input_rpm) if b5 else 0.0,
-        carries="half the crank reaction each, plus whatever the driving "
-                "coupling adds",
-        seat=f"in the housing end plates, on the {spec.input_shaft_diameter:.1f} mm "
-             f"input shaft either side of the disc stack",
-        note=("" if b5 else
-              "nothing in the catalogue fits between the shaft and the pin circle: "
-              "a deeper housing or a smaller shaft"),
-    ))
+    if not spec.shaft_bearings_fitted:
+        out.append(BearingChoice(
+            role="Input shaft support", fitted=False, carried_elsewhere=True,
+            count=0, bearing=None,
+            load_N=shaft_load, speed_rpm=spec.input_rpm, life_hours=float("inf"),
+            carries="nothing here - the driving motor's own bearings take the "
+                    "crank reaction",
+            seat="none - the drive hangs on the motor face",
+            note=f"No shaft bearings: the driving motor takes "
+                 f"{eccentric_load_N * spec.disc_count:.0f} N of radial load it "
+                 f"was not necessarily bought to take, so check its rating.",
+        ))
+    else:
+        b5 = _pick(spec.input_shaft_diameter,
+                   2.0 * (spec.pin_circle_radius - spec.pin_radius),
+                   spec.housing_wall * 2.0, shaft_load, spec.input_rpm, ("ball",))
+        out.append(BearingChoice(
+            role="Input shaft support", count=2,
+            bearing=b5, load_N=shaft_load, speed_rpm=spec.input_rpm,
+            life_hours=_life_hours(b5, shaft_load, spec.input_rpm) if b5 else 0.0,
+            carries="half the crank reaction each, plus whatever the driving "
+                    "coupling adds",
+            seat=f"in the housing end plates, on the "
+                 f"{spec.input_shaft_diameter:.1f} mm input shaft either side of "
+                 f"the disc stack",
+            note=("" if b5 else
+                  "nothing in the catalogue fits between the shaft and the pin "
+                  "circle: a deeper housing or a smaller shaft"),
+        ))
 
     # 5. main output bearing - carries the external load, turns slowly
     radial = output_pin_load_N * spec.output_pin_count / 2.0
-    b3 = _pick(spec.center_bore_diameter, spec.housing_outer_radius * 2.0,
-               spec.housing_wall * 2.0, radial, spec.output_rpm, ("ball",))
-    out.append(BearingChoice(
-        role="Main output bearing", count=1,
-        bearing=b3, load_N=radial, speed_rpm=spec.output_rpm,
-        life_hours=_life_hours(b3, radial, spec.output_rpm) if b3 else 0.0,
-        carries="whatever the machine hangs on the output flange",
-        seat="between the output flange and the housing - the only seat this app "
-             "does not model, so this one is not drawn in the 3D view or the "
-             "STEP either, and the size is a first pass",
-        note=("" if b3 else
-              "consider a crossed-roller or a pair of angular contact bearings"),
-    ))
+    if not spec.output_bearing_fitted:
+        out.append(BearingChoice(
+            role="Main output bearing", fitted=False, carried_elsewhere=True,
+            count=0, bearing=None,
+            load_N=radial, speed_rpm=spec.output_rpm, life_hours=float("inf"),
+            carries="nothing here - the driven machine locates the output flange",
+            seat="none - the flange is carried by whatever it bolts to",
+            note=f"No output bearing: the driven machine has to locate the "
+                 f"flange and take {radial:.0f} N of radial load, and a flange "
+                 f"free to tilt loads the output pins unevenly.",
+        ))
+    else:
+        b3 = _pick(spec.center_bore_diameter, spec.housing_outer_radius * 2.0,
+                   spec.housing_wall * 2.0, radial, spec.output_rpm, ("ball",))
+        out.append(BearingChoice(
+            role="Main output bearing", count=1,
+            bearing=b3, load_N=radial, speed_rpm=spec.output_rpm,
+            life_hours=_life_hours(b3, radial, spec.output_rpm) if b3 else 0.0,
+            carries="whatever the machine hangs on the output flange",
+            seat="between the output flange and the housing - the only seat this "
+                 "app does not model, so this one is not drawn in the 3D view or "
+                 "the STEP either, and the size is a first pass",
+            note=("" if b3 else
+                  "consider a crossed-roller or a pair of angular contact bearings"),
+        ))
     return out
 
 

@@ -74,7 +74,8 @@ GROUPS: list[tuple[str, list[Field]]] = [
               suffix=" mm"),
         Field("eccentric_cam_diameter", "Eccentric cam OD", "float", 0, 300, 0.5,
               decimals=2, suffix=" mm", zero_is_auto=True,
-              tip="0 = automatic: the bore less a 4 mm bearing wall."),
+              tip="0 = automatic: the bore less a 4 mm bearing wall, or the "
+                  "whole bore when no cam bearing is fitted."),
         Field("output_flange_thickness", "Output flange", "float", 1, 100, 0.5,
               decimals=2, suffix=" mm"),
     ]),
@@ -110,6 +111,18 @@ GROUPS: list[tuple[str, list[Field]]] = [
               0.01, decimals=3),
         Field("ring_pins_are_rollers", "Ring pins are rollers", "bool",
               tip="Needle rollers on the ring pins remove the largest loss."),
+    ]),
+    ("Bearings fitted", [
+        Field("cam_bearing_fitted", "Cam bearing", "bool",
+              tip="Off means the disc bore runs straight on the cam - a plain "
+                  "journal at nearly full input speed, and the cam grows to "
+                  "fill the bore."),
+        Field("shaft_bearings_fitted", "Input shaft supports", "bool",
+              tip="Off means the drive hangs on the driving motor's bearings, "
+                  "which then take the crank reaction."),
+        Field("output_bearing_fitted", "Main output bearing", "bool",
+              tip="Off means the machine being driven locates the output "
+                  "flange."),
     ]),
     ("Duty", [
         Field("input_rpm", "Input speed", "float", 1, 30000, 50, decimals=1,
@@ -172,6 +185,9 @@ CODE_FIELDS: dict[str, tuple[str, ...]] = {
     "PV_LIMIT_RING": ("ring_pins_are_rollers", "input_rpm", "disc_material"),
     "PV_MARGIN_RING": ("ring_pins_are_rollers", "input_rpm"),
     "PV_LIMIT_OUTPUT": ("output_pins_are_rollers", "output_pin_diameter"),
+    "PV_LIMIT_CAM": ("cam_bearing_fitted", "input_rpm", "disc_material"),
+    "BEARINGS_OMITTED": ("cam_bearing_fitted", "shaft_bearings_fitted",
+                         "output_bearing_fitted"),
     "OVERTEMP": ("input_rpm", "ring_pins_are_rollers", "housing_material"),
     "RUNNING_HOT": ("input_rpm", "ring_pins_are_rollers", "housing_wall"),
     "WEB_SHEAR": ("output_bolt_circle_radius", "disc_thickness", "disc_material"),

@@ -237,6 +237,30 @@ class GearSpec(BaseModel):
         False, description="output pins carry rotating bushings/rollers"
     )
 
+    # ---- which bearings this drive carries ------------------------------------
+    #
+    # Three of the five load paths can legitimately be built without a bearing of
+    # their own, and plenty of drives are.  These are design decisions and not
+    # display options: switching one off changes the geometry, the losses, the
+    # bill of materials and what the drive asks of whatever it is bolted to.
+    cam_bearing_fitted: bool = Field(
+        True,
+        description="needle bearing between the cam and the disc bore; off means "
+                    "the bore runs directly on the cam, which is a plain journal "
+                    "at nearly full input speed",
+    )
+    shaft_bearings_fitted: bool = Field(
+        True,
+        description="the drive carries its own input shaft; off means it hangs on "
+                    "the driving motor's bearings, which then take the crank "
+                    "reaction",
+    )
+    output_bearing_fitted: bool = Field(
+        True,
+        description="the drive carries its own output flange; off means the driven "
+                    "machine locates it",
+    )
+
     # ---- duty -----------------------------------------------------------------
     input_rpm: float = Field(1000.0, gt=0)
     output_torque_Nm: float = Field(5.0, gt=0)
@@ -319,9 +343,17 @@ class GearSpec(BaseModel):
 
     @property
     def cam_diameter(self) -> float:
-        """Eccentric cam OD.  Leaves room for a 4 mm walled needle bearing by default."""
+        """Eccentric cam OD.  Leaves room for a 4 mm walled needle bearing by default.
+
+        With no bearing fitted there is no wall to leave: the disc bore runs on
+        the cam itself, so the cam is the nominal bore and ``hole_clearance`` -
+        which the bore is opened by - becomes the running fit.  Keeping it 8 mm
+        under would be a disc flopping about on a shaft.
+        """
         if self.eccentric_cam_diameter is not None:
             return self.eccentric_cam_diameter
+        if not self.cam_bearing_fitted:
+            return max(self.center_bore_diameter, self.input_shaft_diameter + 2.0)
         return max(self.center_bore_diameter - 8.0, self.input_shaft_diameter + 2.0)
 
     @property

@@ -212,6 +212,22 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                 "rollers on the output pins fix this.",
                 therm.pv_output_MPa_m_s, therm.pv_output_limit_MPa_m_s)
 
+    # The cam journal only exists as a sliding contact when no bearing is fitted
+    # there, and then it is the hardest-worked one in the drive: the largest
+    # single force, rubbing at nearly the input speed.
+    if therm.cam_pv_margin < 1.0:
+        rep.add(Severity.WARNING, "PV_LIMIT_CAM",
+                f"With no cam bearing the disc bore is a plain journal on the "
+                f"cam, and its duty is past the wear limit for "
+                f"{spec.disc_mat.name} on {spec.shaft_mat.name}: "
+                f"{therm.cam_pressure_MPa:.2f} MPa at "
+                f"{therm.cam_sliding_speed_m_s:.2f} m/s, "
+                f"{1.0 / max(therm.cam_pv_margin, 1e-9):.0f}x over. This is the "
+                f"fastest contact in the drive and it will wear the bore oval "
+                f"long before anything breaks. Fit the bearing, or run a bronze "
+                f"bushing and drop the speed.",
+                therm.pv_cam_MPa_m_s, therm.pv_cam_limit_MPa_m_s)
+
     # A warning, not an error: overheating is a duty-point problem, not a part
     # that cannot be made.  Slowing the drive down fixes it without touching the
     # geometry, so there is no reason to refuse to export the files.
@@ -299,8 +315,25 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
             f"{mass.reflected_inertia_kg_mm2:.3f} kg mm2.",
             mass.total_mass_g)
 
+    # Not "has no bearing" - a plain cam has none and the drive still carries
+    # that force, sliding, which the PV check is there for.  This is the narrower
+    # question of a load leaving the gearbox for something on the other end of it.
+    external = [c for c in bearings if c.carried_elsewhere]
+    if external:
+        rep.add(Severity.INFO, "BEARINGS_OMITTED",
+                "This drive does not carry every load path itself: "
+                + ", ".join(c.role.lower() for c in external)
+                + " left out. " + " ".join(c.note for c in external if c.note)
+                + " The load has not gone anywhere - something this app cannot "
+                  "see is taking it, and that something has to be up to it.",
+                float(len(external)))
+
+    # A load path left out on purpose and one where nothing in the catalogue fits
+    # are different answers.  Reading them apart used to mean looking for a
+    # substring in the note, which is the same trick that got the BOM quantities
+    # wrong; `fitted` says it outright.
     for choice in bearings:
-        if choice.bearing is None and choice.note and "fixed pins" not in choice.note:
+        if choice.fitted and choice.bearing is None and choice.note:
             rep.add(Severity.WARNING, "NO_BEARING_FITS",
                     f"{choice.role}: {choice.note}")
         elif choice.bearing is not None and choice.life_hours < 5000:

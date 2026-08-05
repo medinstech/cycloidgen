@@ -123,6 +123,9 @@ class Requirements(BaseModel):
     friction_coefficient: float = Field(0.12, gt=0, lt=1.0)
     ring_pins_are_rollers: bool = False
     output_pins_are_rollers: bool = False
+    cam_bearing_fitted: bool = True
+    shaft_bearings_fitted: bool = True
+    output_bearing_fitted: bool = True
     ambient_temp_C: float = 20.0
 
     disc_count: Literal[0, 1, 2, 3] = Field(
@@ -147,6 +150,9 @@ class Requirements(BaseModel):
             friction_coefficient=self.friction_coefficient,
             ring_pins_are_rollers=self.ring_pins_are_rollers,
             output_pins_are_rollers=self.output_pins_are_rollers,
+            cam_bearing_fitted=self.cam_bearing_fitted,
+            shaft_bearings_fitted=self.shaft_bearings_fitted,
+            output_bearing_fitted=self.output_bearing_fitted,
             input_rpm=self.input_rpm,
             output_torque_Nm=self.output_torque_Nm,
             ambient_temp_C=self.ambient_temp_C,
@@ -173,6 +179,9 @@ def requirements_from_spec(spec: GearSpec,
         friction_coefficient=spec.friction_coefficient,
         ring_pins_are_rollers=spec.ring_pins_are_rollers,
         output_pins_are_rollers=spec.output_pins_are_rollers,
+        cam_bearing_fitted=spec.cam_bearing_fitted,
+        shaft_bearings_fitted=spec.shaft_bearings_fitted,
+        output_bearing_fitted=spec.output_bearing_fitted,
         ambient_temp_C=spec.ambient_temp_C,
         disc_count=spec.disc_count,
         objective=objective,

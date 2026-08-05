@@ -53,6 +53,35 @@ design somebody already built.
   the bearings sit in four different places, and looking at the cam bearing down
   its bore means putting the others away rather than putting all of them away.
 
+- **Bearings you can leave out of the design, not just out of the picture.**
+  Three of the five load paths can be built without a bearing of their own, and
+  plenty of drives are: a printed one usually runs its disc bore straight on the
+  cam, and a drive bolted to a motor face lets that motor's bearings hold the
+  shaft. **Bearings fitted** in the parameter panel, `--no-cam-bearing`,
+  `--no-shaft-bearings` and `--no-output-bearing` on the command line.
+
+  Switching one off takes the part out of the schedule, the BOM, the STEP and
+  the 3D view — and changes the physics with it, which is the difference between
+  a design decision and a display option. A drive with no cam bearing has a
+  plain journal at the fastest contact in the machine, so the cam grows to fill
+  the bore instead of standing 8 mm off it to leave a bearing wall, and the
+  sliding coefficient replaces the rolling one: the 21:1 steel preset goes from
+  71% efficient to 40%. Drag on a bearing the drive does not carry is not
+  counted at all, because it belongs to the machine on the other end.
+
+  The load path stays on the schedule either way. A row that vanishes reads as a
+  path that does not exist, which is the thing this schedule was rewritten to
+  stop doing; each one now says what is carrying it instead, with the number —
+  a motor's own bearings do not make the crank reaction go away.
+
+  New check `PV_LIMIT_CAM`, because a plain cam is the textbook wear failure of
+  this whole machine and nothing had ever asked about that contact: the largest
+  single force in the drive, rubbing at nearly the input speed, usually against
+  the disc material. A PLA disc on a steel cam at the 15:1 preset comes out 18×
+  over its wear limit — a drive that passes every stress check in the app and
+  wears its own bore oval in an afternoon. `BEARINGS_OMITTED` states, as a note,
+  which paths have been handed to something the app cannot see.
+
 **Fixed**
 
 - **The design search was returning drives whose output pins bend on the first

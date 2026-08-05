@@ -19,8 +19,26 @@ def _spec_from_args(args):
     from .core.spec import GearSpec, preset
     if args.design:
         data = json.loads(args.design.read_text(encoding="utf-8"))
-        return GearSpec.model_validate(data.get("spec", data))
-    return preset(args.ratio or 15)
+        spec = GearSpec.model_validate(data.get("spec", data))
+    else:
+        spec = preset(args.ratio or 15)
+    return _apply_omissions(spec, args)
+
+
+def _apply_omissions(spec, args):
+    """Take out the bearings the caller says this drive does not have.
+
+    Only ever subtractive - the flags are ``--no-...`` - so applying them over a
+    saved design can remove a bearing it had and never put one back that it did
+    not, which is the only reading of a command line that is not a surprise.
+    """
+    if args.no_cam_bearing:
+        spec.cam_bearing_fitted = False
+    if args.no_shaft_bearings:
+        spec.shaft_bearings_fitted = False
+    if args.no_output_bearing:
+        spec.output_bearing_fitted = False
+    return spec
 
 
 def _list_outputs(spec, groups: set[str]) -> int:
@@ -73,6 +91,9 @@ def _search(args) -> tuple[int, object | None]:
         housing_material=args.housing_material,
         ring_pins_are_rollers=args.rollers,
         output_pins_are_rollers=args.rollers,
+        cam_bearing_fitted=not args.no_cam_bearing,
+        shaft_bearings_fitted=not args.no_shaft_bearings,
+        output_bearing_fitted=not args.no_output_bearing,
         min_safety_factor=args.min_safety,
         objective=Objective(args.objective),
         disc_count=args.discs,
@@ -122,6 +143,17 @@ def main(argv: list[str] | None = None) -> int:
                              "drawings, solids, data")
     parser.add_argument("--list-outputs", action="store_true",
                         help="print every file an export would write, and exit")
+
+    built = parser.add_argument_group(
+        "bearings fitted", "three of the five load paths can be built without a "
+                           "bearing of their own; these leave them out of the "
+                           "design, not just out of the picture")
+    built.add_argument("--no-cam-bearing", action="store_true",
+                       help="the disc bore runs straight on the cam")
+    built.add_argument("--no-shaft-bearings", action="store_true",
+                       help="the drive hangs on the driving motor's bearings")
+    built.add_argument("--no-output-bearing", action="store_true",
+                       help="the driven machine locates the output flange")
 
     search = parser.add_argument_group(
         "design search", "state what the drive has to do and let the app find "

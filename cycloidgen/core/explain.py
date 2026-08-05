@@ -393,6 +393,29 @@ EXPLANATIONS: dict[str, Explanation] = {
         "path set by the eccentricity, and the holes are in the disc material.",
         "Bushings or rollers on the output pins fix this directly. Larger or "
         "more numerous pins drop the pressure term.", unit="MPa m/s"),
+    "PV_LIMIT_CAM": Explanation(
+        "Cam journal sliding duty past the wear limit",
+        "p*v at the cam/bore contact  <  the PV limit for the pair",
+        "With no cam bearing fitted, the disc bore is a plain journal running "
+        "straight on the eccentric cam. That contact carries the largest single "
+        "force in the drive and rubs at nearly the input speed, which makes it "
+        "the hardest-worked sliding pair in the machine - the bore wears oval "
+        "long before any part is close to breaking.",
+        "Fit the cam bearing. If it has to stay plain, a bronze bushing in the "
+        "bore and a lower input speed are what make it survivable.",
+        unit="MPa m/s"),
+    "BEARINGS_OMITTED": Explanation(
+        "Load paths this drive does not carry itself",
+        "-",
+        "A cycloidal drive has five rolling interfaces and three of them can be "
+        "left to something else: the cam can run plain, the input shaft can hang "
+        "on the driving motor's own bearings, and the output flange can be "
+        "located by the machine it drives. All three are ordinary ways to build "
+        "one. None of them makes the load go away - it moves somewhere this app "
+        "cannot see, and the thing it moves to has to be up to it.",
+        "Nothing, if that is the design. The schedule says what is carrying each "
+        "omitted path and how hard; check that against the motor's radial load "
+        "rating or the machine's own bearings."),
     "OVERTEMP": Explanation(
         "Past the material's service temperature",
         "T = ambient + loss / (h*A)  <  the disc material's service limit",
