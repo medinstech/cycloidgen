@@ -109,6 +109,16 @@ def report_dict(a: DesignAnalysis) -> dict:
             "pins_engaged_ideal": a.stiffness.pins_engaged_ideal,
             "load_concentration": a.stiffness.load_concentration,
         },
+        "position_tolerance": {
+            "tolerance_mm": a.spec.position_tolerance,
+            "rings_sampled": a.stiffness.rings_sampled,
+            "stiffness_p10_Nm_per_arcmin": a.stiffness.stiffness_p10_Nm_per_arcmin,
+            "load_concentration_p90": a.stiffness.load_concentration_p90,
+            "lost_motion_p90_arcmin": a.stiffness.lost_motion_p90_arcmin,
+            "transmission_error_worst_arcmin":
+                a.transmission_error.worst_ring_arcmin,
+            "interference_mm": a.stiffness.position_interference_mm,
+        },
         "transmission_error": {
             "peak_to_peak_arcmin": a.transmission_error.peak_to_peak_arcmin,
             "rms_arcmin": a.transmission_error.rms_arcmin,
@@ -460,6 +470,43 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
                          strict=True)],
                [42 * mm, 36 * mm, 42 * mm, 36 * mm]),
     ]
+
+    # --- what the pin position tolerance costs -------------------------------
+    if st.tolerance_was_sampled:
+        story += [
+            Spacer(1, 6),
+            Paragraph(
+                f"Everything above places the pins exactly. At the "
+                f"{s.position_tolerance:.3f} mm true position entered, they are "
+                f"not: the load sharing was solved over {st.rings_sampled} rings "
+                f"drawn from that tolerance zone, and the spread below is what "
+                f"came back. The middle ring is what to expect to build; the "
+                f"tail is what to be able to live with.",
+                body),
+            Spacer(1, 4),
+            _table([
+                ["Quantity", "Middle ring", "Quantity", "Bad ring"],
+                ["Stiffness", f"{st.stiffness_Nm_per_arcmin:.3f} Nm/arcmin",
+                 "Soft decile", f"{st.stiffness_p10_Nm_per_arcmin:.3f} Nm/arcmin"],
+                ["Load concentration", f"{st.load_concentration:.2f} x",
+                 "Ninth decile", f"{st.load_concentration_p90:.2f} x"],
+                ["Lost motion", f"{st.lost_motion_arcmin:.1f} arcmin",
+                 "Ninth decile", f"{st.lost_motion_p90_arcmin:.1f} arcmin"],
+                ["Transmission error", f"{te.peak_to_peak_arcmin:.3f} arcmin",
+                 "Worst of batch", f"{te.worst_ring_arcmin:.3f} arcmin"],
+            ], [42 * mm, 36 * mm, 42 * mm, 36 * mm]),
+        ]
+        if st.position_interference_mm > 0:
+            story += [
+                Spacer(1, 4),
+                Paragraph(
+                    f"<b>Read those as optimistic.</b> Some of those rings put a "
+                    f"pin {1000 * st.position_interference_mm:.0f} um into the "
+                    f"disc - the tolerance has eaten the clearance - and a "
+                    f"single-rotation model reads an interfering pin as one that "
+                    f"just touches. A drive built that way binds.",
+                    body),
+            ]
 
     # --- sliding duty and heat -----------------------------------------------
     th = a.thermal

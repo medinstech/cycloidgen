@@ -5,6 +5,78 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 3.1.0
+
+**Added**
+
+- **Manufacturing tolerance as an input.** A **Pin position** field under
+  Manufacturing: the true-position tolerance zone diameter on the pin holes,
+  stated the way a drawing states it, and applied to the ring pins and the
+  carrier pins alike on the argument that one shop drilled both.
+
+  It matters more than its size suggests. Everything else in the app places the
+  pins exactly, and with a uniform clearance that means every pin needs the same
+  rotation to come into mesh — so they all arrive together. A few hundredths of
+  position error is enough to decide which ones arrive first and carry the load
+  by themselves.
+
+  **An ensemble, not a worst case.** A single tolerance number does not say
+  where each pin went, and both usual ways of turning it into an answer are bad
+  on their own: worst case is a ring nobody will ever build, and nominal is a
+  ring nobody has ever built either. So `analysis/tolerance.py` draws *rings* —
+  each sample a whole set of pin positions, uniform over the tolerance zone —
+  and the load-sharing solve runs on each the way it runs on a perfect one. What
+  comes back is a distribution, quoted as the middle ring and the bad one: 24
+  rings for the load study, 12 for transmission error, which costs a full mesh
+  cycle at ripple resolution per ring. The draw is seeded from a constant, so a
+  design gives the same answer today and next month — an analysis that moves
+  when you reopen it cannot be checked against a measurement.
+
+  On the 15:1 preset at ⌀0.10 mm true position: stiffness 1.769 → 1.487
+  Nm/arcmin with a soft decile of 1.337, load concentration 3.28 → 3.93 with a
+  ninth decile of 4.18, and the pins actually carrying drop from 1.75 to 1.31 of
+  the eight the ideal model loads.
+
+  It also gives **transmission error the half it was missing**. 3.0.0 said in as
+  many words that pin position, profile error and runout were not modelled;
+  position is now, and it is most of what a measured trace shows: 1.99 → 5.03
+  arcmin peak to peak on that same design, with 6.98 for the worst ring of the
+  batch.
+
+  And it produces the sharpest constraint in the app. Past the point where the
+  tolerance approaches the clearance, pins are driven *into* the disc and the
+  drive binds instead of turning — a 29:1 EDM design with 0.012 mm of clearance
+  starts interfering at ⌀0.02. That is reported rather than absorbed, because a
+  single-rotation solve reads an interfering pin as one that just touches, which
+  makes a jammed ring look like a *better* drive with less backlash and more
+  pins engaged. A `PIN_POSITION` warning names the depth and says the figures
+  around it are the optimistic version.
+
+  Deliberately **not** applied by *Apply process defaults*, unlike the
+  clearances. A clearance is a dimension you choose and the model has always had
+  one; a position tolerance is a claim about what your machine actually holds,
+  and defaulting it to a guess would quietly derate every design in the app on
+  the strength of that guess. The `PIN_POSITION` check names the guide value for
+  the selected process instead, and it stays a suggestion until you enter it.
+
+**Changed**
+
+- **The design search sees the tolerance too**, over a short batch of six rings
+  rather than the full twenty-four — it is choosing between designs rather than
+  reporting one, and a search blind to the tolerance would happily pick a design
+  that only works on paper.
+
+**Numbers**
+
+Nothing moved. Verified field by field against a v3.0.0 checkout over six
+designs spanning the offset modes, disc counts, processes and materials: every
+value is bit-identical, transmission error included. The new figures appear only
+once a tolerance is entered, and a design with none is solved over exactly one
+ring — which is the perfect one it was always solved over.
+
+Cost follows the same rule: unchanged with no tolerance entered, and about
+0.5 s of analysis with one, nearly all of it the transmission-error batch.
+
 ## 3.0.0
 
 **This release changes computed numbers.** Torsional stiffness falls on every

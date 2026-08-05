@@ -374,7 +374,12 @@ def _fast_metrics(spec: GearSpec) -> dict | None:
     if contact.max_pin_pressure_MPa <= 0:
         return None
     eff = analyse_efficiency(spec)
-    stiff = analyse_stiffness(spec, steps=2)
+    # A coarse sweep and a short batch of rings: the search runs this tens of
+    # thousands of times, and it is choosing *between* designs rather than
+    # reporting one.  A position tolerance still has to be in it - it is what
+    # decides the load sharing, and a search blind to it would happily pick a
+    # design that only works on paper - but six rings is enough to rank by.
+    stiff = analyse_stiffness(spec, steps=2, samples=6)
     mass = analyse_mass(spec)
 
     concentration = max(stiff.load_concentration, 1.0)

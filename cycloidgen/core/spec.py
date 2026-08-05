@@ -106,6 +106,23 @@ PROCESS_CLEARANCE: dict[Process, tuple[float, float]] = {
     Process.EDM: (0.012, 0.015),
 }
 
+#: True-position tolerance a process typically holds on a bolt circle of this
+#: size, as the diameter of the tolerance zone - the way a drawing states it.
+#:
+#: Deliberately *not* applied by :meth:`GearSpec.apply_process_defaults`, unlike
+#: the clearances.  A clearance is a dimension you choose and the model has
+#: always had one; a position tolerance is a claim about what your machine
+#: actually holds, and defaulting it to a guess would quietly derate every
+#: design in the app on the strength of that guess.  It is a suggestion, offered
+#: by the ``PIN_POSITION`` check, and it stays a suggestion until you enter it.
+PROCESS_POSITION_TOLERANCE: dict[Process, float] = {
+    Process.FDM: 0.30,
+    Process.SLA: 0.12,
+    Process.SLS: 0.25,
+    Process.CNC: 0.05,
+    Process.EDM: 0.02,
+}
+
 
 class GearSpec(BaseModel):
     """A complete, self-consistent cycloidal drive definition."""
@@ -142,6 +159,11 @@ class GearSpec(BaseModel):
     offset_mode: OffsetMode = OffsetMode.EQUIDISTANT
     profile_clearance: float = Field(0.22, ge=0, description="per-side clearance on the profile")
     hole_clearance: float = Field(0.30, ge=0, description="added to hole diameters")
+    position_tolerance: float = Field(
+        0.0, ge=0,
+        description="true-position tolerance zone diameter on the pin holes, "
+                    "ring and carrier alike; 0 models a perfectly placed ring",
+    )
     dxf_chord_tolerance: float = Field(0.005, gt=0)
     stl_linear_tolerance: float = Field(0.05, gt=0)
 

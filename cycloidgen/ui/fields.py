@@ -88,6 +88,11 @@ GROUPS: list[tuple[str, list[Field]]] = [
               decimals=3, suffix=" mm"),
         Field("hole_clearance", "Hole clearance", "float", 0, 2, 0.01,
               decimals=3, suffix=" mm"),
+        Field("position_tolerance", "Pin position", "float", 0, 2, 0.01,
+              decimals=3, suffix=" mm",
+              tip="True-position zone diameter on the pin holes, ring and "
+                  "carrier alike. Zero models a perfectly placed ring; enter "
+                  "what your shop holds to see what it costs."),
         Field("dxf_chord_tolerance", "DXF tolerance", "float", 0.0005, 0.5,
               0.001, decimals=4, suffix=" mm"),
         Field("stl_linear_tolerance", "STL tolerance", "float", 0.005, 1.0, 0.01,
@@ -163,6 +168,7 @@ CODE_FIELDS: dict[str, tuple[str, ...]] = {
     "TRANSMISSION_ERROR": ("output_pin_count", "disc_count", "disc_thickness"),
     "LOST_MOTION": ("profile_clearance", "hole_clearance", "process"),
     "LOAD_CONCENTRATION": ("profile_clearance", "offset_mode", "process"),
+    "PIN_POSITION": ("position_tolerance", "profile_clearance", "process"),
     "PV_LIMIT_RING": ("ring_pins_are_rollers", "input_rpm", "disc_material"),
     "PV_MARGIN_RING": ("ring_pins_are_rollers", "input_rpm"),
     "PV_LIMIT_OUTPUT": ("output_pins_are_rollers", "output_pin_diameter"),

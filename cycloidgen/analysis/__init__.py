@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from ..core.spec import GearSpec
+from ..core.spec import PROCESS_POSITION_TOLERANCE, GearSpec
 from ..core.validate import Report, Severity, validate
 from .bearings import BearingChoice, select_bearings
 from .efficiency import EfficiencyResult, analyse_efficiency
@@ -142,6 +142,35 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
             f"the ring mesh every {te.ring_period_deg:.0f} deg. Clearance take-up "
             f"and elastic deflection together; pin position and profile error "
             f"are not in it.", te.peak_to_peak_arcmin)
+
+    # ---- where the pins actually are ----------------------------------------
+    guide = PROCESS_POSITION_TOLERANCE[spec.process]
+    if spec.position_tolerance <= 0.0:
+        rep.add(Severity.INFO, "PIN_POSITION",
+                f"Every pin is modelled exactly on its bolt circle, which no "
+                f"ring is. {spec.process.value} typically holds about "
+                f"{guide:.2f} mm true position; entering it under Manufacturing "
+                f"reruns the load sharing over a batch of rings drawn from that "
+                f"tolerance and reports what it costs.", 0.0, guide)
+    elif stiff.position_interference_mm > 0.0:
+        rep.add(Severity.WARNING, "PIN_POSITION",
+                f"The position tolerance has eaten the clearance: at "
+                f"{spec.position_tolerance:.3f} mm true position some rings put "
+                f"a pin {1000 * stiff.position_interference_mm:.0f} um into the "
+                f"disc, which is a drive that binds rather than one that turns. "
+                f"Every figure here reads that pin as just touching, so they "
+                f"are the optimistic version. Open the profile clearance or "
+                f"hold the holes tighter.",
+                spec.position_tolerance, spec.profile_clearance)
+    else:
+        rep.add(Severity.INFO, "PIN_POSITION",
+                f"Over {stiff.rings_sampled} rings drawn at "
+                f"{spec.position_tolerance:.3f} mm true position, the middle one "
+                f"carries {stiff.load_concentration:.1f}x its ideal share and "
+                f"the worst tenth {stiff.load_concentration_p90:.1f}x; stiffness "
+                f"runs {stiff.stiffness_Nm_per_arcmin:.3f} Nm/arcmin down to "
+                f"{stiff.stiffness_p10_Nm_per_arcmin:.3f} in the soft decile.",
+                spec.position_tolerance, spec.profile_clearance)
 
     if stiff.load_concentration > 1.5:
         rep.add(Severity.WARNING, "LOAD_CONCENTRATION",

@@ -234,6 +234,16 @@ Beyond the geometry checks, every design gets a datasheet:
   A phased disc stack cancels much of it — the discs ride opposite halves of the
   same cycle — which a stiffness average cannot see, because phasing leaves the
   mean alone and only moves the ripple.
+- **What your tolerance costs.** Everything else in the app places the pins
+  exactly, and with a uniform clearance that means they all come into mesh
+  together. Enter the true position your shop holds and the load sharing is
+  solved over a *batch* of rings drawn from that tolerance zone — a single
+  number does not say where each pin went, worst case is a ring nobody will
+  build, and nominal is a ring nobody has built. Out comes the middle ring and
+  the bad one: stiffness, load concentration, lost motion and transmission
+  error, each with its tail. Past the point where the tolerance approaches the
+  clearance the pins interfere and the drive binds, and the app says so rather
+  than quietly reading an interfering pin as a free preload.
 - **PV and running temperature.** PV is the wear limit, and it is what actually
   finishes a printed drive — a PLA disc can sit well inside its stress allowable
   and still wear round in an afternoon. Quoted on the projected-area convention
@@ -255,7 +265,7 @@ Errors block export; warnings do not.
 `OUTPUT_HOLES_OVERLAP` · `THIN_INNER_WEB` · `THIN_OUTER_WEB` · `WEB_SHEAR` ·
 `CLEARANCE_DEFICIT` · `SINGLE_DISC_UNBALANCE` · `UNBALANCE_FORCE` ·
 `PRESSURE_ANGLE` · `HERTZ_STRESS_RING` · `HERTZ_STRESS_OUTPUT` ·
-`LOAD_CONCENTRATION` · `LOST_MOTION` · `TRANSMISSION_ERROR` ·
+`LOAD_CONCENTRATION` · `LOST_MOTION` · `TRANSMISSION_ERROR` · `PIN_POSITION` ·
 `TORSIONAL_STIFFNESS` · `STRUCTURAL_COMPLIANCE` · `PV_LIMIT_RING` ·
 `PV_LIMIT_OUTPUT` · `OVERTEMP` · `RUNNING_HOT` · `LOW_EFFICIENCY` ·
 `SHORT_BEARING_LIFE` · `PIN_RADIUS_SUGGESTION` · `MASS` · `DISCS_DIFFER`
@@ -400,7 +410,8 @@ counts the parts around the mesh rather than calling them rigid — but it count
 them as ideal parts. Joints, fits and fasteners are not in it, so a real drive
 measures softer again, and two of the six terms rest on an assumption the
 geometry does not settle (see `analysis/compliance.py`, which states both).
-Transmission error is the
+Pin position error is modelled only if you enter a tolerance; with none entered
+the ring is perfect, which no ring is. Transmission error is the
 drive's own share only — clearance take-up and deflection, both of which it
 solves; pin position error, profile error and runout are the manufacturing half
 and are not modelled, so a real drive measures worse. The thermal model is a single
@@ -420,7 +431,8 @@ cycloidgen/
 │               explain (what each check tests, why, and what to change)
 ├── analysis/   mechanics (Hertz), stiffness (contacts, backlash, transmission
 │               error), compliance (the parts around the mesh, as springs),
-│               thermal, mass, efficiency, bearings
+│               tolerance (where the pins actually are), thermal, mass,
+│               efficiency, bearings
 ├── design/     optimise (requirements -> geometry), sweep (trade studies)
 ├── viz/        3D geometry and rendering maths, no Qt: mesh, scene (the
 │               software projection), vtkbridge (mesh -> VTK polydata)
@@ -431,7 +443,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          449 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          463 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 

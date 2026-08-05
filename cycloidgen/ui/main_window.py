@@ -1544,7 +1544,14 @@ class MainWindow(QMainWindow):
                  "lost motion plus wind-up"),
                 ("Transmission error",
                  f"{te.peak_to_peak_arcmin:.3f} arcmin p-p",
-                 f"{te.rms_arcmin:.3f} rms; no manufacturing error in it"),
+                 f"{te.rms_arcmin:.3f} rms"
+                 + ("" if st.tolerance_was_sampled
+                    else "; no manufacturing error in it")),
+                *([("Spread over the batch",
+                    f"{st.stiffness_p10_Nm_per_arcmin:.3f} Nm/arcmin soft decile",
+                    f"{st.rings_sampled} rings at {s.position_tolerance:.3f} mm "
+                    f"true position; TE up to {te.worst_ring_arcmin:.3f} arcmin")]
+                  if st.tolerance_was_sampled else []),
                 ("Pins carrying load",
                  f"{st.pins_engaged:.1f} of {st.pins_engaged_ideal:.0f}",
                  "clearance keeps the rest out of mesh"),

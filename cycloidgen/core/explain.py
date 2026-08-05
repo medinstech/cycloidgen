@@ -344,6 +344,20 @@ EXPLANATIONS: dict[str, Explanation] = {
         "A tighter process cuts the profile share; a tighter hole fit cuts the "
         "other. The split between the two is in the finding's own message, so "
         "you can tell which one to spend on.", unit="arcmin"),
+    "PIN_POSITION": Explanation(
+        "Where the pins actually are",
+        "true-position tolerance  <  the clearance it has to fit inside",
+        "Everything else in the app places the pins exactly, and with a uniform "
+        "clearance that means they all come into mesh together. Real holes are "
+        "off by a few hundredths, and that is enough to decide which pins "
+        "arrive first and carry the load alone. Past the point where the "
+        "tolerance is comparable to the clearance the pins interfere and the "
+        "drive binds instead of turning.",
+        "Enter what your process actually holds - the finding names the guide "
+        "value for the one selected. Then either open the profile clearance so "
+        "the position error fits inside it, or hold the holes tighter: a "
+        "drilled and reamed ring plate is worth an order of magnitude over a "
+        "printed one.", unit="mm"),
     "LOAD_CONCENTRATION": Explanation(
         "Clearance concentrates the load on a few pins",
         "peak pin force / ideal share  <  1.5",
