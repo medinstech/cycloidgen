@@ -6,11 +6,14 @@ selection only; confirm against the manufacturer's data before ordering.
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 
-from ..core.spec import GearSpec
+from ..core.spec import CARRIER_DROP, SHAFT_OVERHANG, GearSpec
 
-__all__ = ["CATALOGUE", "Bearing", "BearingChoice", "select_bearings"]
+__all__ = ["CATALOGUE", "Bearing", "BearingChoice", "BearingPlacement", "BearingRing",
+           "bearing_placements", "bearing_schedule", "pin_shank_diameter",
+           "placements_for_spec", "select_bearings"]
 
 
 @dataclass(frozen=True)
@@ -126,6 +129,20 @@ def _roller_rpm(spec: GearSpec) -> float:
     return spec.input_rpm * lobe_pitch / circumference
 
 
+def _stacked(width: float, length: float) -> int:
+    """How many of a roller it takes to cover a working length.
+
+    A roller that *is* a working surface - a ring pin sleeve, an output pin
+    bushing - has to be as long as the surface the disc runs on, and the widths
+    in the catalogue do not care what your stack height is.  One per pin is the
+    answer only when one happens to reach; otherwise it is the answer that
+    leaves a builder with a pin loose in its pocket for most of its length.
+    """
+    if width <= 0.0:
+        return 1
+    return max(1, math.ceil(length / width - 1e-9))
+
+
 def _pick(bore_min: float, outer_max: float, width_max: float,
           load_N: float, rpm: float, kinds: tuple[str, ...]) -> Bearing | None:
     """Smallest catalogue bearing that fits the envelope and lasts 1000 h."""
@@ -178,18 +195,31 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
 
     # 2. output pin rollers - optional, and the biggest single sliding loss
     if spec.output_pins_are_rollers:
-        outer = spec.output_hole_diameter - 2 * spec.eccentricity
-        b2 = _pick(spec.output_pin_diameter, outer, spec.disc_thickness,
+        # As with the ring pins, the roller's OD *is* the working pin: the hole
+        # is cut to the diameter the disc runs on, so the sleeve takes that
+        # surface and the pin proper shrinks to its bore.  Asking for a bore of
+        # a full pin diameter as well - which is what the hole less twice the
+        # eccentricity comes to - was asking for a ring with no wall, and it is
+        # why nothing has ever been selected here.
+        outer = spec.output_pin_diameter
+        b2 = _pick(0.0, outer, spec.disc_thickness,
                    output_pin_load_N, spec.input_rpm, ("needle",))
+        per_seat = _stacked(b2.width, spec.disc_thickness) if b2 else 1
         out.append(BearingChoice(
             role="Output pin roller",
-            count=spec.output_pin_count * spec.disc_count,
+            count=spec.output_pin_count * spec.disc_count * per_seat,
             bearing=b2, load_N=output_pin_load_N, speed_rpm=spec.input_rpm,
             life_hours=_life_hours(b2, output_pin_load_N, spec.input_rpm) if b2 else 0.0,
             carries="one pin's share of the output torque",
-            seat=f"on each {spec.output_pin_diameter:.1f} mm output pin, one per "
-                 f"disc, running in the {spec.output_hole_diameter:.1f} mm hole",
-            note=("" if b2 else "no roller fits; use a plain bronze bushing instead"),
+            seat=f"over each output pin, {spec.output_pin_diameter:g} mm OD "
+                 f"working surface running in the "
+                 f"{spec.output_hole_diameter:.1f} mm hole, one per disc"
+                 + (f" - {per_seat} of them end to end to cover the "
+                    f"{spec.disc_thickness:g} mm disc" if per_seat > 1 else ""),
+            note=("" if b2 else
+                  "no drawn-cup needle is this small: a bronze bushing here means "
+                  "turning the pin down to suit it, and by how much is a diameter "
+                  "this app does not choose for you"),
         ))
     else:
         out.append(BearingChoice(
@@ -211,13 +241,15 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
         roller_rpm = _roller_rpm(spec)
         b4 = _pick(0.0, outer, spec.stack_height, ring_pin_load_N,
                    roller_rpm, ("needle",))
+        per_pin = _stacked(b4.width, spec.stack_height) if b4 else 1
         out.append(BearingChoice(
-            role="Ring pin roller", count=spec.pin_count,
+            role="Ring pin roller", count=spec.pin_count * per_pin,
             bearing=b4, load_N=ring_pin_load_N, speed_rpm=roller_rpm,
             life_hours=_life_hours(b4, ring_pin_load_N, roller_rpm) if b4 else 0.0,
             carries="the lobe load as each tooth sweeps past",
             seat=f"over each ring pin, {2 * spec.pin_radius:.1f} mm OD working "
-                 f"surface, {spec.stack_height:.1f} mm long",
+                 f"surface, {spec.stack_height:.1f} mm long"
+                 + (f" - {per_pin} of them end to end per pin" if per_pin > 1 else ""),
             note=("" if b4 else
                   "no drawn-cup needle is this small: use a hardened sleeve turning "
                   "on a smaller pin, which is what most builds at this size do"),
@@ -253,9 +285,224 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
         bearing=b3, load_N=radial, speed_rpm=spec.output_rpm,
         life_hours=_life_hours(b3, radial, spec.output_rpm) if b3 else 0.0,
         carries="whatever the machine hangs on the output flange",
-        seat="between the output flange and the housing - a seat this app does "
-             "not yet model, so treat the size as a first pass",
+        seat="between the output flange and the housing - the only seat this app "
+             "does not model, so this one is not drawn in the 3D view or the "
+             "STEP either, and the size is a first pass",
         note=("" if b3 else
               "consider a crossed-roller or a pair of angular contact bearings"),
     ))
+    return out
+
+
+def bearing_schedule(spec: GearSpec, contact=None) -> list[BearingChoice]:
+    """The schedule from a spec alone, working the loads out on the way.
+
+    :func:`select_bearings` takes the loads because that is what it needs; every
+    caller then has to know which three numbers off the contact study to hand
+    it, and there are now four callers.  One wiring site is enough.
+    """
+    if contact is None:
+        from .mechanics import analyse_contacts
+        contact = analyse_contacts(spec)
+    return select_bearings(spec, contact.eccentric_bearing_load_N,
+                           contact.max_output_force_N,
+                           ring_pin_load_N=contact.max_pin_force_N)
+
+
+# ------------------------------------------------------------------- placement
+
+
+@dataclass(frozen=True)
+class BearingRing:
+    """One physical bearing: where its axis is, and the span it occupies."""
+
+    cx: float
+    cy: float
+    z0: float
+    z1: float
+
+
+@dataclass(frozen=True)
+class BearingPlacement:
+    """Every bearing of one role that moves as a single rigid body.
+
+    ``host`` names the part it travels with, by the name that part carries in
+    the assembly - so the ring centres are in *that* part's frame, and neither
+    the mesh nor the STEP assembly has to restate a motion law it already has.
+    """
+
+    name: str
+    label: str
+    role: str
+    bore: float
+    outer: float
+    rings: tuple[BearingRing, ...]
+    host: str
+    catalogue: str = ""
+
+    @property
+    def count(self) -> int:
+        return len(self.rings)
+
+
+def placements_for_spec(spec: GearSpec) -> tuple[BearingPlacement, ...]:
+    """Where this design's bearings sit, loads and selection included."""
+    return tuple(bearing_placements(spec, bearing_schedule(spec)))
+
+
+def pin_shank_diameter(placements: Sequence[BearingPlacement], name: str,
+                       nominal: float) -> float:
+    """What is left of a pin once a roller has taken its outside.
+
+    A roller's OD *is* the working surface - the disc profile, or the output
+    hole, was cut to that diameter - so the pin under it is the roller's bore
+    and not the nominal size.  Everything that draws the pin or drills its seat
+    has to agree about which of the two it means, and this is where they agree.
+    """
+    sleeve = next((p for p in placements if p.name == name), None)
+    return sleeve.bore if sleeve is not None else nominal
+
+
+def _span(z0: float, z1: float, width: float) -> tuple[float, float]:
+    """Centre a bearing ``width`` long in the seat between ``z0`` and ``z1``."""
+    if width >= z1 - z0:
+        return z0, z1
+    middle = 0.5 * (z0 + z1)
+    return middle - width / 2.0, middle + width / 2.0
+
+
+def _courses(z0: float, z1: float, width: float) -> list[tuple[float, float]]:
+    """Lay rollers end to end from ``z0`` until the working surface is covered.
+
+    The last one is cut off at the end of the seat rather than allowed to stand
+    past it.  It is drawn short because it *is* short of a whole part: a stack
+    height is not obliged to be a multiple of a catalogue width, and pretending
+    otherwise would put a roller out in the air past the housing face.
+    """
+    if width <= 0.0:
+        return [(z0, z1)]
+    out, z = [], z0
+    while z < z1 - 1e-9:
+        out.append((z, min(z + width, z1)))
+        z += width
+    return out or [(z0, z1)]
+
+
+def bearing_placements(spec: GearSpec,
+                       choices: Sequence[BearingChoice]) -> list[BearingPlacement]:
+    """The schedule again, in millimetres: where each bearing physically sits.
+
+    The schedule says where a bearing goes in words, and words are what left the
+    question open - "on the input shaft either side of the disc stack" is a
+    description, not a place.  This is the same selection as geometry, so the 3D
+    view and the STEP assembly can draw it, and so that a picture and a schedule
+    that disagree is not a thing that can happen.
+
+    Two rules decide what appears:
+
+    * **The diameters are the picked part's**, wherever one was picked.  Drawing
+      the seat to its own limits instead would show a bearing a couple of
+      millimetres bigger than the one you will hold in your hand.
+    * **A bearing is drawn only when both working diameters are known.**  That is
+      what leaves the ring pin rollers out when no drawn cup is small enough:
+      the schedule's answer there is a sleeve turning on a smaller pin, and how
+      much smaller is not something this app has decided.  A guessed wall
+      thickness would be inventing the part.
+
+    The main output bearing is deliberately absent, and that is an answer rather
+    than a gap.  It seats between the output flange and the housing, and the
+    model has neither a flange hub nor a housing end plate for it to sit in;
+    placing it would mean inventing both.  Its schedule note says the same.
+    """
+    by_role = {c.role: c for c in choices}
+    out: list[BearingPlacement] = []
+    thickness = spec.disc_thickness
+    pitch = thickness + spec.disc_gap
+
+    # 1. Eccentric cam bearing.  Pressed into the disc bore and running on the
+    # cam, so it turns with the disc - and the disc's own centre *is* the cam
+    # centre, which is why the ring sits at the origin of that frame.
+    cam = by_role.get("Eccentric cam bearing")
+    if cam is not None and cam.bearing is not None:
+        for i in range(spec.disc_count):
+            z0, z1 = _span(i * pitch, i * pitch + thickness, cam.bearing.width)
+            out.append(BearingPlacement(
+                name=f"bearing_cam_{i + 1}",
+                label=f"Cam bearing {i + 1}" if spec.disc_count > 1 else "Cam bearing",
+                role=cam.role, catalogue=cam.bearing.designation,
+                bore=cam.bearing.bore, outer=cam.bearing.outer,
+                rings=(BearingRing(0.0, 0.0, z0, z1),), host=f"disc_{i + 1}"))
+
+    # 2. Output pin rollers.  They ride on the carrier's pins, so they turn with
+    # the carrier, and like the ring pin sleeves they take the pin's outside -
+    # the hole is cut to the diameter the disc runs on.
+    roller = by_role.get("Output pin roller")
+    if roller is not None and roller.bearing is not None:
+        # The carrier's pins start at the plate and run one stack height, which
+        # leaves them a carrier drop short of the top disc; a roller may not
+        # stand off the end of the pin it is on.
+        pin_z0, pin_z1 = -CARRIER_DROP, spec.stack_height - CARRIER_DROP
+        rings: list[BearingRing] = []
+        for i in range(spec.disc_count):
+            low = max(i * pitch, pin_z0)
+            high = min(i * pitch + thickness, pin_z1)
+            if high <= low:
+                continue
+            for z0, z1 in _courses(low, high, roller.bearing.width):
+                for k in range(spec.output_pin_count):
+                    angle = 2.0 * math.pi * k / spec.output_pin_count
+                    rings.append(BearingRing(
+                        spec.output_bolt_circle_radius * math.cos(angle),
+                        spec.output_bolt_circle_radius * math.sin(angle), z0, z1))
+        if rings:
+            out.append(BearingPlacement(
+                name="bearing_output_pins", label="Output pin rollers",
+                role=roller.role, catalogue=roller.bearing.designation,
+                bore=roller.bearing.bore, outer=spec.output_pin_diameter,
+                rings=tuple(rings), host="output_flange"))
+
+    # 3. Ring pin rollers.  The sleeve's OD is the working pin surface - the
+    # profile is cut to the radius the disc touches - so it takes the pin's
+    # outside and the pin proper shrinks to whatever is left of the bore.  Drawn
+    # only when a catalogue needle fits, for the reason in the docstring.
+    ring = by_role.get("Ring pin roller")
+    if ring is not None and ring.bearing is not None:
+        rings = []
+        for z0, z1 in _courses(0.0, spec.stack_height, ring.bearing.width):
+            for k in range(spec.pin_count):
+                angle = 2.0 * math.pi * k / spec.pin_count
+                rings.append(BearingRing(spec.pin_circle_radius * math.cos(angle),
+                                         spec.pin_circle_radius * math.sin(angle),
+                                         z0, z1))
+        # Hosted on the pins rather than the housing.  Nothing presses a sleeve
+        # into the ring - it rides on the pin - so pulling the pins out of an
+        # exploded view has to take their sleeves with them.
+        out.append(BearingPlacement(
+            name="bearing_ring_pins", label="Ring pin rollers", role=ring.role,
+            catalogue=ring.bearing.designation, bore=ring.bearing.bore,
+            outer=2.0 * spec.pin_radius, rings=tuple(rings), host="ring_pins"))
+
+    # 4. Input shaft supports.  Each sits against the end of the drive and grows
+    # outward along the shaft: one on the housing face, one on the outboard face
+    # of the carrier.  What holds their outer rings is an end plate the model
+    # does not have, so they are hosted on the housing - which is where that
+    # plate would be, and which keeps them still while the shaft pulls out of
+    # them in an exploded view.  A support the drawn shaft is too short to carry
+    # is left out rather than moved somewhere it would fit.
+    support = by_role.get("Input shaft support")
+    if support is not None and support.bearing is not None:
+        width = support.bearing.width
+        outboard = -CARRIER_DROP - spec.output_flange_thickness
+        candidates = [(spec.stack_height, spec.stack_height + width),
+                      (outboard - width, outboard)]
+        shaft = (-SHAFT_OVERHANG, spec.stack_height + SHAFT_OVERHANG)
+        rings = [BearingRing(0.0, 0.0, z0, z1) for z0, z1 in candidates
+                 if shaft[0] <= z0 and z1 <= shaft[1]]
+        if rings:
+            out.append(BearingPlacement(
+                name="bearing_shaft_supports", label="Input shaft supports",
+                role=support.role, catalogue=support.bearing.designation,
+                bore=support.bearing.bore, outer=support.bearing.outer,
+                rings=tuple(rings), host="housing"))
+
     return out

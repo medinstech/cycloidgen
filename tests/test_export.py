@@ -228,3 +228,38 @@ def test_json_report_carries_the_new_studies(spec, tmp_path):
     assert data["contact"]["torque_capacity_with_clearance_Nm"] <= \
         data["contact"]["torque_capacity_Nm"]
     assert len(data["bom"]) >= 6
+
+
+def test_bom_counts_every_bearing_the_schedule_asks_for(spec):
+    """The quantity used to be read out of the role *string*.
+
+    ``s.disc_count if "per disc" in choice.role else 1`` worked only while the
+    roles happened to be worded that way, and when they stopped being, the BOM
+    quietly said one eccentric bearing for a two-disc stack and one input shaft
+    support for a shaft that needs two.  Ordering off it would leave you short.
+    """
+    from cycloidgen.export.bom import bom_items
+    a = analyse(spec)
+    lines = {i.part: i for i in bom_items(a)}
+    for choice in a.bearings:
+        if choice.bearing is None or not choice.count:
+            continue
+        assert lines[choice.role].quantity == choice.count, choice.role
+        assert choice.seat in lines[choice.role].note
+
+
+def test_the_step_assembly_holds_the_bearings_as_well_as_the_made_parts(spec, tmp_path):
+    """A bearing is bought, so it gets no STL of its own - but the assembly is
+    where fit is checked, and a fit check with no bearings in it is not one."""
+    import cadquery as cq
+
+    from cycloidgen.analysis.bearings import placements_for_spec
+    from cycloidgen.export import solid
+
+    placements = placements_for_spec(spec)
+    assert placements
+    assert not {p.name for p in placements} & set(solid.parts(spec))
+    rings = sum(p.count for p in placements)
+    bare = len(cq.importers.importStep(
+        str(solid.write_step(spec, tmp_path / "a.step"))).val().Solids())
+    assert bare >= 4 + spec.pin_count + rings

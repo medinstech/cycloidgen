@@ -208,6 +208,14 @@ def main() -> int:
     window.show()
     window.raise_()
     window.activateWindow()
+
+    # The committed screenshots are light-theme ones, and the window opens on
+    # whatever the operator's desktop is set to.  Without this the images depend
+    # on who ran the tool - and `verify_hue` below, which is written against the
+    # light palette, rejects a dark capture as a channel swap.  Put the stored
+    # preference back afterwards: this is a screenshot run, not a settings change.
+    appearance = window.appearance
+    window._set_appearance("light")
     settle(app, 600)
 
     window._replace_spec(hero(), record=False)
@@ -266,6 +274,7 @@ def main() -> int:
     settle(app, 1200)
     capture(window, DOCS / "exploded.png", widget=viewport)
 
+    window._set_appearance(appearance)
     window.close()
     return 0
 

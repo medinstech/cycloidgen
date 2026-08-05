@@ -110,19 +110,17 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
 
     # ---- bearings -----------------------------------------------------------
     for choice in a.bearings:
-        if choice.bearing is None:
+        if choice.bearing is None or not choice.count:
             continue
         b = choice.bearing
-        quantity = s.disc_count if "per disc" in choice.role else 1
-        if "Output pin" in choice.role:
-            quantity = s.output_pin_count * s.disc_count
         life = ("-" if choice.life_hours == float("inf")
                 else f"L10 {choice.life_hours:,.0f} h")
         items.append(BomItem(
-            part=choice.role, quantity=quantity, material="bearing steel",
+            part=choice.role, quantity=choice.count, material="bearing steel",
             size=f"{b.designation} ({b.bore:g}x{b.outer:g}x{b.width:g})",
             mass_each_g=0.0, source="buy",
-            note=f"{choice.load_N:.0f} N at {choice.speed_rpm:.0f} rpm, {life}"))
+            note=f"{choice.seat}; {choice.load_N:.0f} N at "
+                 f"{choice.speed_rpm:.0f} rpm, {life}"))
 
     return items
 

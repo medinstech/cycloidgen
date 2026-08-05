@@ -7,12 +7,19 @@ fits.
 """
 from __future__ import annotations
 
+import itertools
+
+import numpy as np
 import pytest
 
 from cycloidgen.analysis import analyse
-from cycloidgen.analysis.bearings import CATALOGUE, select_bearings
+from cycloidgen.analysis.bearings import (
+    CATALOGUE,
+    placements_for_spec,
+    select_bearings,
+)
 from cycloidgen.analysis.mechanics import analyse_contacts
-from cycloidgen.core.spec import Process, preset
+from cycloidgen.core.spec import CARRIER_DROP, SHAFT_OVERHANG, Process, preset
 
 
 def _spec(rollers: bool = True):
@@ -118,3 +125,210 @@ def test_a_bearing_that_fits_lasts_the_life_it_reports():
     assert a.bearing is not None and b.bearing is a.bearing
     assert b.life_hours == pytest.approx(
         a.life_hours * 2.0 ** a.bearing.life_exponent, rel=1e-9)
+
+
+# ------------------------------------------------------------------- placement
+#
+# The schedule says where a bearing goes in words.  These are about saying it in
+# millimetres - which is what makes it appear in the 3D view and the STEP - and
+# the failures worth guarding are the ones that would look right in a picture: a
+# ring in a space something else already occupies, a bearing invented where the
+# model has nothing to hold it, and a picture that has quietly stopped agreeing
+# with the schedule beside it.
+
+
+def _big_pins():
+    """A drive whose pins are large enough to carry real needle rollers.
+
+    Everything at prototype scale is too small for a drawn cup - the smallest is
+    12 mm across - so the roller paths would otherwise never be exercised at all.
+    """
+    spec = preset(15)
+    spec.pin_radius = 7.0
+    spec.disc_thickness = 12.0
+    spec.output_pin_diameter = 14.0
+    spec.ring_pins_are_rollers = True
+    spec.output_pins_are_rollers = True
+    return spec
+
+
+def _placed(spec):
+    return {p.name: p for p in placements_for_spec(spec)}
+
+
+def test_the_cam_bearing_is_drawn_between_the_cam_and_the_disc_bore():
+    """Both faces of it are somebody else's surface, so both have to clear."""
+    spec = _spec()
+    cam = _placed(spec)["bearing_cam_1"]
+    assert cam.bore >= spec.cam_diameter
+    assert cam.outer <= spec.center_bore_diameter
+    assert cam.host == "disc_1"
+    ring, = cam.rings
+    assert (ring.cx, ring.cy) == (0.0, 0.0)      # the disc's centre is the cam's
+    assert 0.0 <= ring.z0 < ring.z1 <= spec.disc_thickness
+
+
+def test_one_cam_bearing_per_disc_and_each_on_its_own_disc():
+    spec = _spec()
+    placed = _placed(spec)
+    for i in range(spec.disc_count):
+        assert placed[f"bearing_cam_{i + 1}"].host == f"disc_{i + 1}"
+
+
+def test_a_drawn_bearing_turns_with_the_part_it_was_placed_against():
+    """The motion is taken from the host rather than worked out again.
+
+    A cam bearing that did not orbit with its disc would sit still in the middle
+    of a bore that does not, and the picture would be of a drive that cannot run.
+    """
+    from cycloidgen.viz.mesh import build_mesh
+
+    spec = _spec()
+    parts = {p.name: p for p in build_mesh(spec).parts}
+    for placement in placements_for_spec(spec):
+        bearing, host = parts[placement.name], parts[placement.host]
+        assert (bearing.spin, bearing.phase, bearing.orbits) == \
+            (host.spin, host.phase, host.orbits), placement.name
+
+
+def test_a_bearing_is_drawn_only_when_both_its_diameters_are_known():
+    """Nothing here is allowed to invent a part.
+
+    At prototype scale no drawn cup is small enough for a ring pin, and the
+    schedule's answer is a sleeve turning on a smaller pin - how much smaller
+    being a diameter this app has not chosen.  Drawing a guessed wall would be
+    designing the part rather than showing it.
+    """
+    small = _spec()                                    # rollers on, pins tiny
+    schedule = {c.role: c for c in _schedule(small)}
+    assert schedule["Ring pin roller"].bearing is None
+    assert "bearing_ring_pins" not in _placed(small)
+
+    placed = _placed(_big_pins())
+    assert "bearing_ring_pins" in placed
+    assert "bearing_output_pins" in placed
+
+
+def test_a_pin_under_a_roller_shrinks_to_the_roller_bore():
+    """The roller's OD *is* the working pin, so the pin cannot also have it.
+
+    Drawn at nominal size the pin would be inside its own sleeve - two solids in
+    one space, which is the one thing the software renderer cannot arbitrate.
+    """
+    from cycloidgen.export import solid
+    from cycloidgen.viz.mesh import build_mesh
+
+    spec = _big_pins()
+    placed = _placed(spec)
+    mesh = build_mesh(spec)
+    pins = next(p for p in mesh.parts if p.name == "ring_pins")
+
+    # Every vertex of the pins sits exactly the shank radius off the nearest pin
+    # axis - which also says none of them has been left at nominal size.
+    xy = mesh.vertices[pins.vertices][:, :2]
+    angles = 2.0 * np.pi * np.arange(spec.pin_count) / spec.pin_count
+    axes = spec.pin_circle_radius * np.column_stack([np.cos(angles), np.sin(angles)])
+    off_axis = np.linalg.norm(xy[:, None, :] - axes[None, :, :], axis=2).min(axis=1)
+    assert np.allclose(off_axis, placed["bearing_ring_pins"].bore / 2.0)
+    assert placed["bearing_ring_pins"].bore < 2.0 * spec.pin_radius
+
+    # ...and the exported solid has to be the same part, not the nominal one.
+    volume = solid.ring_pins(spec, placements_for_spec(spec)).val().Volume()
+    expected = (spec.pin_count * np.pi
+                * (placed["bearing_ring_pins"].bore / 2.0) ** 2 * spec.stack_height)
+    assert volume == pytest.approx(expected, rel=1e-6)
+
+
+def test_the_output_roller_is_a_ring_with_a_wall():
+    """The bug that stopped one ever being selected.
+
+    The seat was stated as a bore of a full pin diameter *and* an OD of the hole
+    less twice the eccentricity - which is the same diameter again, so the part
+    asked for had no wall at all and nothing could ever match it.
+    """
+    spec = _big_pins()
+    roller = _placed(spec)["bearing_output_pins"]
+    assert roller.outer == pytest.approx(spec.output_pin_diameter)
+    assert roller.bore < roller.outer
+    assert roller.count % (spec.output_pin_count * spec.disc_count) == 0
+    assert roller.host == "output_flange"
+
+
+def test_the_shaft_supports_stay_on_the_shaft_and_off_the_carrier():
+    """A bearing floating past the end of the shaft it sits on is not a place."""
+    spec = _spec()
+    supports = _placed(spec)["bearing_shaft_supports"]
+    assert supports.bore >= spec.input_shaft_diameter
+    for ring in supports.rings:
+        assert -SHAFT_OVERHANG <= ring.z0 < ring.z1 <= spec.stack_height + SHAFT_OVERHANG
+        # clear of the disc stack at one end and of the carrier plate at the other
+        assert ring.z0 >= spec.stack_height or ring.z1 <= -CARRIER_DROP - \
+            spec.output_flange_thickness
+
+
+def test_a_support_the_drawn_shaft_cannot_carry_is_left_out_not_moved():
+    """A thick flange eats the room outboard of the carrier.
+
+    Sliding the bearing somewhere it happens to fit would draw a support that is
+    not where the schedule says it goes; leaving it out says so.
+    """
+    spec = _spec()
+    both = len(_placed(spec)["bearing_shaft_supports"].rings)
+    spec.output_flange_thickness = SHAFT_OVERHANG      # no room past the plate
+    assert len(_placed(spec)["bearing_shaft_supports"].rings) < both
+
+
+def test_the_main_output_bearing_is_not_drawn_and_says_why():
+    """The one seat the model does not have, stated rather than fudged.
+
+    It sits between the output flange and the housing, and there is no flange hub
+    and no housing end plate for it to sit in.  Placing it anyway would mean
+    inventing both, and a picture with an invented seat in it is worse than a
+    picture with a gap and a note.
+    """
+    spec = _spec()
+    choice = next(c for c in _schedule(spec) if c.role == "Main output bearing")
+    assert choice.bearing is not None                  # it is sized...
+    assert not any(p.role == choice.role for p in placements_for_spec(spec))
+    assert "not drawn" in choice.seat
+
+
+def test_the_picture_carries_every_bearing_the_schedule_placed():
+    """One selection behind both, so a bearing cannot be in one and not the other."""
+    from cycloidgen.export import solid
+    from cycloidgen.viz.mesh import build_mesh
+
+    spec = _big_pins()
+    placed = _placed(spec)
+    drawn = {p.name for p in build_mesh(spec).parts if p.group == "bearings"}
+    assert drawn == set(placed)
+    assert set(solid.bearing_solids(spec)) == set(placed)
+
+
+def test_the_schedule_and_the_drawing_agree_on_how_many():
+    """The count on the schedule is the number of rings drawn, exactly.
+
+    They are worked out separately - one by dividing a stack height, the other
+    by laying rollers along it - so a mismatch means one of them is wrong about
+    what you have to order.
+    """
+    spec = _big_pins()
+    placed = _placed(spec).values()
+    for choice in _schedule(spec):
+        # A role can be split over several placements - one cam bearing per
+        # disc, because each turns with a different one.
+        drawn = [p for p in placed if p.role == choice.role]
+        if drawn:
+            assert sum(p.count for p in drawn) == choice.count, choice.role
+
+
+def test_a_roller_covers_the_surface_it_is_the_surface_of():
+    """One 8 mm needle on a 25 mm stack leaves the pin loose in its pocket for
+    the other 17, and the schedule used to call that one roller per pin."""
+    spec = _big_pins()
+    sleeve = _placed(spec)["bearing_ring_pins"]
+    spans = sorted({(r.z0, r.z1) for r in sleeve.rings})
+    assert spans[0][0] == 0.0
+    assert spans[-1][1] == pytest.approx(spec.stack_height)
+    for (_, end), (start, _) in itertools.pairwise(spans):
+        assert start == pytest.approx(end)       # end to end, no bare pin between

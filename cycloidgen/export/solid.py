@@ -6,16 +6,23 @@ one can also be exported on its own for printing.
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from pathlib import Path
 
 import cadquery as cq
 
+from ..analysis.bearings import (
+    BearingPlacement,
+    pin_shank_diameter,
+    placements_for_spec,
+)
 from ..core import profile as prof
-from ..core.spec import GearSpec
+from ..core.spec import CARRIER_DROP, SHAFT_OVERHANG, GearSpec
 from ..viz.mesh import PART_COLOURS
 from .manifest import disc_names
 
 __all__ = [
+    "bearing_solids",
     "build_assembly",
     "disc_solid",
     "eccentric_shaft",
@@ -83,17 +90,22 @@ def ring_housing(spec: GearSpec) -> cq.Workplane:
     return body.cut(pockets)
 
 
-def ring_pins(spec: GearSpec) -> cq.Workplane:
-    """The pins themselves, as a single multi-solid part."""
+def ring_pins(spec: GearSpec, placements: Sequence[BearingPlacement] = ()) -> cq.Workplane:
+    """The pins themselves, as a single multi-solid part.
+
+    A pin carrying a roller shrinks to that roller's bore: the sleeve's OD is the
+    surface the profile was cut against, so the pin cannot also have it.
+    """
+    shank = pin_shank_diameter(placements, "bearing_ring_pins", 2.0 * spec.pin_radius)
     return (cq.Workplane("XY")
             .polarArray(spec.pin_circle_radius, 0, 360, spec.pin_count)
-            .circle(spec.pin_radius)
+            .circle(shank / 2.0)
             .extrude(spec.stack_height))
 
 
 def eccentric_shaft(spec: GearSpec) -> cq.Workplane:
     """Input shaft with one eccentric cam per disc, phased around the axis."""
-    overhang = 12.0
+    overhang = SHAFT_OVERHANG
     shaft = (cq.Workplane("XY")
              .workplane(offset=-overhang)
              .circle(spec.input_shaft_diameter / 2.0)
@@ -111,25 +123,68 @@ def eccentric_shaft(spec: GearSpec) -> cq.Workplane:
     return shaft
 
 
-def output_flange(spec: GearSpec) -> cq.Workplane:
+def output_flange(spec: GearSpec,
+                  placements: Sequence[BearingPlacement] = ()) -> cq.Workplane:
     """Carrier plate carrying the output pins that ride in the disc holes."""
     plate_r = spec.output_bolt_circle_radius + spec.output_pin_diameter
     t = spec.output_flange_thickness
+    shank = pin_shank_diameter(placements, "bearing_output_pins",
+                               spec.output_pin_diameter)
     plate = (cq.Workplane("XY").circle(plate_r).extrude(-t)
              .faces("<Z").workplane().hole(spec.input_shaft_diameter + 1.0))
     pins = (cq.Workplane("XY")
             .polarArray(spec.output_bolt_circle_radius, 0, 360, spec.output_pin_count)
-            .circle(spec.output_pin_diameter / 2.0)
+            .circle(shank / 2.0)
             .extrude(spec.stack_height))
     return plate.union(pins)
+
+
+def bearing_solids(spec: GearSpec,
+                   placements: Sequence[BearingPlacement] | None = None
+                   ) -> dict[str, cq.Workplane]:
+    """The bearings as plain rings, keyed by part name.
+
+    Rings, not races and rolling elements.  What the assembly has to answer is
+    where a bearing goes and how much room it takes, and a modelled cage would
+    add a few thousand faces to say nothing more about either.
+
+    Built at their **assembled** height rather than in a part-local frame,
+    because that is the one thing they share with the mesh: the two differ by a
+    pure axial shift on some parts, and a ring built where it ends up needs only
+    the host's turn and offset in the plane.
+    """
+    if placements is None:
+        placements = placements_for_spec(spec)
+    out: dict[str, cq.Workplane] = {}
+    for placement in placements:
+        body: cq.Workplane | None = None
+        for r in placement.rings:
+            ring = (cq.Workplane("XY").workplane(offset=r.z0)
+                    .center(r.cx, r.cy)
+                    .circle(placement.outer / 2.0)
+                    .circle(placement.bore / 2.0)
+                    .extrude(r.z1 - r.z0))
+            body = ring if body is None else body.union(ring)
+        if body is not None:
+            out[placement.name] = body
+    return out
 
 
 def build_assembly(spec: GearSpec) -> cq.Assembly:
     """Full gearbox at crank angle zero, each disc on its own phase."""
     assy = cq.Assembly(name=f"cycloidal_{spec.ratio}to1")
+    placements = placements_for_spec(spec)
+
+    #: Where each part was put, so that a bearing can be placed against its host
+    #: rather than have the same pose worked out a second time.  Only the planar
+    #: part of it: the rings are already built at their assembled height.
+    planar: dict[str, cq.Location] = {}
+    identity = cq.Location(cq.Vector(0, 0, 0))
 
     assy.add(ring_housing(spec), name="housing", color=_colour("housing"))
-    assy.add(ring_pins(spec), name="ring_pins", color=_colour("ring_pins"))
+    assy.add(ring_pins(spec, placements), name="ring_pins",
+             color=_colour("ring_pins"))
+    planar["housing"] = planar["ring_pins"] = identity
 
     z = 0.0
     for i, (phase, hole_phase) in enumerate(zip(spec.disc_phases,
@@ -141,12 +196,19 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
         assy.add(disc_solid(spec, hole_phase), name=f"disc_{i + 1}",
                  loc=cq.Location(cq.Vector(cx, cy, z), cq.Vector(0, 0, 1), rot),
                  color=_colour("discs"))
+        planar[f"disc_{i + 1}"] = cq.Location(cq.Vector(cx, cy, 0.0),
+                                              cq.Vector(0, 0, 1), rot)
         z += spec.disc_thickness + spec.disc_gap
 
     assy.add(eccentric_shaft(spec), name="eccentric_shaft", color=_colour("shaft"))
-    assy.add(output_flange(spec), name="output_flange",
-             loc=cq.Location(cq.Vector(0, 0, -1.0)),
+    assy.add(output_flange(spec, placements), name="output_flange",
+             loc=cq.Location(cq.Vector(0, 0, -CARRIER_DROP)),
              color=_colour("carrier"))
+    planar["eccentric_shaft"] = planar["output_flange"] = identity
+
+    for name, body in bearing_solids(spec, placements).items():
+        host = next(p.host for p in placements if p.name == name)
+        assy.add(body, name=name, loc=planar[host], color=_colour("bearings"))
     return assy
 
 
@@ -163,12 +225,17 @@ def parts(spec: GearSpec) -> dict[str, cq.Workplane]:
     One entry per *distinct* disc: the hole pattern differs between them unless
     ``output_pin_count`` happens to be a multiple of ``2*lobes``, and shipping
     one file for a stack of different parts is how a drive gets built wrong.
+
+    Made parts only.  A bearing is bought, and an STL of one is a fit check at
+    best and a part someone tries to print at worst; they are in the assembly,
+    which is where fit is checked, and in the BOM, which is where you order them.
     """
+    placements = placements_for_spec(spec)
     out = {
         "housing": ring_housing(spec),
-        "ring_pins": ring_pins(spec),
+        "ring_pins": ring_pins(spec, placements),
         "eccentric_shaft": eccentric_shaft(spec),
-        "output_flange": output_flange(spec),
+        "output_flange": output_flange(spec, placements),
     }
     phases = (spec.disc_hole_phases[:1] if spec.discs_are_identical
               else spec.disc_hole_phases)

@@ -57,7 +57,7 @@ import math
 from dataclasses import dataclass
 
 from ..core import profile as prof
-from ..core.spec import GearSpec, Material
+from ..core.spec import SHAFT_OVERHANG, GearSpec, Material
 
 __all__ = [
     "PartStiffness",
@@ -239,10 +239,9 @@ def analyse_parts(spec: GearSpec) -> PartStiffness:
     # the torque and the angle are divided by the ratio, so the compliance
     # referred to the output is divided by the *square* of it - which is why a
     # shaft that would be hopeless as an output shaft is fine as an input one.
-    overhang = 12.0                                   # as modelled in export.solid
     shaft_polar = 0.5 * math.pi * (spec.input_shaft_diameter / 2.0) ** 4
     shaft = barrel_torsion_stiffness(shear_modulus(spec.shaft_mat), shaft_polar,
-                                     spec.stack_height + 2.0 * overhang)
+                                     spec.stack_height + 2.0 * SHAFT_OVERHANG)
     shaft *= float(spec.ratio) ** 2
 
     # ---- carrier pins -------------------------------------------------------

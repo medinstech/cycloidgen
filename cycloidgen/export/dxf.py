@@ -10,6 +10,7 @@ from pathlib import Path
 import ezdxf
 import numpy as np
 
+from ..analysis.bearings import pin_shank_diameter, placements_for_spec
 from ..core import profile as prof
 from ..core.spec import GearSpec
 from .manifest import disc_names
@@ -140,6 +141,10 @@ def write_part_dxfs(spec: GearSpec, directory: str | Path) -> list[Path]:
     # ---- carrier drilling template -----------------------------------------
     doc, msp = _new_doc()
     plate_r = spec.output_bolt_circle_radius + spec.output_pin_diameter
+    # A pin carrying a roller is pressed in by its shank, not by the diameter the
+    # disc runs on - drilling the working size would leave nothing to press.
+    shank = pin_shank_diameter(placements_for_spec(spec), "bearing_output_pins",
+                               spec.output_pin_diameter)
     msp.add_circle((0, 0), plate_r, dxfattribs={"layer": "HOUSING"})
     msp.add_circle((0, 0), (spec.input_shaft_diameter + 1.0) / 2.0,
                    dxfattribs={"layer": "DISC_BORE"})
@@ -151,12 +156,11 @@ def write_part_dxfs(spec: GearSpec, directory: str | Path) -> list[Path]:
              spec.output_bolt_circle_radius * np.sin(a))
         # the pin is a press fit in the carrier, so this is the pin size, not
         # the running hole in the disc
-        msp.add_circle(c, spec.output_pin_diameter / 2.0,
-                       dxfattribs={"layer": "OUTPUT_HOLES"})
+        msp.add_circle(c, shank / 2.0, dxfattribs={"layer": "OUTPUT_HOLES"})
         msp.add_line((c[0] - 2, c[1]), (c[0] + 2, c[1]), dxfattribs={"layer": "PITCH"})
         msp.add_line((c[0], c[1] - 2), (c[0], c[1] + 2), dxfattribs={"layer": "PITCH"})
     _title(msp, spec, f"output carrier  {spec.output_pin_count} x "
-                      f"{spec.output_pin_diameter:g} press fit  "
+                      f"{shank:g} press fit  "
                       f"BC {2 * spec.output_bolt_circle_radius:g}", plate_r)
     out = directory / "output_carrier.dxf"
     doc.saveas(out)

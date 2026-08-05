@@ -25,7 +25,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ..core import profile as prof
-from ..core.spec import GearSpec
+from ..core.spec import SHAFT_OVERHANG, GearSpec
 
 __all__ = ["MassResult", "analyse_mass"]
 
@@ -112,8 +112,7 @@ def analyse_mass(spec: GearSpec) -> MassResult:
                     * (spec.output_pin_diameter / 2.0) ** 2 * h)
     pins_mass = pins_volume * _MM3_TO_CM3 * rho_pin
 
-    overhang = 12.0                                           # as modelled in export.solid
-    shaft_volume = math.pi * (spec.input_shaft_diameter / 2.0) ** 2 * (h + 2 * overhang)
+    shaft_volume = math.pi * (spec.input_shaft_diameter / 2.0) ** 2 * (h + 2 * SHAFT_OVERHANG)
     cam_extra = n * math.pi * ((spec.cam_diameter / 2.0) ** 2
                                - (spec.input_shaft_diameter / 2.0) ** 2) * t
     shaft_mass = (shaft_volume + max(cam_extra, 0.0)) * _MM3_TO_CM3 * rho_shaft

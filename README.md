@@ -366,6 +366,13 @@ suggests it.
   features — rims, hole lips, the join between a cylinder and its end — and not
   the triangulation underneath them.
 
+  The bearings are in there too, at the size the sizing study picked rather than
+  the size of the space they go in — a ring on the cam inside each disc bore,
+  sleeves over the ring and output pins where a roller was selected, and the two
+  shaft supports where the end plates belong. Where a bearing is not drawn it is
+  because the model has nothing for it to sit in, and its note in the schedule
+  says which case it is.
+
   ![exploded](docs/exploded.png)
 
   It renders on the GPU through VTK — which costs no new dependency, because

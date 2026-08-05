@@ -116,6 +116,19 @@ MATERIALS: dict[str, Material] = {
 }
 
 
+#: How far the input shaft stands out past the disc stack at each end, mm.
+#: A modelling choice rather than a design input, but four modules were each
+#: carrying their own copy of it with a comment pointing at a fifth, and the
+#: bearings that sit on that overhang made the drift a fit question rather than
+#: a mass one.
+SHAFT_OVERHANG = 12.0
+
+#: Axial gap between the output carrier's inner face and the first disc, mm.
+#: Small and deliberate: a carrier face flush with the disc would put two
+#: surfaces at the same height, which the software renderer cannot arbitrate.
+CARRIER_DROP = 1.0
+
+
 class OffsetMode(str, Enum):
     """How manufacturing clearance is introduced into the theoretical profile.
 

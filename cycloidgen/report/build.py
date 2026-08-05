@@ -174,6 +174,9 @@ def report_dict(a: DesignAnalysis) -> dict:
         "bearings": [
             {
                 "role": b.role,
+                "count": b.count,
+                "carries": b.carries,
+                "seat": b.seat,
                 "designation": b.bearing.designation if b.bearing else None,
                 "bore_mm": b.bearing.bore if b.bearing else None,
                 "outer_mm": b.bearing.outer if b.bearing else None,
@@ -577,15 +580,20 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
 
     # --- bearings ------------------------------------------------------------
     story += [CondPageBreak(70 * mm), Paragraph("Bearings", h2)]
-    rows = [["Role", "Suggested", "Size", "Load", "Speed", "L10"]]
+    rows = [["Role and seat", "Qty", "Suggested", "Size", "Load", "Speed", "L10"]]
     for b in a.bearings:
         size = (f"{b.bearing.bore:g}x{b.bearing.outer:g}x{b.bearing.width:g}"
                 if b.bearing else "-")
         life = ("-" if b.life_hours == float("inf")
                 else f"{b.life_hours:,.0f} h" if b.life_hours else "n/a")
-        rows.append([Paragraph(b.role, body), b.bearing.designation if b.bearing else "-",
+        # The seat under the role, not a column of its own: where a bearing goes
+        # is a sentence, and a table that only names the part leaves the builder
+        # to guess it - which is the question this whole page exists to answer.
+        rows.append([Paragraph(f"<b>{b.role}</b><br/>{b.seat or b.note}", body),
+                     f"{b.count}" if b.count else "-",
+                     b.bearing.designation if b.bearing else "-",
                      size, f"{b.load_N:.0f} N", f"{b.speed_rpm:.0f} rpm", life])
-    story += [_table(rows, [46 * mm, 22 * mm, 26 * mm, 20 * mm, 24 * mm, 22 * mm]),
+    story += [_table(rows, [48 * mm, 10 * mm, 20 * mm, 24 * mm, 18 * mm, 20 * mm, 20 * mm]),
               Spacer(1, 4),
               Paragraph("Catalogue ratings are nominal metric-series values for "
                         "first-pass selection; confirm against the manufacturer's "

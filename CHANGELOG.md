@@ -29,6 +29,25 @@ design somebody already built.
   badly. Aluminium and bronze are reported on a 5e8-cycle basis and say so; they
   have no endurance limit to quote.
 
+- **The bearings are in the 3D view, the STEP assembly and the BOM.** The
+  schedule said where each one goes in words, and words leave the question open:
+  "on the input shaft either side of the disc stack" is a description, not a
+  place. They are now geometry — a ring on the cam inside each disc bore, sleeves
+  over the ring and output pins, the two shaft supports where the end plates
+  belong — drawn from the same selection the schedule reports, so the picture and
+  the parts list cannot come apart.
+
+  Two rules decide what appears. The diameters are the picked part's, not the
+  seat's, so what you see is the bearing you will hold. And a bearing is drawn
+  only where both of its working diameters are known — which is why a ring pin
+  sleeve is left out when no drawn cup is small enough: the schedule's answer
+  there is a sleeve on a smaller pin, and *how much* smaller is not something
+  this app has decided. A guessed wall would be inventing the part.
+
+  The main output bearing is the one absence, and it is deliberate: it seats
+  between the output flange and the housing, and the model has neither a flange
+  hub nor a housing end plate for it to sit in. Its note says so.
+
 **Fixed**
 
 - **The design search was returning drives whose output pins bend on the first
@@ -40,6 +59,27 @@ design somebody already built.
   well. It varies pin diameter and count already, so it can find its way out; it
   had simply never been told this was a constraint. It is now, and there is a
   test that the designs it hands back survive being turned.
+
+**Fixed**
+
+- **The BOM was under-ordering bearings.** The quantity was read out of the role
+  *string* — `disc_count if "per disc" in role else 1` — which worked only while
+  the roles happened to be worded that way. Once they were not, the list said one
+  eccentric bearing for a two-disc stack and one input shaft support for a shaft
+  that takes two. It now uses the count the schedule carries.
+
+- **An output pin roller could never be selected, whatever the design.** The seat
+  asked for a bore of a full pin diameter *and* an outside diameter of the hole
+  less twice the eccentricity — which is the same diameter again. Nothing can
+  match a ring with no wall, so the answer was always "no roller fits" and the
+  switch that turns them on changed the efficiency and the PV duty without ever
+  producing a part. The roller's outside *is* the working pin, as it already was
+  for the ring pins, and the pin shrinks to its bore.
+
+- **A roller was counted once per pin however long the pin was.** A sleeve is the
+  surface the disc runs on, so it has to cover it; an 8 mm needle on a 25 mm
+  stack leaves the pin loose in its pocket for the other 17 mm. The schedule now
+  says how many it takes end to end, and the drawing lays them that way.
 
 **Changed**
 

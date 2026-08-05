@@ -26,13 +26,19 @@ odd-even and the non-zero fill rule punch a hole rather than filling it in.
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 
 import numpy as np
 
+from ..analysis.bearings import (
+    BearingPlacement,
+    pin_shank_diameter,
+    placements_for_spec,
+)
 from ..core import profile as prof
-from ..core.spec import GearSpec
+from ..core.spec import CARRIER_DROP, SHAFT_OVERHANG, GearSpec
 
 __all__ = [
     "PART_COLOURS",
@@ -42,6 +48,7 @@ __all__ = [
     "build_mesh",
     "mesh_fingerprint",
     "mesh_for_spec",
+    "placements_for_spec",
     "pocketed_bore",
 ]
 
@@ -55,6 +62,7 @@ PART_COLOURS: dict[str, tuple[int, int, int]] = {
     "discs": (77, 166, 217),
     "shaft": (115, 115, 128),
     "carrier": (140, 191, 115),
+    "bearings": (150, 128, 200),
 }
 
 #: Human names for the visibility toggles, in assembly order.
@@ -64,6 +72,7 @@ PART_GROUPS: tuple[tuple[str, str], ...] = (
     ("discs", "Discs"),
     ("shaft", "Shaft"),
     ("carrier", "Carrier"),
+    ("bearings", "Bearings"),
 )
 
 #: How far each group travels in an exploded view, as a multiple of the explode
@@ -71,12 +80,19 @@ PART_GROUPS: tuple[tuple[str, str], ...] = (
 #: the shaft pulls out of the top, the discs come out in between.  A stack gets
 #: one step per disc, so a two-disc drive comes apart as two discs and not as
 #: one thicker one.
+#: A bearing has no entry of its own: it travels with the part it turns with, so
+#: that a cam bearing comes off in its disc's bore rather than being left behind
+#: on the shaft, which is neither where it is pressed nor where it would go.
 _EXPLODE = {"carrier": -1.0, "housing": 0.0, "ring_pins": 0.62,
-            "discs": 1.25, "shaft": 2.6}
+            "discs": 1.25, "shaft": 2.6, "bearings": 0.0}
 _EXPLODE_PER_DISC = 0.45
 
-#: Shaft overhang beyond the disc stack, matching :func:`export.solid.eccentric_shaft`.
-_SHAFT_OVERHANG = 12.0
+#: Segments on a bearing ring.  The floor matters more than it looks: both loops
+#: of a ring are inscribed polygons, so the faceting error does *not* cancel
+#: between them, and the enclosed volume is short by the same fraction a solid
+#: cylinder would be.  Twenty sides keeps that inside the 3% the mesh is checked
+#: against the exported solid at.
+_BEARING_SEGMENTS = (20, 28)
 
 
 # --------------------------------------------------------------------- loops --
@@ -348,8 +364,15 @@ def _profile_segments(spec: GearSpec) -> int:
     return int(np.clip(8 * spec.lobes, 160, 520))
 
 
-def build_mesh(spec: GearSpec) -> Mesh:
-    """Every part of ``spec`` as a polygon mesh, in assembly order."""
+def build_mesh(spec: GearSpec,
+               placements: Sequence[BearingPlacement] | None = None) -> Mesh:
+    """Every part of ``spec`` as a polygon mesh, in assembly order.
+
+    ``placements`` is worked out from the spec when it is not supplied; passing
+    it in is how :func:`mesh_for_spec` avoids sizing the bearings twice.
+    """
+    if placements is None:
+        placements = placements_for_spec(spec)
     b = _Builder()
     stack = spec.stack_height
     # Ring pins are small and there are a lot of them, so the segment count is
@@ -364,12 +387,17 @@ def build_mesh(spec: GearSpec) -> Mesh:
                                spec.pin_count),),
                 0.0, stack)
 
+    # A pin carrying a roller loses its outside to it - drawn at full size it
+    # would be inside its own sleeve.
+    pin_r = pin_shank_diameter(placements, "bearing_ring_pins",
+                               2.0 * spec.pin_radius) / 2.0
+
     with b.part("ring_pins", "Ring pins", "ring_pins", PART_COLOURS["ring_pins"]):
         for k in range(spec.pin_count):
             a = 2.0 * np.pi * k / spec.pin_count
             b.cylinder(spec.pin_circle_radius * math.cos(a),
                        spec.pin_circle_radius * math.sin(a),
-                       spec.pin_radius, 0.0, stack, pin_segments)
+                       pin_r, 0.0, stack, pin_segments)
 
     outline = prof.profile_from_spec(spec, n=_profile_segments(spec)).points
     bore_r = (spec.center_bore_diameter + spec.hole_clearance) / 2.0
@@ -412,7 +440,7 @@ def build_mesh(spec: GearSpec) -> Mesh:
     # real geometry, so the test has to be made and not assumed.
     shaft_r = spec.input_shaft_diameter / 2.0
     cam_r = spec.cam_diameter / 2.0
-    spans = [(-_SHAFT_OVERHANG, stack + _SHAFT_OVERHANG)]
+    spans = [(-SHAFT_OVERHANG, stack + SHAFT_OVERHANG)]
     if cam_r >= shaft_r + spec.eccentricity:
         spans = _subtract_spans(spans, [(z0, z1) for z0, z1, _ in cams])
 
@@ -424,26 +452,44 @@ def build_mesh(spec: GearSpec) -> Mesh:
             b.cylinder(spec.eccentricity * math.cos(phase),
                        -spec.eccentricity * math.sin(phase), cam_r, z0, z1, 32)
 
-    # 1 mm below the disc stack, exactly as the STEP assembly places it: a
-    # carrier face flush with the first disc would be two surfaces at the same
-    # height, which is a fight the renderer cannot win.
-    drop = 1.0
+    # A carrier drop below the disc stack, exactly as the STEP assembly places
+    # it: a carrier face flush with the first disc would be two surfaces at the
+    # same height, which is a fight the renderer cannot win.
+    drop = CARRIER_DROP
     plate_r = spec.output_bolt_circle_radius + spec.output_pin_diameter
     with b.part("output_flange", "Output carrier", "carrier",
                 PART_COLOURS["carrier"], spin=1.0 / spec.lobes):
         b.prism(_circle(0.0, 0.0, plate_r, 72),
                 (_circle(0.0, 0.0, (spec.input_shaft_diameter + 1.0) / 2.0, 28),),
                 -spec.output_flange_thickness - drop, -drop)
+        shank = pin_shank_diameter(placements, "bearing_output_pins",
+                                   spec.output_pin_diameter)
         for k in range(spec.output_pin_count):
             a = 2.0 * np.pi * k / spec.output_pin_count
             b.cylinder(spec.output_bolt_circle_radius * math.cos(a),
                        spec.output_bolt_circle_radius * math.sin(a),
-                       spec.output_pin_diameter / 2.0, -drop, stack - drop, 20)
+                       shank / 2.0, -drop, stack - drop, 20)
+
+    # Bearings last, and each one takes the motion of the part it was placed
+    # against rather than restating it.  Two copies of "how does a disc move"
+    # would agree today and drift by the first change to either.
+    hosts = {p.name: p for p in b.parts}
+    for placement in placements:
+        host = hosts[placement.host]
+        segments = int(np.clip(700 // max(placement.count, 1), *_BEARING_SEGMENTS))
+        with b.part(placement.name, placement.label, "bearings",
+                    PART_COLOURS["bearings"], explode=host.explode,
+                    spin=host.spin, phase=host.phase, orbits=host.orbits):
+            for r in placement.rings:
+                b.prism(_circle(r.cx, r.cy, placement.outer / 2.0, segments),
+                        (_circle(r.cx, r.cy, placement.bore / 2.0, segments),),
+                        r.z0, r.z1)
 
     return b.build(spec)
 
 
-def mesh_fingerprint(spec: GearSpec) -> tuple:
+def mesh_fingerprint(spec: GearSpec,
+                     placements: Sequence[BearingPlacement] | None = None) -> tuple:
     """Everything :func:`build_mesh` reads, and nothing else.
 
     Keying the cache on the whole serialised spec would be safe and useless:
@@ -451,11 +497,19 @@ def mesh_fingerprint(spec: GearSpec) -> tuple:
     and rebuilds a mesh that is identical, and on the hardware view that is a
     fresh upload to the card for nothing.
 
+    The bearings are the exception to "nothing else", and they are in here as
+    their *outcome* rather than as the fields that decide it.  Which bearing
+    gets drawn depends on the load, so on the torque, the speed and the
+    materials - and listing those by hand is how the key would come to be wrong.
+    The chosen sizes cannot be wrong about themselves.
+
     The risk of listing fields by hand is leaving one out and then serving a
     stale mesh, so ``tests/test_viz.py`` perturbs every field of ``GearSpec`` in
     turn and requires that an unchanged fingerprint really does mean an
     unchanged mesh.
     """
+    if placements is None:
+        placements = placements_for_spec(spec)
     return (
         spec.effective_R, spec.effective_Rr, spec.eccentricity, spec.lobes,
         spec.pin_circle_radius, spec.pin_radius,
@@ -464,6 +518,7 @@ def mesh_fingerprint(spec: GearSpec) -> tuple:
         spec.output_pin_count, spec.output_pin_diameter,
         spec.output_bolt_circle_radius, spec.output_flange_thickness,
         spec.housing_outer_radius, spec.input_shaft_diameter, spec.cam_diameter,
+        tuple(placements),
     )
 
 
@@ -477,10 +532,11 @@ def mesh_for_spec(spec: GearSpec) -> Mesh:
     changes are not geometry.  Returning the *same object* for the same geometry
     is what lets the 3D view skip re-uploading unchanged parts.
     """
-    key = mesh_fingerprint(spec)
+    placements = placements_for_spec(spec)
+    key = mesh_fingerprint(spec, placements)
     mesh = _CACHE.get(key)
     if mesh is None:
         if len(_CACHE) >= 4:               # dragging a spin box makes a new key a
             _CACHE.clear()                 # frame; this is a cache, not a history
-        mesh = _CACHE[key] = build_mesh(spec)
+        mesh = _CACHE[key] = build_mesh(spec, placements)
     return mesh

@@ -95,14 +95,19 @@ def test_mesh_volume_matches_the_exported_solid(ratio, discs):
     s.disc_count = discs
     mesh = build_mesh(s)
     volumes = _part_volumes(mesh)
-    solids = solid.parts(s)
+    # `parts` is the made ones and `bearing_solids` the bought ones; a bearing
+    # gets no STL of its own, but it is still in the picture and in the STEP
+    # assembly, so it is still held to the same agreement.
+    solids = {**solid.parts(s), **solid.bearing_solids(s)}
     for i, part in enumerate(mesh.parts):
         name = part.name
         if part.group == "discs" and s.discs_are_identical:
             name = "disc"
         expected = solids[name].val().Volume()
         assert volumes[i] == pytest.approx(expected, rel=0.03), part.name
-    assert len(mesh.parts) == 4 + discs
+    bearings = sum(p.group == "bearings" for p in mesh.parts)
+    assert len(mesh.parts) == 4 + discs + bearings
+    assert bearings, "the drive is drawn without any of its bearings"
 
 
 def test_the_ring_pockets_keep_the_pins_out_of_the_housing(spec):
