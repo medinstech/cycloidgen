@@ -60,14 +60,39 @@ marker's second renderer, the ``StartEvent`` observer, layered rendering, the
 surface format, nesting in a layout, nesting in a tab, the stylesheet.  None of
 those are cleared any more.  They were never suspects.
 
-**What is left.**  With the call in place a bare widget draws on screen, and in
-the real assembly view a hand-driven ``Render`` fills VTK's buffer with the
-gearbox - mean ``(222, 223, 241)`` against a background of ``(238, 237, 255)``.
-The tab is still black.  So the fault has moved from "does not render" to "the
-frame does not reach what Qt composites", which is a transfer that works in the
-bare case and not in this one.  That is the next thing to narrow, and the useful
-question is what the assembly view does to the framebuffer that the bare widget
-does not.
+**What is left: the transfer, and it is unsolved in both cases.**  The commit
+that found ``SetIsCurrent`` claimed a bare widget draws on screen with it.  That
+was measured while the ``WindowMakeCurrentEvent`` observer below was still in
+the file, and the same commit removed it.  Measured again afterwards, with one
+camera across all four combinations:
+
+===================  ==========================  =====================
+observer             bare widget                 assembly view
+===================  ==========================  =====================
+on                   draws, 269 colours, 4% black  black, 98%
+off (what is here)   black, 93%                  black, 98%
+===================  ==========================  =====================
+
+So the observer was never a repair for the assembly view - it only ever moved
+the bare widget's frame into the framebuffer Qt composites, by rebinding it
+mid-render as a side effect, and mid-render is also what destroys the assembly
+view's frame.  One mechanism, helpful at one moment and fatal at another.
+
+What is established is upstream of that: with ``SetIsCurrent`` VTK draws, which
+is measured off its own buffer with ``GetPixelData`` - in the real assembly view
+a hand-driven ``Render`` fills it with the gearbox, mean ``(222, 223, 241)``.
+The picture exists.  Nothing carries it to Qt.
+
+Tried and does not do it: ``makeCurrent`` after ``Render`` rather than during;
+binding the widget's framebuffer with ``glBindFramebuffer`` before an explicit
+``BlitDisplayFramebuffer``; and that explicit blit at all, which turns the one
+case that did reach the screen black.  ``SSAO``, the second layer and
+multisampling change nothing either way, measured on screen.
+
+So the question is narrow now: what binds the framebuffer VTK blits into, and
+when.  ``vtkGenericOpenGLRenderWindow`` has no ``SetDefaultFrameBufferId`` in
+the 9.6 Python wheel, which is the call VTK's own C++ widget uses for exactly
+this, and that absence is the shape of the remaining problem.
 
 Four traps, all of them paid for, and all of them the same lesson - **check the
 measurement before believing the result**:
