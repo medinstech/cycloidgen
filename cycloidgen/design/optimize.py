@@ -49,6 +49,7 @@ from pydantic import BaseModel, Field
 
 from ..analysis import DesignAnalysis, analyse
 from ..analysis.efficiency import analyse_efficiency
+from ..analysis.fatigue import output_pin_fatigue
 from ..analysis.mass import analyse_mass
 from ..analysis.mechanics import analyse_contacts, torque_capacity
 from ..analysis.stiffness import analyse_stiffness
@@ -411,6 +412,15 @@ def _score(req: Requirements, spec: GearSpec, m: dict,
         return None
     if req.max_lost_motion_arcmin and m["lost"] > req.max_lost_motion_arcmin:
         tally.hit("more backlash than allowed")
+        return None
+    # Output pins are cantilevers off the carrier plate, and the search will
+    # happily buy compactness with thin ones: without this it returns designs
+    # whose pins are past yield in bending, never mind fatigue.  Screened at
+    # ambient rather than at the running temperature, which needs the thermal
+    # solve - so this is the optimistic version and stage 3 confirms it.
+    pin = output_pin_fatigue(spec, float(spec.ambient_temp_C))
+    if pin.modelled and pin.safety_factor < 1.0:
+        tally.hit("output pins fail in fatigue")
         return None
 
     wc, we, ws, wp, wm = _WEIGHTS[req.objective]

@@ -32,11 +32,32 @@ class Material(BaseModel):
     max_service_temp_C: float = Field(
         gt=0, description="continuous service temperature; polymers creep well below it"
     )
+    sigma_ultimate_MPa: float = Field(
+        gt=0, description="ultimate tensile strength"
+    )
+    fatigue_strength_MPa: float | None = Field(
+        default=None,
+        description="uncorrected fatigue strength for fully reversed bending - the "
+                    "endurance limit where the material has one, otherwise the "
+                    "strength at the life quoted in MATERIALS. None where no "
+                    "defensible value exists, which is every polymer here",
+    )
 
     @property
     def shear_allow_MPa(self) -> float:
         """Von Mises shear allowable."""
         return 0.577 * self.sigma_yield_MPa
+
+    @property
+    def has_fatigue_data(self) -> bool:
+        """Whether a fatigue life can be estimated for this material at all.
+
+        The alternative to answering "no" here is a number derived from a rule
+        that was fitted to wrought metals, applied to a printed polymer whose
+        fatigue behaviour depends on layer orientation more than on its tensile
+        strength.  That is worse than silence.
+        """
+        return self.fatigue_strength_MPa is not None
 
 
 #: Rough design-guide values.  Contact allowables for polymers are conservative
@@ -45,31 +66,52 @@ class Material(BaseModel):
 #: they are only meaningful against a projected-area pressure - see
 #: :mod:`cycloidgen.analysis.thermal`.  100Cr6's service temperature is the
 #: dimensional-stability limit of standard bearing steel, not a strength limit.
+#: Fatigue strengths are for fully reversed bending and **uncorrected** - the
+#: specimen value, before surface, size, temperature and reliability are applied
+#: in :mod:`cycloidgen.analysis.fatigue`.  Steels get the endurance limit they
+#: actually have, which is why 100Cr6 is not 0.5*Sut: that rule stops holding
+#: above about 1400 MPa and the limit flattens off near 700.  Aluminium and
+#: bronze have no endurance limit at all, so those are strengths at 5e8 cycles
+#: and a design that runs longer than that is outside them.  Polymers get
+#: ``None``: printed-part fatigue turns on layer orientation, void content and
+#: temperature far more than on tensile strength, and a Marin-corrected steel
+#: rule applied to PLA would be a confident number with nothing behind it.
 MATERIALS: dict[str, Material] = {
     m.name: m
     for m in [
         Material(name="PLA", E_GPa=3.5, nu=0.36, sigma_contact_MPa=25, density_g_cm3=1.24,
-                 sigma_yield_MPa=50, pv_limit_MPa_m_s=0.03, max_service_temp_C=55),
+                 sigma_yield_MPa=50, pv_limit_MPa_m_s=0.03, max_service_temp_C=55,
+                 sigma_ultimate_MPa=50),
         Material(name="PETG", E_GPa=2.1, nu=0.40, sigma_contact_MPa=30, density_g_cm3=1.27,
-                 sigma_yield_MPa=50, pv_limit_MPa_m_s=0.04, max_service_temp_C=70),
+                 sigma_yield_MPa=50, pv_limit_MPa_m_s=0.04, max_service_temp_C=70,
+                 sigma_ultimate_MPa=50),
         Material(name="ABS", E_GPa=2.2, nu=0.35, sigma_contact_MPa=24, density_g_cm3=1.04,
-                 sigma_yield_MPa=40, pv_limit_MPa_m_s=0.05, max_service_temp_C=85),
+                 sigma_yield_MPa=40, pv_limit_MPa_m_s=0.05, max_service_temp_C=85,
+                 sigma_ultimate_MPa=40),
         Material(name="PA12 (SLS)", E_GPa=1.7, nu=0.40, sigma_contact_MPa=35, density_g_cm3=1.01,
-                 sigma_yield_MPa=48, pv_limit_MPa_m_s=0.12, max_service_temp_C=150),
+                 sigma_yield_MPa=48, pv_limit_MPa_m_s=0.12, max_service_temp_C=150,
+                 sigma_ultimate_MPa=48),
         Material(name="Tough Resin (SLA)", E_GPa=2.7, nu=0.40, sigma_contact_MPa=30, density_g_cm3=1.18,
-                 sigma_yield_MPa=45, pv_limit_MPa_m_s=0.04, max_service_temp_C=60),
+                 sigma_yield_MPa=45, pv_limit_MPa_m_s=0.04, max_service_temp_C=60,
+                 sigma_ultimate_MPa=45),
         Material(name="POM (Delrin)", E_GPa=3.0, nu=0.38, sigma_contact_MPa=40, density_g_cm3=1.41,
-                 sigma_yield_MPa=70, pv_limit_MPa_m_s=0.14, max_service_temp_C=90),
+                 sigma_yield_MPa=70, pv_limit_MPa_m_s=0.14, max_service_temp_C=90,
+                 sigma_ultimate_MPa=70),
         Material(name="Aluminium 7075-T6", E_GPa=71.7, nu=0.33, sigma_contact_MPa=350, density_g_cm3=2.81,
-                 sigma_yield_MPa=500, pv_limit_MPa_m_s=0.35, max_service_temp_C=150),
+                 sigma_yield_MPa=500, pv_limit_MPa_m_s=0.35, max_service_temp_C=150,
+                 sigma_ultimate_MPa=572, fatigue_strength_MPa=159),
         Material(name="Bronze CuSn12", E_GPa=100.0, nu=0.34, sigma_contact_MPa=200, density_g_cm3=8.8,
-                 sigma_yield_MPa=150, pv_limit_MPa_m_s=1.75, max_service_temp_C=200),
+                 sigma_yield_MPa=150, pv_limit_MPa_m_s=1.75, max_service_temp_C=200,
+                 sigma_ultimate_MPa=280, fatigue_strength_MPa=90),
         Material(name="Steel 1045", E_GPa=205.0, nu=0.29, sigma_contact_MPa=800, density_g_cm3=7.85,
-                 sigma_yield_MPa=450, pv_limit_MPa_m_s=1.0, max_service_temp_C=250),
+                 sigma_yield_MPa=450, pv_limit_MPa_m_s=1.0, max_service_temp_C=250,
+                 sigma_ultimate_MPa=625, fatigue_strength_MPa=310),
         Material(name="Steel 4140 (hardened)", E_GPa=210.0, nu=0.29, sigma_contact_MPa=1400, density_g_cm3=7.85,
-                 sigma_yield_MPa=900, pv_limit_MPa_m_s=1.4, max_service_temp_C=300),
+                 sigma_yield_MPa=900, pv_limit_MPa_m_s=1.4, max_service_temp_C=300,
+                 sigma_ultimate_MPa=1100, fatigue_strength_MPa=550),
         Material(name="Bearing steel 100Cr6", E_GPa=210.0, nu=0.30, sigma_contact_MPa=1800, density_g_cm3=7.81,
-                 sigma_yield_MPa=1600, pv_limit_MPa_m_s=1.8, max_service_temp_C=120),
+                 sigma_yield_MPa=1600, pv_limit_MPa_m_s=1.8, max_service_temp_C=120,
+                 sigma_ultimate_MPa=2000, fatigue_strength_MPa=700),
     ]
 }
 

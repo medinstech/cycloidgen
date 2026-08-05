@@ -176,6 +176,13 @@ CODE_FIELDS: dict[str, tuple[str, ...]] = {
     "RUNNING_HOT": ("input_rpm", "ring_pins_are_rollers", "housing_wall"),
     "WEB_SHEAR": ("output_bolt_circle_radius", "disc_thickness", "disc_material"),
     "WEB_SHEAR_MARGIN": ("output_bolt_circle_radius", "disc_thickness"),
+    # Process is in these because surface finish is the cheapest fatigue move
+    # there is, and it is not obvious that a manufacturing choice belongs to a
+    # strength check at all until you have seen the factor of three.
+    "FATIGUE_LIFE": ("output_pin_diameter", "output_pin_count", "disc_thickness",
+                     "pin_material", "process"),
+    "FATIGUE_MARGIN": ("output_pin_diameter", "output_pin_count", "process"),
+    "FATIGUE_NOT_MODELLED": ("disc_material", "pin_material"),
     "TOOL_RADIUS": ("pin_radius", "process"),
     "MASS": ("disc_thickness", "housing_wall", "housing_material"),
 }

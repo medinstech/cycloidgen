@@ -412,6 +412,48 @@ EXPLANATIONS: dict[str, Explanation] = {
         unit="C"),
 
     # ---------------------------------------------------- disc and bearings --
+    "FATIGUE_LIFE": Explanation(
+        "Fully reversed duty on the disc web and the output pins",
+        "alternating stress  <  corrected fatigue strength  (Goodman)",
+        "Every other strength check in this app asks whether a part survives "
+        "its peak load once. These two are loaded and unloaded once per input "
+        "revolution - the disc web because the load sweeps a whole turn around "
+        "it, the output pins because the push rotates about them - so they are "
+        "asked whether they survive doing that forever. A part can sit well "
+        "inside its yield stress and still crack, because a crack starts at a "
+        "stress that would never yield the section.",
+        "Thicken the ligament or the pin, share the load over more output pins, "
+        "or change material for fatigue strength rather than for yield - they "
+        "are not the same ranking. A better surface finish is the cheapest "
+        "move: fatigue cracks start at the surface, so a ground disc and a "
+        "printed one differ by a factor of three on the same alloy.",
+        keep="above", unit="MPa"),
+
+    "FATIGUE_MARGIN": Explanation(
+        "Thin margin on fully reversed duty",
+        "alternating stress  <  corrected fatigue strength / 1.5",
+        "Fatigue strengths scatter far more than static ones - the published "
+        "figure is a mean, and this check has already taken 99% reliability off "
+        "it. A margin that would be comfortable on yield is not comfortable "
+        "here.",
+        "Same moves as the fatigue check itself: a thicker section, more output "
+        "pins, or a better surface.",
+        keep="above", unit="MPa"),
+
+    "FATIGUE_NOT_MODELLED": Explanation(
+        "No fatigue check for this material",
+        "reported rather than tested",
+        "The disc web and the output pins see a fully reversed cycle every "
+        "input revolution, which is a real question for any material. It is not "
+        "answered for polymers: printed-part fatigue turns on layer "
+        "orientation, void content and temperature far more than on tensile "
+        "strength, and the classical correction was fitted to wrought metals. A "
+        "number produced that way would be confident and unfounded.",
+        "Nothing to change in the design. If the drive is meant to run "
+        "continuously rather than intermittently, test a printed part rather "
+        "than trusting any calculation - including this one's silence.",
+        keep=""),
+
     "WEB_SHEAR": Explanation(
         "The ligament beside the output holes shears",
         "shear stress  <  0.577 * yield  (von Mises)",

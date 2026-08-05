@@ -13,6 +13,7 @@ from ..core.spec import PROCESS_POSITION_TOLERANCE, GearSpec
 from ..core.validate import Report, Severity, validate
 from .bearings import BearingChoice, select_bearings
 from .efficiency import EfficiencyResult, analyse_efficiency
+from .fatigue import FatigueResult, analyse_fatigue
 from .mass import MassResult, analyse_mass
 from .mechanics import ContactResult, analyse_contacts, torque_capacity
 from .stiffness import (
@@ -36,6 +37,7 @@ class DesignAnalysis:
     transmission_error: TransmissionErrorResult
     thermal: ThermalResult
     mass: MassResult
+    fatigue: FatigueResult
     bearings: list[BearingChoice]
     torque_capacity_Nm: float
 
@@ -74,6 +76,10 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     te = analyse_transmission_error(spec)
     therm = analyse_thermal(spec, efficiency=eff)
     mass = analyse_mass(spec)
+    # At the running temperature, not the ambient: the drive heats itself and
+    # fatigue strength goes down with it.
+    fatigue = analyse_fatigue(spec, mass.web_shear_MPa, mass.min_web_mm,
+                              temperature_C=therm.temperature_C)
     bearings = select_bearings(spec, contact.eccentric_bearing_load_N,
                                contact.max_output_force_N)
     capacity = torque_capacity(spec, contact=contact)
@@ -233,6 +239,51 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                 f"beside the output holes.",
                 mass.web_shear_MPa, mass.web_shear_allow_MPa)
 
+    # ---- and whether it survives being turned, not just being loaded --------
+    # A separate question from WEB_SHEAR above, off the same stress: that one
+    # asks whether the ligament holds, this one whether it keeps holding.
+    worst = fatigue.worst
+    if not fatigue.modelled:
+        rep.add(Severity.INFO, "FATIGUE_NOT_MODELLED",
+                f"No fatigue check: {spec.disc_mat.name} has no fatigue strength "
+                f"in the table, and printed-polymer fatigue depends on layer "
+                f"orientation and void content far more than on tensile "
+                f"strength. At {spec.input_rpm:g} rpm the disc web and the "
+                f"output pins see a fully reversed cycle every input "
+                f"revolution - {fatigue.cycles_per_hour:,.0f} an hour - so this "
+                f"is a real question that this app is not answering.")
+    elif worst is not None and worst.safety_factor < 1.0:
+        rep.add(Severity.ERROR, "FATIGUE_LIFE",
+                f"The {worst.part} does not survive being turned: "
+                f"{worst.alternating_MPa:.1f} MPa fully reversed against a "
+                f"corrected fatigue strength of {worst.strength_MPa:.1f} MPa. "
+                f"It is a crack after "
+                f"{fatigue.hours_to_ten_million:.0f}-odd hours, not a part that "
+                f"holds at its rated torque - which it does. Thicken the "
+                f"section, drop the load, or use a material with more fatigue "
+                f"strength rather than more yield.",
+                worst.alternating_MPa, worst.strength_MPa)
+    elif worst is not None and worst.safety_factor < 1.5:
+        rep.add(Severity.WARNING, "FATIGUE_MARGIN",
+                f"Less than 1.5x on fatigue at the {worst.part}: "
+                f"{worst.alternating_MPa:.1f} MPa fully reversed against "
+                f"{worst.strength_MPa:.1f} MPa corrected. Fatigue strengths "
+                f"scatter more than static ones, so this is a thinner margin "
+                f"than the same number would be on yield.",
+                worst.alternating_MPa, worst.strength_MPa)
+    elif worst is not None:
+        basis = (f"a {fatigue.finite_life_cycles:.0g}-cycle strength, not an "
+                 f"endurance limit - past that this says nothing"
+                 if fatigue.finite_life_basis else "an endurance limit")
+        rep.add(Severity.INFO, "FATIGUE_LIFE",
+                f"Fully reversed duty: {worst.safety_factor:.1f}x at the "
+                f"{worst.part}, the tighter of the two. "
+                f"{fatigue.cycles_per_hour:,.0f} cycles an hour at "
+                f"{spec.input_rpm:g} rpm, so ten million of them in "
+                f"{fatigue.hours_to_ten_million:.0f} hours. Against {basis}, "
+                f"at {fatigue.temperature_C:.0f} C and 99% reliability.",
+                worst.safety_factor, 1.0)
+
     if mass.unbalance_force_N > 0.5 * spec.output_torque_Nm * 1000.0 / max(
             spec.output_bolt_circle_radius, 1e-9):
         rep.add(Severity.WARNING, "UNBALANCE_FORCE",
@@ -258,5 +309,5 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
 
     return DesignAnalysis(spec=spec, report=rep, contact=contact, efficiency=eff,
                           stiffness=stiff, transmission_error=te, thermal=therm,
-                          mass=mass, bearings=bearings,
+                          mass=mass, fatigue=fatigue, bearings=bearings,
                           torque_capacity_Nm=capacity)
