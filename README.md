@@ -19,7 +19,7 @@ animation, a bill of materials and a PDF dossier.
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
   a shortlist that passes every check, with the trade-offs side by side.
-- **Nothing is asserted that is not verified.** 656 tests, and where two parts
+- **Nothing is asserted that is not verified.** 660 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -430,17 +430,17 @@ suggests it.
   3D views in the PDF, where a vector figure is worth more than a screenshot,
   and what makes the projection testable on a machine with no display at all.
 
-  **On macOS the fallback is the default**, and not for want of a GPU. VTK's
-  Python widget builds its GL context directly on the view `winId()` returns,
-  with `WA_PaintOnScreen` set — an attribute Qt documents as X11-only, on a
-  platform whose views have been layer-backed and mandatorily so since 10.14.
-  The first render blocks the main thread as the tab opens and takes the
-  application with it, and because that is a process dying rather than an
-  exception, the fallback cannot catch it and step in. So macOS is refused the
-  hardware path *before* a render window is built. `CYCLOIDGEN_VTK=1` tries it
-  anyway; `CYCLOIDGEN_VTK=0` refuses it anywhere. The real fix is a widget of
-  our own over `vtkGenericOpenGLRenderWindow`, rendering into the framebuffer Qt
-  hands it, and it is not written yet.
+  **macOS gets a different viewport, not a different renderer.** VTK's own Qt
+  widget builds its GL context directly on the view `winId()` returns, with
+  `WA_PaintOnScreen` set — an attribute Qt documents as X11-only, on a platform
+  whose views have been layer-backed and mandatorily so since 10.14. The first
+  render blocks the main thread as the tab opens and takes the application with
+  it, and because that is a process dying rather than an exception, the fallback
+  cannot catch it and step in. So macOS runs a widget of our own over
+  `vtkGenericOpenGLRenderWindow`, rendering *inside* the context Qt already owns
+  — no second context, no native handle to get wrong. `CYCLOIDGEN_VTK_QTGL`
+  selects that backend either way; `CYCLOIDGEN_VTK=0` drops any machine back to
+  the software painter, and is the first thing to try if the 3D tab misbehaves.
 
   The mesh is verified against the volume of the solid that gets exported, part
   by part, so the picture and the STEP file are the same gearbox.
@@ -569,7 +569,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          656 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          660 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 

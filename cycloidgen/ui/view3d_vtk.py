@@ -70,23 +70,23 @@ def available() -> bool:
 
     * **No native window at all** - the offscreen and minimal platforms. This is
       how the crash was found, because the test suite runs there.
-    * **macOS.** VTK's Python widget builds its GL context directly on the view
-      ``winId()`` returns, with ``WA_PaintOnScreen`` set - an attribute Qt
-      documents as X11-only. macOS views have been layer-backed, and mandatorily
-      so, since 10.14. What happens is not a blank viewport: the first render
-      blocks the main thread the moment the tab is opened, and the application
-      dies with it.
+    * **macOS**, on the *classic* backend. VTK's Python widget builds its GL
+      context directly on the view ``winId()`` returns, with ``WA_PaintOnScreen``
+      set - an attribute Qt documents as X11-only. macOS views have been
+      layer-backed, and mandatorily so, since 10.14. What happens is not a blank
+      viewport: the first render blocks the main thread the moment the tab is
+      opened, and the application dies with it.
 
-      :mod:`cycloidgen.ui.view3d_qtgl` is the repair being built - a viewport
-      that renders *inside* Qt's context instead of building one beside it, so
-      there is no native handle to get wrong. It is not finished, it is off by
-      default everywhere, and the software painter is what macOS gets until it
-      is: the failure guarded against here kills the application, and an
-      unfinished renderer is not a trade against one that certainly works.
+      So macOS gets :mod:`cycloidgen.ui.view3d_qtgl` instead - a viewport that
+      renders *inside* Qt's context rather than building one beside it, so there
+      is no native handle to get wrong. That is chosen for it in
+      :func:`qt_context_wanted` rather than refused here.
     * **Whether the modules are importable**, which is an ordinary question.
 
     Whether the *driver* can then give a GL context is the one thing left to
-    discover by trying, and that failure is an ordinary exception.
+    discover by trying, and that failure is an ordinary exception. Setting
+    ``CYCLOIDGEN_VTK=0`` puts any machine back on the software painter, which is
+    still the first thing to ask someone whose 3D tab misbehaves.
     """
     from PySide6.QtGui import QGuiApplication
 
@@ -98,10 +98,6 @@ def available() -> bool:
     platform = (app.platformName() if app is not None
                 else os.environ.get("QT_QPA_PLATFORM", ""))
     if platform.lower() in _HEADLESS_PLATFORMS:
-        return False
-    if sys.platform == "darwin":
-        logger.info("3D: macOS uses the software renderer; set %s=1 to try VTK",
-                    _OVERRIDE)
         return False
     return _importable()
 
@@ -159,15 +155,20 @@ def _imports():
 def qt_context_wanted() -> bool:
     """Whether to render inside Qt's GL context instead of beside it.
 
-    **Off everywhere by default, including macOS.**  It draws now - the whole
-    assembly, in the real window, measured off the screen - but every one of
-    those measurements is a Windows one, on the machine where the ordinary path
-    already works.  The platform it exists for has not run it once.  Turning it
-    on for macOS is a decision to make after somebody opens the tab on a Mac,
-    not before, because the failure it replaces takes the application down with
-    it.  See :mod:`cycloidgen.ui.view3d_qtgl`.
+    **On for macOS, off elsewhere.**  It has now been opened on a Mac and it
+    draws, which is the run this backend was waiting for and could not be given
+    from a Windows machine.  Everywhere else the classic widget already works
+    and is the one with the miles on it, so there is no reason to move.
+
+    ``CYCLOIDGEN_VTK_QTGL`` forces it either way - ``1`` to exercise this path
+    from a machine where the older one works, ``0`` to fall back on a Mac if it
+    turns out to have a fault the software painter does not.  See
+    :mod:`cycloidgen.ui.view3d_qtgl`.
     """
-    return os.environ.get(_QT_GL_OVERRIDE, "").strip() == "1"
+    override = os.environ.get(_QT_GL_OVERRIDE, "").strip()
+    if override in {"0", "1"}:
+        return override == "1"
+    return sys.platform == "darwin"
 
 
 def _render_widget(v: dict, parent):

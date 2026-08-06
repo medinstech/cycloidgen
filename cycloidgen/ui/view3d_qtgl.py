@@ -37,7 +37,15 @@ no error for:
 
 Interaction is forwarded by hand.  ``vtkGenericRenderWindowInteractor`` is the
 interactor for exactly this case: it has no event loop of its own and expects to
-be told what happened.
+be told what happened - and, the half that is easy to miss, it expects to be
+*listened to*.  Its ``Render`` does not draw and does not touch the render
+window; it raises ``RenderEvent`` and waits for the toolkit to schedule a frame.
+Nothing was listening, so every frame an interaction asked for was dropped.  The
+camera moved and the picture did not, until something else - the crank
+animation's timer, a resize - happened to repaint.  On macOS that is worse than
+it sounds: a mouse drag runs in the window server's own event-tracking loop and
+ordinary timers do not fire inside it, so during a drag there *is* nothing else,
+and the viewport freezes until the button comes up.
 
 Where this got to
 -----------------
@@ -96,10 +104,16 @@ assembly view's, which for a while looked like two unrelated findings.
 irrelevant either way, and everything the earlier subtraction "ruled out" was
 ruled out against a fault that was not there.
 
-**Still off by default everywhere, including macOS**, and selected by
-``CYCLOIDGEN_VTK_QTGL=1``.  What it now needs is a run on the hardware it was
-written for: all of this is Windows, where the ordinary path already works, and
-the whole point of the exercise is a macOS that has never been measured.
+**It has now been run on a Mac, and it draws.**  That was the one thing all of
+the above could not establish - every measurement behind it is a Windows one, on
+the machine where the ordinary path already works.  So this is what macOS gets
+by default now, and ``CYCLOIDGEN_VTK_QTGL`` forces it either way elsewhere.
+
+The Mac run found the fault the Windows ones could not, and it is the fifth trap
+below: nothing answered the interactor's request for a frame.  Windows hid it
+because something else always repaints - and a screenshot taken with
+``PrintWindow`` is itself something else, so even photographing a drag showed it
+working.
 
 Four traps, all of them paid for, and all of them the same lesson - **check the
 measurement before believing the result**:
@@ -121,6 +135,12 @@ measurement before believing the result**:
   ``StartEvent`` observer left the viewport black; removing this one drew the
   gearbox.  A repair can arrive carrying its own bug, and only taking the two
   apart one at a time says which is which.
+* **A screenshot is not a measurement of a repaint.**  ``PrintWindow`` asks the
+  window to render, so photographing a drag to find out whether the drag
+  repainted answers a question about the camera and not about the frame.  It
+  showed the orbit arriving on Windows while the interactor's every request for
+  a frame was being dropped.  What settles it is counting the repaints, which is
+  what ``tests/test_view3d_qtgl.py`` does.
 """
 from __future__ import annotations
 
@@ -189,9 +209,27 @@ class QtGLRenderWidget(QOpenGLWidget):
 
         self._interactor = vtkGenericRenderWindowInteractor()
         self._interactor.SetRenderWindow(self._render_window)
+        # The interactor asks for frames rather than drawing them, and something
+        # has to be listening.  `vtkGenericRenderWindowInteractor.Render` does
+        # not touch the render window at all - it raises `RenderEvent` on itself
+        # and expects the toolkit that owns the context to answer, which is the
+        # whole reason this is the interactor for an embedded case.  Unanswered,
+        # every frame an *interaction* asks for is silently dropped: the
+        # trackball style moves the camera and nothing repaints.
+        self._interactor.AddObserver("RenderEvent", self._render_requested)
         self._initialised = False
         self._interactor_wanted = False
         self._functions = None
+
+    def _render_requested(self, *_args) -> None:
+        """Schedule a frame for a render the *interactor* asked for.
+
+        Same answer as :meth:`Render` and deliberately so - a drag is not a
+        special kind of frame - but it has to be wired separately because it
+        arrives by a different route.  No loop: ``paintGL`` renders the *window*,
+        and the window does not raise the interactor's event.
+        """
+        self.update()
 
     # ------------------------------------------------ the interchangeable bit
     def GetRenderWindow(self):
