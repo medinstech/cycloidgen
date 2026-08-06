@@ -393,6 +393,36 @@ EXPLANATIONS: dict[str, Explanation] = {
         "path set by the eccentricity, and the holes are in the disc material.",
         "Bushings or rollers on the output pins fix this directly. Larger or "
         "more numerous pins drop the pressure term.", unit="MPa m/s"),
+    "MOTOR_SHAFT_MISMATCH": Explanation(
+        "The motor's shaft is not the shaft this drive was built around",
+        "motor shaft diameter == input shaft diameter",
+        "With the motor driving the cam directly there is only one shaft, and it "
+        "is the motor's. A NEMA 17 turns 5 mm; a drive drawn around a 10 mm "
+        "shaft has a cam bored 10 mm and nothing to put it on.",
+        "Set the input shaft to the frame's shaft diameter, or turn off 'motor "
+        "drives the shaft' and drive it through a coupling - which is a real "
+        "answer, and needs the shaft bearings fitted.",
+        unit="mm"),
+    "MOTOR_FACE_CLASH": Explanation(
+        "The motor's bolt pattern misses the metal",
+        "bore < bolt circle < the rim, with room for the bolt itself",
+        "Four holes have to land in the plate. Inside the bore there is nothing "
+        "to bolt to, and past the rim there is nothing at all - the second is "
+        "just as reachable as the first, because a small drive can be narrower "
+        "across than the motor bolted to it.",
+        "A smaller frame, a wider housing, or a narrower carrier boss.",
+        unit="mm"),
+    "MOTOR_RADIAL_LOAD": Explanation(
+        "The motor's own bearings are carrying the crank",
+        "crank reaction  <  the frame's radial load rating",
+        "With no shaft bearings fitted, everything the discs push back into the "
+        "crank goes into the motor. Stepper bearings are sized to turn a shaft, "
+        "not to be a gearbox's main support, and the rating is quoted at the "
+        "shaft end where the leverage is worst.",
+        "Fit the shaft bearings, or move up a frame size. The figure here is "
+        "typical for the frame rather than a promise about your motor: they "
+        "vary by a factor of two between makers.",
+        unit="N"),
     "BEARING_DOES_NOT_FIT": Explanation(
         "The bearing named for a seat will not go in it",
         "bore >= what it sits on, outside <= what it sits in, width <= the room",

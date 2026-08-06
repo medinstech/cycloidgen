@@ -14,12 +14,12 @@ animation, a bill of materials and a PDF dossier.
 - **A datasheet, not a drawing.** Contact stress, torque capacity, efficiency,
   torsional stiffness, lost motion, transmission error, PV and running
   temperature, mass and inertia, bearing life.
-- **Fifty checks that explain themselves.** Each says what it tests, what
+- **Fifty-three checks that explain themselves.** Each says what it tests, what
   goes wrong physically when it fails, and which parameter to move — and lights
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
   a shortlist that passes every check, with the trade-offs side by side.
-- **Nothing is asserted that is not verified.** 552 tests, and where two parts
+- **Nothing is asserted that is not verified.** 569 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -299,7 +299,7 @@ Beyond the geometry checks, every design gets a datasheet:
 
 ## Checks
 
-Fifty of them. Errors block export; warnings do not; several are readings
+Fifty-three of them. Errors block export; warnings do not; several are readings
 rather than tests.
 
 **Profile** — `K1_TOO_HIGH` · `K1_HIGH` · `UNDERCUT` · `UNDERCUT_MARGIN` ·
@@ -326,6 +326,8 @@ rather than tests.
 `PV_LIMIT_OUTPUT` · `PV_LIMIT_CAM` · `OVERTEMP` · `RUNNING_HOT` ·
 `SHORT_BEARING_LIFE` · `NO_BEARING_FITS` · `BEARING_DOES_NOT_FIT` ·
 `BEARINGS_OMITTED`
+
+**Mounting** — `MOTOR_SHAFT_MISMATCH` · `MOTOR_FACE_CLASH` · `MOTOR_RADIAL_LOAD`
 
 **Dynamics and mass** — `SINGLE_DISC_UNBALANCE` · `UNBALANCE_FORCE` · `MASS`
 
@@ -380,6 +382,17 @@ suggests it.
   They also switch off one at a time, from the **…** beside the group: they sit
   in four different places, and looking at the cam bearing down its bore means
   putting the others away rather than putting all of them away.
+
+  **Mounting** says how it bolts to the world. Pick a motor frame and the input
+  end plate gets that frame's register and bolt pattern — a *square* for a NEMA,
+  because four holes on a circle of the same size land where the motor has
+  nothing — and the app checks the three things that pairing can get wrong: a
+  motor whose shaft is not the shaft the drive was drawn around, a pattern that
+  falls into the bore or off the rim, and, when you have chosen to let the motor
+  carry the crank, whether its own bearings are up to it. The output end of this
+  topology is a boss on the axis rather than a bolt face, so what it needs is
+  somewhere for a coupling to grip; it now stands proud of the plate instead of
+  coming out flush.
 
   That is the *picture*. Whether the drive actually has them, and which ones,
   is a design decision, under **Bearings** in the parameter panel. Each seat can
@@ -547,7 +560,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          552 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          569 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -563,7 +576,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-552 tests, about 300 s. Most of that is CadQuery writing solids; the pure
+569 tests, about 300 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

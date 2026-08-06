@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from ..analysis.bearings import CATALOGUE
-from ..core.spec import AUTOMATIC, MATERIALS, OffsetMode, Process
+from ..core.spec import AUTOMATIC, MATERIALS, MOTOR_FRAMES, OffsetMode, Process
 
 Kind = Literal["float", "int", "bool", "choice"]
 
@@ -118,6 +118,22 @@ GROUPS: list[tuple[str, list[Field]]] = [
         Field("ring_pins_are_rollers", "Ring pins are rollers", "bool",
               tip="Needle rollers on the ring pins remove the largest loss."),
     ]),
+    ("Mounting", [
+        Field("motor_frame", "Motor", "choice", choices=tuple(MOTOR_FRAMES),
+              tip="Bolt pattern, register and shaft of the motor on the input "
+                  "end plate. 'None' leaves a plain plate."),
+        Field("motor_drives_the_shaft", "Motor turns the cam", "bool",
+              tip="On, the motor's own shaft is the input shaft. Off, there is "
+                  "a separate shaft and a coupling between them."),
+        Field("housing_bolt_count", "Tie bolts", "int", 0, 24, 1,
+              tip="Through both end plates into the barrel. 0 draws none."),
+        Field("housing_bolt_diameter", "Tie bolt", "float", 1, 20, 0.5,
+              decimals=2, suffix=" mm"),
+        Field("output_boss_protrusion", "Boss stands out", "float", 0, 100, 1,
+              decimals=2, suffix=" mm",
+              tip="How far the output boss stands past the end plate, for a "
+                  "coupling to grip. 0 leaves it flush and ungrippable."),
+    ]),
     ("Bearings", [
         Field("cam_bearing_fitted", "Cam bearing", "bool",
               tip="Off means the disc bore runs straight on the cam - a plain "
@@ -206,6 +222,10 @@ CODE_FIELDS: dict[str, tuple[str, ...]] = {
     "PV_MARGIN_RING": ("ring_pins_are_rollers", "input_rpm"),
     "PV_LIMIT_OUTPUT": ("output_pins_are_rollers", "output_pin_diameter"),
     "PV_LIMIT_CAM": ("cam_bearing_fitted", "input_rpm", "disc_material"),
+    "MOTOR_SHAFT_MISMATCH": ("motor_frame", "input_shaft_diameter",
+                             "motor_drives_the_shaft"),
+    "MOTOR_FACE_CLASH": ("motor_frame", "housing_wall", "output_hub_diameter"),
+    "MOTOR_RADIAL_LOAD": ("motor_frame", "shaft_bearings_fitted", "output_torque_Nm"),
     "BEARING_DOES_NOT_FIT": ("cam_bearing", "shaft_bearing", "output_bearing",
                              "eccentric_cam_diameter", "center_bore_diameter"),
     "BEARINGS_OMITTED": ("cam_bearing_fitted", "shaft_bearings_fitted",

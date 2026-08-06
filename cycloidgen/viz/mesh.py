@@ -373,6 +373,47 @@ def _profile_segments(spec: GearSpec) -> int:
     return int(np.clip(8 * spec.lobes, 160, 520))
 
 
+def _plate_bolt_holes(spec: GearSpec, motor_face: bool) -> list[np.ndarray]:
+    """Every hole through an end plate: the tie bolts, and the motor's four.
+
+    NEMA patterns are a *square*.  Drawing them on a circle of the same size
+    puts all four holes somewhere the motor has nothing, which would look
+    entirely plausible and be entirely wrong.
+    """
+    holes: list[np.ndarray] = []
+    r = spec.housing_bolt_diameter / 2.0
+    for k in range(spec.housing_bolt_count):
+        a = 2.0 * np.pi * k / max(spec.housing_bolt_count, 1)
+        holes.append(_circle(spec.housing_bolt_radius * math.cos(a),
+                             spec.housing_bolt_radius * math.sin(a), r, 12))
+
+    if motor_face and spec.has_motor_face:
+        frame = spec.motor
+        rb = frame.bolt_diameter / 2.0
+        if frame.square:
+            half = frame.bolt_span / 2.0
+            holes += [_circle(sx * half, sy * half, rb, 12)
+                      for sx in (-1.0, 1.0) for sy in (-1.0, 1.0)]
+        else:
+            for k in range(frame.bolt_count):
+                a = 2.0 * np.pi * k / max(frame.bolt_count, 1)
+                holes.append(_circle(frame.bolt_span / 2.0 * math.cos(a),
+                                     frame.bolt_span / 2.0 * math.sin(a), rb, 12))
+    return holes
+
+
+def _pilot_recess(spec: GearSpec, bore: float) -> float:
+    """How deep the motor's register is cut, or zero when the bore is already it.
+
+    A spigot no bigger than the hole it goes into needs no recess: the bore is
+    the register.  That is the default here rather than a contrivance - a NEMA
+    17 pilots at 22 mm and the shaft support seat happens to be 22 mm too.
+    """
+    if not spec.has_motor_face or spec.motor.pilot_diameter <= bore:
+        return 0.0
+    return min(spec.motor.pilot_depth, spec.plate_thickness / 2.0)
+
+
 def build_mesh(spec: GearSpec,
                placements: Sequence[BearingPlacement] | None = None) -> Mesh:
     """Every part of ``spec`` as a polygon mesh, in assembly order.
@@ -476,7 +517,8 @@ def build_mesh(spec: GearSpec,
         # The boss the drive turns on: the output bearing rides its outside and
         # a shaft support sits in its bore.
         b.prism(_circle(0.0, 0.0, hub_r, 40), (_circle(0.0, 0.0, bore_r, 28),),
-                plate_bottom - spec.plate_thickness, plate_bottom)
+                plate_bottom - spec.plate_thickness - spec.output_boss_protrusion,
+                plate_bottom)
         shank = pin_shank_diameter(placements, "bearing_output_pins",
                                    spec.output_pin_diameter)
         for k in range(spec.output_pin_count):
@@ -488,19 +530,29 @@ def build_mesh(spec: GearSpec,
     # The two plates that close the housing.  They do not move, they are the
     # same colour as the barrel they bolt to, and they are why the shaft
     # supports and the output bearing have somewhere to be.
-    for name, label, bore, z0, apart in (
-            ("input_end_plate", "Input end plate", spec.hub_bore, stack, 2.0),
+    for name, label, bore, z0, apart, motor in (
+            ("input_end_plate", "Input end plate", spec.hub_bore, stack, 2.0, True),
             ("output_end_plate", "Output end plate",
              spec.output_bearing_seat_diameter,
-             plate_bottom - spec.plate_thickness, -1.6)):
+             plate_bottom - spec.plate_thickness, -1.6, False)):
         # Each comes off its own face rather than staying with the barrel: they
         # are bolted on, and an exploded view that leaves them there is showing
         # a housing nobody can assemble.
         with b.part(name, label, "end_plates", PART_COLOURS["end_plates"],
                     explode=apart):
-            b.prism(_circle(0.0, 0.0, spec.housing_outer_radius, 96),
-                    (_circle(0.0, 0.0, max(bore, 1e-3) / 2.0, 48),),
-                    z0, z0 + spec.plate_thickness)
+            bolts = _plate_bolt_holes(spec, motor)
+            outer = _circle(0.0, 0.0, spec.housing_outer_radius, 96)
+            top = z0 + spec.plate_thickness
+            recess = _pilot_recess(spec, bore) if motor else 0.0
+            if recess:
+                # A register is a step, not a hole: the outer face is bored to
+                # the motor's spigot for the first couple of millimetres and to
+                # the bearing seat after that, so it takes two prisms.
+                b.prism(outer, (_circle(0.0, 0.0, spec.motor.pilot_diameter / 2.0,
+                                        48), *bolts), top - recess, top)
+                top -= recess
+            b.prism(outer, (_circle(0.0, 0.0, max(bore, 1e-3) / 2.0, 48), *bolts),
+                    z0, top)
 
     # Bearings last, and each one takes the motion of the part it was placed
     # against rather than restating it.  Two copies of "how does a disc move"
@@ -550,6 +602,10 @@ def mesh_fingerprint(spec: GearSpec,
         spec.output_pin_count, spec.output_pin_diameter,
         spec.output_bolt_circle_radius, spec.output_flange_thickness,
         spec.housing_outer_radius, spec.input_shaft_diameter, spec.cam_diameter,
+        spec.plate_thickness, spec.hub_diameter, spec.hub_bore,
+        spec.output_bearing_seat_diameter, spec.output_boss_protrusion,
+        spec.shaft_overhang, spec.housing_bolt_count, spec.housing_bolt_diameter,
+        spec.housing_bolt_radius, spec.motor_frame,
         tuple(placements),
     )
 

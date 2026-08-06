@@ -318,6 +318,54 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     # Not "has no bearing" - a plain cam has none and the drive still carries
     # that force, sliding, which the PV check is there for.  This is the narrower
     # question of a load leaving the gearbox for something on the other end of it.
+    # ---- what it bolts to ---------------------------------------------------
+    if spec.has_motor_face:
+        frame = spec.motor
+        if spec.motor_drives_the_shaft and \
+                abs(frame.shaft_diameter - spec.input_shaft_diameter) > 1e-6:
+            # A warning rather than an error: every file this exports is still
+            # right - the cam is bored to the shaft the design states.  What is
+            # wrong is the pairing, and that is fixed by buying a different
+            # motor as easily as by redrawing anything.
+            rep.add(Severity.WARNING, "MOTOR_SHAFT_MISMATCH",
+                    f"The {frame.name} turns a {frame.shaft_diameter:g} mm shaft "
+                    f"and this drive is built around a "
+                    f"{spec.input_shaft_diameter:g} mm one. With the motor "
+                    f"driving the cam directly they have to be the same shaft: "
+                    f"set the input shaft to {frame.shaft_diameter:g} mm, or turn "
+                    f"off 'motor drives the shaft' and put a coupling in.",
+                    spec.input_shaft_diameter, frame.shaft_diameter)
+
+        # The bolts have to land in the plate, clear of the bore and inside the
+        # rim - a pattern that misses the metal is a motor that cannot be bolted
+        # on, and nothing else in the app would notice.
+        reach = frame.bolt_circle_diameter / 2.0
+        if reach - frame.bolt_diameter / 2.0 < spec.hub_bore / 2.0:
+            rep.add(Severity.ERROR, "MOTOR_FACE_CLASH",
+                    f"The {frame.name} bolt pattern falls into the "
+                    f"{spec.hub_bore:.1f} mm bore of the input end plate - there "
+                    f"is no metal there to bolt to. A smaller frame, or a "
+                    f"narrower carrier boss.",
+                    2.0 * reach, spec.hub_bore)
+        elif reach + frame.bolt_diameter / 2.0 > spec.housing_outer_radius:
+            rep.add(Severity.ERROR, "MOTOR_FACE_CLASH",
+                    f"The {frame.name} bolt pattern runs off the edge of a "
+                    f"{2 * spec.housing_outer_radius:.1f} mm plate. The drive is "
+                    f"smaller across than the motor it is being bolted to.",
+                    2.0 * reach, 2.0 * spec.housing_outer_radius)
+
+        if not spec.shaft_bearings_fitted:
+            crank = contact.eccentric_bearing_load_N * spec.disc_count
+            if crank > frame.max_radial_N:
+                rep.add(Severity.WARNING, "MOTOR_RADIAL_LOAD",
+                        f"With no shaft bearings the {frame.name} carries the "
+                        f"whole crank reaction, {crank:.0f} N, against a typical "
+                        f"{frame.max_radial_N:.0f} N for that frame. Fit the "
+                        f"shaft bearings or use a bigger motor - and check your "
+                        f"own datasheet, because these vary by a factor of two "
+                        f"between makers.",
+                        crank, frame.max_radial_N)
+
     external = [c for c in bearings if c.carried_elsewhere]
     if external:
         rep.add(Severity.INFO, "BEARINGS_OMITTED",

@@ -116,6 +116,26 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
         mass_each_g=output_pin_mass, source="buy",
         note=f"runs in {s.output_hole_diameter:.3f} mm holes"))
 
+    # ---- fasteners ----------------------------------------------------------
+    if s.housing_bolt_count:
+        items.append(BomItem(
+            part="Tie bolt", quantity=s.housing_bolt_count, material=s.pin_material,
+            size=f"{s.housing_bolt_diameter:g} mm clearance, about "
+                 f"{s.stack_height + 2 * s.plate_thickness:.0f} mm under the head",
+            mass_each_g=0.0, source="buy",
+            note=f"through both end plates into the barrel, on a "
+                 f"{2 * s.housing_bolt_radius:.1f} mm circle"))
+
+    if s.has_motor_face:
+        frame = s.motor
+        pattern = (f"{frame.bolt_span:g} mm square" if frame.square
+                   else f"{frame.bolt_span:g} mm circle")
+        items.append(BomItem(
+            part="Motor bolt", quantity=frame.bolt_count, material=s.pin_material,
+            size=f"{frame.bolt_diameter:g} mm clearance",
+            mass_each_g=0.0, source="buy",
+            note=f"{frame.name} pattern, {pattern}, into the input end plate"))
+
     # ---- bearings -----------------------------------------------------------
     for choice in a.bearings:
         if choice.bearing is None or not choice.count:

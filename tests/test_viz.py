@@ -266,7 +266,7 @@ def test_an_unchanged_fingerprint_means_an_unchanged_mesh(field):
     from enum import Enum
 
     from cycloidgen.analysis.bearings import BY_NAME, CATALOGUE
-    from cycloidgen.core.spec import AUTOMATIC, MATERIALS
+    from cycloidgen.core.spec import AUTOMATIC, MATERIALS, MOTOR_FRAMES
     from cycloidgen.viz.mesh import mesh_fingerprint
 
     base = preset(15)
@@ -286,6 +286,10 @@ def test_an_unchanged_fingerprint_means_an_unchanged_mesh(field):
         setattr(other, field, 12.0)          # eccentric_cam_diameter: auto -> set
     elif isinstance(value, str) and value in MATERIALS:
         setattr(other, field, next(m for m in MATERIALS if m != value))
+    elif isinstance(value, str) and value in MOTOR_FRAMES:
+        # The frame decides a bolt pattern that is drawn in the plate, so the
+        # key has to move with it.
+        setattr(other, field, next(m for m in MOTOR_FRAMES if m != value))
     elif isinstance(value, str) and (value == AUTOMATIC or value in BY_NAME):
         # Naming a bearing for a seat changes what is drawn there, so the key
         # has to move with it.  Without this branch the five bearing fields
@@ -304,28 +308,71 @@ def test_an_unchanged_fingerprint_means_an_unchanged_mesh(field):
 # bridge.  Geometry only - no render window, so this runs without a display.
 
 
-def test_the_vtk_faces_cover_the_same_area_as_the_loops(mesh):
+def _inside(polygon: np.ndarray, points: np.ndarray) -> np.ndarray:
+    """Ray casting in the plane: which of ``points`` fall inside ``polygon``."""
+    x, y = points[:, 0], points[:, 1]
+    px, py = polygon[:, 0], polygon[:, 1]
+    qx, qy = np.roll(px, -1), np.roll(py, -1)
+    inside = np.zeros(len(points), dtype=bool)
+    for x0, y0, x1, y1 in zip(px, py, qx, qy, strict=True):
+        if y0 == y1:
+            continue
+        crosses = ((y0 > y) != (y1 > y)) & (
+            x < x0 + (y - y0) * (x1 - x0) / (y1 - y0))
+        inside ^= crosses
+    return inside
+
+
+def test_the_vtk_triangulation_keeps_every_hole_open(mesh):
     """VTK has no polygon-with-holes cell, so the caps are triangulated.
 
-    A triangulation that quietly filled the bore, or dropped a hole, would look
-    almost right and be wrong by the area of a hole.  Total surface area is the
-    cheapest statement that catches it.
-    """
-    from vtkmodules.vtkFiltersCore import vtkMassProperties, vtkTriangleFilter
+    A triangulation that quietly filled the bore, or dropped one of the bolt
+    holes, would look almost right and be wrong by the area of a hole - and the
+    hardware view is the one people look at.
 
+    Stated as the property itself rather than as total surface area, which was
+    the cheap proxy for it until it stopped being equivalent: with a dozen holes
+    in one face the triangulator emits some overlapping coplanar triangles, so
+    the areas differ by a fraction of a percent while every hole is still open.
+    Overlapping triangles in one plane are invisible; a filled hole is not.
+    """
     from cycloidgen.viz.vtkbridge import part_polydata
 
     for part in mesh.parts:
         polydata = part_polydata(mesh, part)
         assert polydata.GetNumberOfCells() > 0, part.name
+
+        centres = np.array([
+            np.mean([polydata.GetPoint(polydata.GetCell(c).GetPointId(i))
+                     for i in range(polydata.GetCell(c).GetNumberOfPoints())],
+                    axis=0)
+            for c in range(polydata.GetNumberOfCells())])
+
+        for index in range(part.facets.start, part.facets.stop):
+            loops = mesh.loops[index]
+            if len(loops) == 1:
+                continue
+            z = mesh.vertices[loops[0][0]][2]
+            on_plane = centres[np.isclose(centres[:, 2], z, atol=1e-9)]
+            for hole in loops[1:]:
+                shape = mesh.vertices[hole][:, :2]
+                # A hair inside, so a triangle that merely touches the rim of a
+                # hole is not read as filling it.
+                shrunk = shape.mean(axis=0) + 0.8 * (shape - shape.mean(axis=0))
+                assert not _inside(shrunk, on_plane[:, :2]).any(), \
+                    f"{part.name}: a hole was triangulated over"
+
+        # ...and nothing was dropped either, which the area still catches at a
+        # tolerance far below one hole.
+        expected = float(np.linalg.norm(_face_areas(mesh)[part.facets], axis=1).sum())
+        from vtkmodules.vtkFiltersCore import vtkMassProperties, vtkTriangleFilter
         triangles = vtkTriangleFilter()
         triangles.SetInputData(polydata)
         triangles.Update()
         properties = vtkMassProperties()
         properties.SetInputData(triangles.GetOutput())
         properties.Update()
-        expected = float(np.linalg.norm(_face_areas(mesh)[part.facets], axis=1).sum())
-        assert properties.GetSurfaceArea() == pytest.approx(expected, rel=1e-6), \
+        assert properties.GetSurfaceArea() == pytest.approx(expected, rel=0.01), \
             part.name
 
 

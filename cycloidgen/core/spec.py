@@ -135,6 +135,77 @@ SHAFT_OVERHANG = 12.0
 CARRIER_DROP = 1.0
 
 
+class MotorFrame(BaseModel):
+    """A motor's mounting face, as the standard defines it.
+
+    NEMA frames put four bolts on a **square**, not on a bolt circle, and the
+    difference is not cosmetic: drawing four holes on a circle of the same size
+    puts every one of them in the wrong place.  Metric flanges do use a circle,
+    so both are here and ``square`` says which.
+
+    ``max_radial_N`` is what the motor's *own* bearings will take at the shaft
+    end.  It is a typical figure for the frame size rather than a promise about
+    your motor - they vary by a factor of two between makers - and it exists so
+    that hanging a drive on a motor face can be checked against something
+    instead of hoped about.  Read your datasheet before you believe it.
+    """
+
+    name: str
+    bolt_span: float = Field(gt=0, description="square side, or bolt circle dia")
+    square: bool = Field(True, description="four on a square, or N on a circle")
+    bolt_count: int = Field(4, ge=1)
+    bolt_diameter: float = Field(gt=0, description="clearance hole, not the thread")
+    pilot_diameter: float = Field(gt=0, description="the register that centres it")
+    pilot_depth: float = Field(gt=0)
+    shaft_diameter: float = Field(gt=0)
+    max_radial_N: float = Field(gt=0, description="typical, at the shaft end")
+
+    @property
+    def bolt_circle_diameter(self) -> float:
+        """Where the bolts actually land, whichever way the pattern is stated.
+
+        A square of side ``s`` puts its corners on a circle of ``s*sqrt(2)``, and
+        that is the number every clearance check wants.
+        """
+        import math
+        return self.bolt_span * (math.sqrt(2.0) if self.square else 1.0)
+
+
+#: What a motor face is, by frame size.  Standard NEMA geometry; the radial
+#: ratings are typical for the frame rather than any one motor.  ``None`` is a
+#: plate with no motor interface at all - a drive driven through a coupling from
+#: something this table does not describe.
+MOTOR_FRAMES: dict[str, MotorFrame] = {
+    m.name: m
+    for m in [
+        MotorFrame(name="None", bolt_span=1.0, bolt_diameter=1.0,
+                   pilot_diameter=1.0, pilot_depth=0.1, shaft_diameter=1.0,
+                   max_radial_N=1.0),
+        MotorFrame(name="NEMA 8", bolt_span=15.4, bolt_diameter=2.2,
+                   pilot_diameter=15.0, pilot_depth=1.6, shaft_diameter=4.0,
+                   max_radial_N=10.0),
+        MotorFrame(name="NEMA 11", bolt_span=23.0, bolt_diameter=2.7,
+                   pilot_diameter=22.0, pilot_depth=2.0, shaft_diameter=5.0,
+                   max_radial_N=15.0),
+        MotorFrame(name="NEMA 14", bolt_span=26.0, bolt_diameter=3.2,
+                   pilot_diameter=22.0, pilot_depth=2.0, shaft_diameter=5.0,
+                   max_radial_N=20.0),
+        MotorFrame(name="NEMA 17", bolt_span=31.0, bolt_diameter=3.4,
+                   pilot_diameter=22.0, pilot_depth=2.0, shaft_diameter=5.0,
+                   max_radial_N=28.0),
+        MotorFrame(name="NEMA 23", bolt_span=47.14, bolt_diameter=5.5,
+                   pilot_diameter=38.1, pilot_depth=1.6, shaft_diameter=6.35,
+                   max_radial_N=75.0),
+        MotorFrame(name="NEMA 34", bolt_span=69.58, bolt_diameter=5.5,
+                   pilot_diameter=73.03, pilot_depth=2.0, shaft_diameter=14.0,
+                   max_radial_N=220.0),
+    ]
+}
+
+#: The frame name that means "no motor interface on this plate".
+NO_MOTOR = "None"
+
+
 class OffsetMode(str, Enum):
     """How manufacturing clearance is introduced into the theoretical profile.
 
@@ -298,6 +369,38 @@ class GearSpec(BaseModel):
     ring_pin_roller: str = Field(AUTOMATIC, description="ring pin needle rollers")
     output_pin_roller: str = Field(AUTOMATIC, description="output pin rollers")
 
+    # ---- how it bolts to the world --------------------------------------------
+    #
+    # Both ends, because a gearbox that cannot be attached to anything at either
+    # end is a model of a gearbox.  The input face is a motor frame off the
+    # table; the output face is whatever the driven machine wants, so it is
+    # stated as a pattern rather than chosen from a list.
+    motor_frame: str = Field(
+        NO_MOTOR,
+        description="motor bolted to the input end plate; 'None' for a plain "
+                    "plate driven through a coupling",
+    )
+    motor_drives_the_shaft: bool = Field(
+        True,
+        description="the motor's own shaft is the input shaft, so the cam is "
+                    "bored to it; off means a separate shaft and a coupling",
+    )
+    # The output end of this topology is a boss on the axis, not a face with a
+    # bolt circle on it: what goes on there is a coupling, a pulley or a clamp
+    # hub.  So what it needs is somewhere to grip, which it did not have - the
+    # boss came out flush with the plate.
+    output_boss_protrusion: float = Field(
+        8.0, ge=0,
+        description="how far the output boss stands past the end plate, for a "
+                    "coupling to grip; 0 leaves it flush and ungrippable",
+    )
+    housing_bolt_count: int = Field(
+        6, ge=0, le=24,
+        description="tie bolts through both end plates into the barrel; 0 means "
+                    "the plates are held on by something this app is not drawing",
+    )
+    housing_bolt_diameter: float = Field(4.5, gt=0)
+
     bearing_min_life_hours: float = Field(
         5000.0, gt=0,
         description="L10 life a bearing has to reach before the sizing study will "
@@ -447,6 +550,24 @@ class GearSpec(BaseModel):
         makes for the bearing inside the disc bore.
         """
         return max(self.hub_diameter - 8.0, self.input_shaft_diameter + 1.0)
+
+    @property
+    def motor(self) -> MotorFrame:
+        return MOTOR_FRAMES[self.motor_frame]
+
+    @property
+    def has_motor_face(self) -> bool:
+        return self.motor_frame != NO_MOTOR
+
+    @property
+    def housing_bolt_radius(self) -> float:
+        """Where the tie bolts run: through the wall, clear of the pin pockets.
+
+        Halfway between the deepest a pocket cuts and the outside, so a bolt
+        misses the pins whose plate it is holding on and still has metal round
+        it on both sides.
+        """
+        return self.housing_outer_radius - self.housing_wall / 2.0
 
     @property
     def output_bearing_seat_diameter(self) -> float:

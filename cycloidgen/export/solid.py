@@ -139,7 +139,7 @@ def output_flange(spec: GearSpec,
     plate = cq.Workplane("XY").circle(plate_r).extrude(-t)
     hub = (cq.Workplane("XY").workplane(offset=-t)
            .circle(spec.hub_diameter / 2.0)
-           .extrude(-spec.plate_thickness))
+           .extrude(-(spec.plate_thickness + spec.output_boss_protrusion)))
     pins = (cq.Workplane("XY")
             .polarArray(spec.output_bolt_circle_radius, 0, 360, spec.output_pin_count)
             .circle(shank / 2.0)
@@ -153,17 +153,44 @@ def output_flange(spec: GearSpec,
             .cutThruAll())
 
 
-def housing_end_plate(spec: GearSpec, bore: float) -> cq.Workplane:
-    """One of the two plates that close the housing, as a flat ring.
+def housing_end_plate(spec: GearSpec, bore: float,
+                      motor_face: bool = False) -> cq.Workplane:
+    """One of the two plates that close the housing.
 
     Same outside as the housing, because they bolt to it face to face.  What
-    differs between the two is the hole: the input side is bored for the shaft
-    support, the output side for the bearing the whole drive turns on.
+    differs between them is the hole - the input side is bored for the shaft
+    support, the output side for the bearing the whole drive turns on - and
+    whether a motor bolts to the outside of it.
     """
-    return (cq.Workplane("XY")
-            .circle(spec.housing_outer_radius)
-            .circle(max(bore, 1e-3) / 2.0)
-            .extrude(spec.plate_thickness))
+    plate = (cq.Workplane("XY")
+             .circle(spec.housing_outer_radius)
+             .circle(max(bore, 1e-3) / 2.0)
+             .extrude(spec.plate_thickness))
+
+    if spec.housing_bolt_count:
+        plate = (plate.faces(">Z").workplane()
+                 .polarArray(spec.housing_bolt_radius, 0, 360,
+                             spec.housing_bolt_count)
+                 .hole(spec.housing_bolt_diameter))
+
+    if motor_face and spec.has_motor_face:
+        frame = spec.motor
+        # The register first: a shallow recess on the outside face that the
+        # motor's spigot drops into, and the only thing that actually centres it
+        # - four clearance holes on their own leave it free to sit anywhere
+        # inside them.
+        if frame.pilot_diameter > bore:
+            plate = (plate.faces(">Z").workplane()
+                     .circle(frame.pilot_diameter / 2.0)
+                     .cutBlind(-frame.pilot_depth))
+        plate = (plate.faces(">Z").workplane()
+                 .rarray(spec.motor.bolt_span, spec.motor.bolt_span, 2, 2)
+                 .hole(frame.bolt_diameter)
+                 if frame.square else
+                 plate.faces(">Z").workplane()
+                 .polarArray(frame.bolt_span / 2.0, 0, 360, frame.bolt_count)
+                 .hole(frame.bolt_diameter))
+    return plate
 
 
 def bearing_solids(spec: GearSpec,
@@ -236,7 +263,8 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
     # The plates close the housing, one on each face.  The output one sits
     # outboard of the carrier, so the boss passes through it and the pins stay
     # inside; the input one sits straight on top of the barrel.
-    assy.add(housing_end_plate(spec, spec.hub_bore), name="input_end_plate",
+    assy.add(housing_end_plate(spec, spec.hub_bore, motor_face=True),
+             name="input_end_plate",
              loc=cq.Location(cq.Vector(0, 0, spec.stack_height)),
              color=_colour("end_plates"))
     assy.add(housing_end_plate(spec, spec.output_bearing_seat_diameter),
@@ -277,7 +305,8 @@ def parts(spec: GearSpec) -> dict[str, cq.Workplane]:
         "ring_pins": ring_pins(spec, placements),
         "eccentric_shaft": eccentric_shaft(spec),
         "output_flange": output_flange(spec, placements),
-        "input_end_plate": housing_end_plate(spec, spec.hub_bore),
+        "input_end_plate": housing_end_plate(spec, spec.hub_bore,
+                                             motor_face=True),
         "output_end_plate": housing_end_plate(
             spec, spec.output_bearing_seat_diameter),
     }
