@@ -19,7 +19,7 @@ animation, a bill of materials and a PDF dossier.
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
   a shortlist that passes every check, with the trade-offs side by side.
-- **Nothing is asserted that is not verified.** 596 tests, and where two parts
+- **Nothing is asserted that is not verified.** 652 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -552,7 +552,8 @@ a physical prototype before committing to a design.
 cycloidgen/
 ├── units.py    what lengths are *shown* in; everything inside is millimetres
 ├── core/       spec (the one source of truth), profile, kinematics, validate,
-│               explain (what each check tests, why, and what to change)
+│               explain (what each check tests, why, and what to change),
+│               guide (what each parameter is and how to choose it)
 ├── analysis/   mechanics (Hertz), stiffness (contacts, backlash, transmission
 │               error), compliance (the parts around the mesh, as springs),
 │               tolerance (where the pins actually are), lubrication (the
@@ -568,7 +569,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          596 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          652 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 

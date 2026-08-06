@@ -46,6 +46,7 @@ from PySide6.QtWidgets import (
 from .. import __version__
 from ..analysis import DesignAnalysis, analyse
 from ..core.explain import explain, margin
+from ..core.guide import guide
 from ..core.spec import GearSpec, OffsetMode, Process, preset
 from ..core.validate import Severity
 from ..export import animation, write_bundle
@@ -53,7 +54,7 @@ from ..export.manifest import group_keys
 from ..report import plots
 from ..units import Unit, unit
 from . import branding
-from .fields import CODE_FIELDS, GROUPS, Field
+from .fields import CODE_FIELDS, GROUPS, Field, codes_for_field
 from .history import SpecHistory
 from .logpanel import LogPanel, logger
 from .logpanel import install as install_logging
@@ -97,6 +98,35 @@ def _section(label: str, dim: str, body: str) -> str:
     return (f"<div style='color:{dim};font-size:10px;font-weight:700;"
             f"letter-spacing:.6px;margin-top:10px'>{label}</div>"
             f"<div style='margin-top:2px'>{body}</div>")
+
+
+def _field_tooltip(field: Field) -> str:
+    """Hover text for one parameter: what it is, and how to pick it.
+
+    The panel is where the full answer lives, and the panel is at the other end
+    of the window from the field being edited.  A tooltip is not a worse version
+    of it - it is the same knowledge where the eye already is, and it costs no
+    layout.  So this carries the first two parts and lets the panel keep the
+    trade and the live check state, which are the parts worth crossing the
+    window for.
+
+    Two sources, and they are different kinds of fact rather than two copies of
+    one.  ``Field.tip`` says how the *control* behaves - that zero means
+    automatic here, that this one only applies when rollers are on - which is a
+    property of the widget and belongs beside it.
+    :mod:`cycloidgen.core.guide` says what the parameter is and how to choose
+    it, which is engineering and would be the same in a command-line tool.
+    """
+    detail = guide(field.name)
+    parts = []
+    if detail is not None:
+        parts.append(f"<p style='margin:0'>{detail.what}</p>")
+        parts.append(f"<p style='margin:6px 0 0 0'>{detail.choosing}</p>")
+    if field.tip:
+        parts.append(f"<p style='margin:6px 0 0 0'><i>{field.tip}</i></p>")
+    # Held to a readable measure: Qt lays a rich-text tooltip out at whatever
+    # width the text wants, which for a paragraph is one very long line.
+    return f"<div style='max-width:340px'>{''.join(parts)}</div>" if parts else ""
 
 
 class ExportWorker(QThread):
@@ -230,6 +260,9 @@ class MainWindow(QMainWindow):
         self._workers: list[AnalysisWorker] = []
         self._history = SpecHistory(self.spec)
         self._highlighted: list[QWidget] = []
+        # Which parameter the explanation panel is currently speaking about, or
+        # None when it is the selected check's turn.
+        self._focused_field: str | None = None
 
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
@@ -441,8 +474,7 @@ class MainWindow(QMainWindow):
             for f in fields:
                 w = self._make_widget(f)
                 self._widgets[f.name] = w
-                if f.tip:
-                    w.setToolTip(f.tip)
+                w.setToolTip(_field_tooltip(f))
                 if isinstance(w, QCheckBox):
                     # A lone indicator in the field column reads as orphaned,
                     # and the label beside it is not clickable.  Put the text
@@ -458,6 +490,13 @@ class MainWindow(QMainWindow):
             self._groups.append((box, [f.name for f in fields]))
 
         self._align_label_column()
+
+        # One connection rather than an event filter per widget: the panel wants
+        # to know which parameter the user is *looking at*, and focus is that
+        # question already answered by Qt for every widget kind at once.
+        app = QApplication.instance()
+        if app is not None:
+            app.focusChanged.connect(self._focus_changed)
 
         btn = QPushButton("APPLY PROCESS DEFAULTS")
         btn.setToolTip("Reset both clearances to the guide values for the "
@@ -1422,12 +1461,35 @@ class MainWindow(QMainWindow):
         if first is not None:
             self._param_scroll.ensureWidgetVisible(first, 0, 60)
 
+    def _focus_changed(self, _old, new) -> None:
+        """Follow the focus into the parameter panel, and back out of it.
+
+        The panel has two things worth saying and they belong to two different
+        moments. Once something is wrong, the useful text is the check's: what
+        failed and what to move. Before anything is wrong - which is where
+        somebody meeting forty-eight fields starts - the useful text is the
+        parameter's, and nothing was offering it.
+
+        Focus decides which, because focus is where the user is looking. The
+        tree's selection is left alone: clicking into a field the check has just
+        highlighted is following its advice, not abandoning it, and the check
+        comes back the moment focus leaves.
+        """
+        name = next((n for n, w in self._widgets.items() if w is new), None)
+        if name == self._focused_field:
+            return
+        self._focused_field = name
+        self._show_explanation()
+
     def _show_explanation(self) -> None:
-        """Render the selected check's explanation, or the prompt for one.
+        """Render whichever of the two the user is looking at, or the prompt.
 
         Rebuilt rather than restyled, because the colours are baked into the
         markup - the same reason every figure is rebuilt on a theme change.
         """
+        if self._focused_field is not None:
+            self._show_parameter_guide(self._focused_field)
+            return
         p = branding.palette(self.mode)
         code = getattr(self, "_selected_code", None)
         finding = None
@@ -1439,7 +1501,9 @@ class MainWindow(QMainWindow):
             self._explain.setHtml(
                 f"<div style='color:{p.ink_dim};font-size:12px'>"
                 f"Select a check to see what it tests, why it matters, and "
-                f"which parameter moves it.</div>")
+                f"which parameter moves it &mdash; or click into any parameter "
+                f"to see what it is, how to choose it, and what that costs."
+                f"</div>")
             return
 
         ink, dim, accent = p.ink, p.ink_dim, self._severity[finding.severity].name()
@@ -1472,6 +1536,63 @@ class MainWindow(QMainWindow):
             parts.append(_section("HIGHLIGHTED", dim,
                                   f"<span style='color:{ink};font-size:12px'>"
                                   f"{', '.join(labels)}</span>"))
+        self._explain.setHtml("".join(parts))
+
+    def _show_parameter_guide(self, name: str) -> None:
+        """What this parameter is, how to choose it, and what it is moving now.
+
+        The last part is the one the declaration cannot carry: which checks this
+        field feeds is a fixed relation, but how close each of them currently
+        sits to its limit belongs to the design on screen. So the prose comes
+        from :mod:`cycloidgen.core.guide` and the state comes from the analysis,
+        and a parameter that is about to break something says so before it is
+        moved rather than after.
+        """
+        p = branding.palette(self.mode)
+        detail = guide(name)
+        field = next((f for _, fs in GROUPS for f in fs if f.name == name), None)
+        if detail is None or field is None:
+            self._explain.setHtml("")
+            return
+        ink, dim = p.ink, p.ink_dim
+        group = next((t for t, fs in GROUPS if any(f.name == name for f in fs)), "")
+
+        parts = [
+            f"<div style='color:{dim};font-size:10px;font-weight:700;"
+            f"letter-spacing:.6px'>PARAMETER &middot; {group.upper()}</div>",
+            f"<div style='color:{ink};font-size:14px;font-weight:600;"
+            f"margin:2px 0 8px 0'>{field.label}</div>",
+            _section("WHAT IT IS", dim,
+                     f"<span style='color:{ink};font-size:12px'>"
+                     f"{detail.what}</span>"),
+            _section("CHOOSING IT", dim,
+                     f"<span style='color:{ink};font-size:12px'>"
+                     f"{detail.choosing}</span>"),
+        ]
+        if detail.trade:
+            parts.append(_section(
+                "WHAT IT COSTS", dim,
+                f"<span style='color:{ink};font-size:12px'>{detail.trade}</span>"))
+
+        codes = codes_for_field(name)
+        if codes:
+            raised = {f.code: f for f in (self.analysis.report.findings
+                                          if self.analysis else ())}
+            live = [c for c in codes if c in raised]
+            rows = []
+            for code in live:
+                f = raised[code]
+                colour = self._severity[f.severity].name()
+                rows.append(f"<div style='margin-bottom:2px'>"
+                            f"<span style='color:{colour};font-size:11px;"
+                            f"font-weight:700'>{f.severity.value.upper()}</span> "
+                            f"<code style='color:{ink};font-size:11px'>{code}"
+                            f"</code></div>")
+            quiet = len(codes) - len(live)
+            if quiet:
+                rows.append(f"<div style='color:{dim};font-size:11px'>"
+                            f"and {quiet} more not raised on this design</div>")
+            parts.append(_section("WHAT IT MOVES", dim, "".join(rows)))
         self._explain.setHtml("".join(parts))
 
     def _reading_line(self, finding, detail) -> str:

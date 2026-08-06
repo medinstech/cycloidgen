@@ -266,3 +266,15 @@ CODE_FIELDS: dict[str, tuple[str, ...]] = {
     "TOOL_RADIUS": ("pin_radius", "process"),
     "MASS": ("disc_thickness", "housing_wall", "housing_material"),
 }
+
+
+def codes_for_field(name: str) -> tuple[str, ...]:
+    """Which checks a parameter moves - :data:`CODE_FIELDS` read backwards.
+
+    The forward map answers "this check is unhappy, what do I change".  Read the
+    other way it answers the question somebody editing a field actually has:
+    *what am I about to affect*.  Derived rather than declared, because two
+    copies of one relation is one copy too many - and this direction is only
+    interesting when it stays in step with the direction that is maintained.
+    """
+    return tuple(code for code, names in CODE_FIELDS.items() if name in names)

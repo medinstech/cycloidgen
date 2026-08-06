@@ -15,12 +15,13 @@ import traceback
 from contextlib import suppress
 
 import numpy as np
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QPoint, QPointF, QRect, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPolygonF
 from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QMenu,
     QPushButton,
     QSizePolicy,
@@ -37,7 +38,86 @@ from . import branding
 from .logpanel import logger
 from .settings import app_settings
 
-__all__ = ["Assembly3DTab", "AssemblyView"]
+__all__ = ["Assembly3DTab", "AssemblyView", "FlowLayout"]
+
+
+class FlowLayout(QLayout):
+    """A row that wraps instead of squeezing.
+
+    ``QHBoxLayout`` given less width than its children asked for takes it from
+    them anyway, and a ``QCheckBox`` that has been squeezed elides its own text:
+    *Housing* becomes *Housin*, *Carrier* becomes *Carrie*. On a wide window the
+    row fits and nothing shows; on a narrower one - a laptop, a Mac's default
+    window, a user who has dragged the splitter - every label in the visibility
+    row loses its last letters at once, which reads as a rendering fault rather
+    than as a layout that ran out of room.
+
+    Wrapping is the honest answer for a row of independent toggles: they have no
+    order that matters and no alignment to keep, so a second line costs nothing
+    but height, and height is what this tab has spare.
+    """
+
+    def __init__(self, parent=None, spacing: int = 6) -> None:
+        super().__init__(parent)
+        self._items: list = []
+        self.setSpacing(spacing)
+
+    # ------------------------------------------------------- QLayout plumbing
+    def addItem(self, item) -> None:
+        self._items.append(item)
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, index: int):
+        return self._items[index] if 0 <= index < len(self._items) else None
+
+    def takeAt(self, index: int):
+        return self._items.pop(index) if 0 <= index < len(self._items) else None
+
+    def expandingDirections(self):
+        return Qt.Orientations(Qt.Orientation(0))
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        return self._lay_out(QRect(0, 0, width, 0), apply=False)
+
+    def setGeometry(self, rect) -> None:
+        super().setGeometry(rect)
+        self._lay_out(rect, apply=True)
+
+    def sizeHint(self) -> QSize:
+        return self.minimumSize()
+
+    def minimumSize(self) -> QSize:
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        margins = self.contentsMargins()
+        return size + QSize(margins.left() + margins.right(),
+                            margins.top() + margins.bottom())
+
+    def _lay_out(self, rect, *, apply: bool) -> int:
+        """Place the items left to right, wrapping; return the height used."""
+        margins = self.contentsMargins()
+        area = rect.adjusted(margins.left(), margins.top(),
+                             -margins.right(), -margins.bottom())
+        x, y, line_height = area.x(), area.y(), 0
+        space = self.spacing()
+        for item in self._items:
+            hint = item.sizeHint()
+            if line_height and x + hint.width() > area.right():
+                x = area.x()
+                y += line_height + space
+                line_height = 0
+            if apply:
+                item.setGeometry(QRect(QPoint(x, y), hint))
+            x += hint.width() + space
+            line_height = max(line_height, hint.height())
+        return y + line_height - rect.y() + margins.bottom()
+
 
 #: Standard viewpoints, as (azimuth, elevation) in degrees.
 STANDARD_VIEWS: dict[str, tuple[float, float]] = {
@@ -356,7 +436,7 @@ class Assembly3DTab(QWidget):
         view_row.addWidget(self._edges)
         layout.addLayout(view_row)
 
-        show_row = QHBoxLayout()
+        show_row = FlowLayout()
         show_row.addWidget(QLabel("SHOW"))
         # Only the hardware view can cut: a clipping plane is a per-fragment
         # test, and the software painter works on whole faces.
@@ -392,7 +472,6 @@ class Assembly3DTab(QWidget):
             self._groups[group] = box
             if group == "bearings":
                 show_row.addWidget(self._bearing_menu)
-        show_row.addStretch(1)
 
         if hasattr(self.view, "set_section"):
             show_row.addWidget(QLabel("SECTION"))
