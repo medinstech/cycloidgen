@@ -1129,3 +1129,46 @@ def test_compare_does_not_show_an_empty_table_with_nothing_to_compare(app):
         assert "Nothing pinned" in w._compare_note.text()
     finally:
         w.close()
+
+
+def test_the_drawing_strip_is_one_row(app):
+    """Four tool buttons and four checkboxes each had a row of their own, both
+    running three quarters empty - while the drawing under them is a circle in
+    a letterbox, so height is the only dimension it is short of."""
+    from PySide6.QtWidgets import QSizePolicy
+
+    w = _window(app)
+    try:
+        bar, box = w._plot_bar, w._overlay_boxes["contacts"]
+        middle = (bar.mapTo(w, bar.rect().center()).y(),
+                  box.mapTo(w, box.rect().center()).y())
+        assert abs(middle[0] - middle[1]) < 20, "they are on separate rows"
+        # A QToolBar expands by default, which puts whatever is beside it at
+        # the far edge where it reads as belonging to nothing.
+        assert bar.sizePolicy().horizontalPolicy() == QSizePolicy.Maximum
+    finally:
+        w.close()
+
+
+def test_what_each_output_is_for_is_readable_without_hovering(app):
+    """It is the reason the tab exists, and it was cut off a fifth from the
+    end - which is the half that says what the file is *for*."""
+    from PySide6.QtGui import QFontMetrics
+
+    w = _window(app)
+    try:
+        w.tabs.setCurrentIndex(w._outputs_tab)
+        _pump(app, 1.0)
+        tree = w._outputs.tree
+        line = QFontMetrics(tree.font()).height()
+
+        long_rows = []
+        for i in range(tree.topLevelItemCount()):
+            group = tree.topLevelItem(i)
+            long_rows += [group.child(j) for j in range(group.childCount())
+                          if len(group.child(j).text(3)) > 120]
+        assert long_rows, "no output description long enough to need wrapping"
+        assert any(tree.visualItemRect(item).height() > line * 1.5
+                   for item in long_rows)
+    finally:
+        w.close()

@@ -12,8 +12,8 @@ matplotlib.use("QtAgg")
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as Canvas
 from matplotlib.figure import Figure
-from PySide6.QtCore import QEvent, QSize, Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QAction, QColor, QFontMetrics, QKeySequence, QPalette
+from PySide6.QtCore import QEvent, Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QAction, QColor, QKeySequence, QPalette
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -32,12 +32,11 @@ from PySide6.QtWidgets import (
     QProgressDialog,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSlider,
     QSpinBox,
     QSplitter,
     QStatusBar,
-    QStyledItemDelegate,
-    QStyleOptionViewItem,
     QTabWidget,
     QTextBrowser,
     QTreeWidget,
@@ -72,6 +71,7 @@ from .optimise_dialog import OptimiseDialog
 from .outputs import OutputsTab
 from .plotbar import PlotToolbar
 from .settings import app_settings
+from .tables import WrappingColumn
 from .tradestudy import TradeStudyTab
 from .view3d import Assembly3DTab
 
@@ -88,10 +88,6 @@ _CRANK_STEP_DEG = 3.0
 #: The checks list never gets smaller than this.  Four rows and the filter
 #: strip: enough to see that findings exist and what the worst one is.
 _MIN_CHECKS_PX = 130
-
-#: Padding either side of a wrapped cell, and under it.  One number for both:
-#: text that touches the column edge reads as clipped even when it is not.
-_WRAP_MARGIN_PX = 8
 
 #: The checks list's columns.  DETAIL is the one that carries a sentence.
 _DETAIL_COL = 4
@@ -134,45 +130,6 @@ _HEADER_STATS: tuple[tuple[str, str, str], ...] = (
      "Steady-state running temperature at the housing. Amber past the limit "
      "the materials in this design allow."),
 )
-
-
-class WrappingColumn(QStyledItemDelegate):
-    """Give one column of a tree the height its wrapped text actually needs.
-
-    ``QAbstractItemView.setWordWrap`` is half the job and the half that is easy
-    to mistake for all of it: it makes the *painter* wrap, so the text is laid
-    out correctly and then clipped to a row one line tall.  The row height comes
-    from the delegate's size hint, and the default one measures a single line
-    because the option it is handed during layout has no width in it yet.
-
-    So the width is taken from the column rather than from the option.  Nothing
-    else here changes: painting is still the base class's, which already wraps.
-    """
-
-    def __init__(self, view: QTreeWidget, column: int) -> None:
-        super().__init__(view)
-        self._view = view
-        self._column = column
-        # A stretched last section resizes with the window and with the
-        # splitter, and a row measured against the old width is a row that
-        # clips or a row with a band of empty under it.
-        view.header().sectionResized.connect(
-            lambda *_: view.scheduleDelayedItemsLayout())
-
-    def sizeHint(self, option, index) -> QSize:
-        hint = super().sizeHint(option, index)
-        if index.column() != self._column:
-            return hint
-        width = self._view.columnWidth(self._column) - _WRAP_MARGIN_PX
-        if width <= 0:
-            return hint
-        styled = QStyleOptionViewItem(option)
-        self.initStyleOption(styled, index)
-        if not styled.text:
-            return hint
-        needed = QFontMetrics(styled.font).boundingRect(
-            0, 0, width, 0, Qt.TextWordWrap, styled.text).height()
-        return QSize(hint.width(), max(hint.height(), needed + _WRAP_MARGIN_PX))
 
 
 def _severity_colours(mode: str) -> dict[Severity, QColor]:
@@ -762,9 +719,22 @@ class MainWindow(QMainWindow):
         self._profile_view = plots.ProfileView(self._fig_profile)
         page = QWidget()
         pv = QVBoxLayout(page)
+        # One strip, not two.  Four tool buttons and four checkboxes each had a
+        # row of their own, and each row ran three quarters empty across a
+        # window this wide - while the drawing underneath is a circle in a
+        # letterbox, so *height* is the only dimension it is short of. Folding
+        # them together spends the width that was going spare on the dimension
+        # that was not.
         self._plot_bar = PlotToolbar(self._canvas_profile, page, mode=self.mode)
-        pv.addWidget(self._plot_bar)
-        pv.addLayout(self._build_overlay_row())
+        # A QToolBar expands by default, so on its own row nobody noticed; put
+        # something beside it and it takes the whole strip and pushes that
+        # something to the far edge, where it reads as belonging to nothing.
+        self._plot_bar.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
+        strip = QHBoxLayout()
+        strip.setContentsMargins(0, 0, 0, 0)
+        strip.addWidget(self._plot_bar)
+        strip.addLayout(self._build_overlay_row())
+        pv.addLayout(strip)
         pv.addWidget(self._canvas_profile, 1)
         self._drawing_tab = self.tabs.addTab(page, "DRAWING")
 
@@ -967,7 +937,7 @@ class MainWindow(QMainWindow):
         toggles because a sixty-pin drive with everything on is unreadable.
         """
         row = QHBoxLayout()
-        row.setContentsMargins(4, 0, 4, 0)
+        row.setContentsMargins(12, 0, 4, 0)
         row.addWidget(QLabel("OVERLAYS"))
         self._overlay_boxes: dict[str, QCheckBox] = {}
         for key, label, default, tip in (

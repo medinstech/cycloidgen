@@ -29,8 +29,12 @@ from ..core.spec import GearSpec
 from ..export.manifest import GROUPS, outputs_for
 from . import branding
 from .settings import app_settings
+from .tables import WrappingColumn
 
 __all__ = ["OutputsTab"]
+
+#: The column that carries a sentence rather than a field.
+_WHAT_COL = 3
 
 
 def _kb(size: int) -> str:
@@ -73,6 +77,13 @@ class OutputsTab(QWidget):
             self.tree.setColumnWidth(column, width)
         self.tree.headerItem().setTextAlignment(2, Qt.AlignRight)
         self.tree.header().setStretchLastSection(True)
+        # What each file is for is the reason this tab exists, and it was being
+        # cut off a fifth of the way from the end on every row - which is the
+        # part that says what the file is *for*, after the part that says what
+        # it is.  Same treatment as the checks list.
+        self.tree.setWordWrap(True)
+        self.tree.setUniformRowHeights(False)
+        self.tree.setItemDelegate(WrappingColumn(self.tree, _WHAT_COL))
         self.tree.itemDoubleClicked.connect(self._open_item)
         layout.addWidget(self.tree, 1)
 
