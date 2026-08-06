@@ -44,6 +44,7 @@ __all__ = [
     "EDGE_SHADE",
     "PART_COLOURS",
     "PART_GROUPS",
+    "TIE_BOLT_NOMINAL",
     "Mesh",
     "Part",
     "build_mesh",
@@ -65,6 +66,7 @@ PART_COLOURS: dict[str, tuple[int, int, int]] = {
     "carrier": (140, 191, 115),
     "bearings": (150, 128, 200),
     "end_plates": (140, 140, 156),
+    "fasteners": (92, 92, 102),
 }
 
 #: How dark a part's drawn edges are, as a fraction of the part's own colour.
@@ -79,6 +81,11 @@ PART_COLOURS: dict[str, tuple[int, int, int]] = {
 #: Darker than the 0.62 a section cap uses, so an edge still reads where it
 #: crosses one.
 EDGE_SHADE = 0.45
+
+#: A tie bolt's shank against the clearance hole it passes through.  The hole is
+#: the design's number and the bolt is what goes in it: drawn at the hole size a
+#: bolt fills it exactly, which is a press fit and not what anybody ordered.
+TIE_BOLT_NOMINAL = 0.88
 
 #: Human names for the visibility toggles, in assembly order.
 #:
@@ -96,6 +103,7 @@ PART_GROUPS: tuple[tuple[str, str], ...] = (
     ("shaft", "Shaft"),
     ("carrier", "Carrier"),
     ("bearings", "Bearings"),
+    ("fasteners", "Tie bolts"),
 )
 
 #: How far each group travels in an exploded view, as a multiple of the explode
@@ -107,7 +115,9 @@ PART_GROUPS: tuple[tuple[str, str], ...] = (
 #: that a cam bearing comes off in its disc's bore rather than being left behind
 #: on the shaft, which is neither where it is pressed nor where it would go.
 _EXPLODE = {"carrier": -1.0, "housing": 0.0, "ring_pins": 0.62,
-            "discs": 1.25, "shaft": 2.6, "bearings": 0.0, "end_plates": 0.0}
+            "discs": 1.25, "shaft": 2.6, "bearings": 0.0, "end_plates": 0.0,
+            # Out along their own axis, which is how a drawing pulls a bolt.
+            "fasteners": 3.2}
 _EXPLODE_PER_DISC = 0.45
 
 #: Segments on a bearing ring.  The floor matters more than it looks: both loops
@@ -116,6 +126,12 @@ _EXPLODE_PER_DISC = 0.45
 #: cylinder would be.  Twenty sides keeps that inside the 3% the mesh is checked
 #: against the exported solid at.
 _BEARING_SEGMENTS = (20, 28)
+
+#: And the same arithmetic for a tie bolt, which is a plain cylinder: an
+#: inscribed twelve-sided prism encloses 4.5% less than the bolt it stands for,
+#: which is past the 3% the mesh is held to against the exported solid.  There
+#: are only a handful of them, so this is cheap.
+_BOLT_SEGMENTS = 24
 
 
 # --------------------------------------------------------------------- loops --
@@ -387,6 +403,21 @@ def _profile_segments(spec: GearSpec) -> int:
     return int(np.clip(8 * spec.lobes, 160, 520))
 
 
+def tie_bolt_holes(spec: GearSpec) -> list[np.ndarray]:
+    """The tie-bolt circle, as loops to cut.
+
+    Used by the barrel as well as by the plates, which is the point of it being
+    a function.  The bill of materials orders these bolts and both end plates
+    were drilled for them; the barrel they clamp was not, so the drive exported
+    as a stack of parts that could not be bolted together.
+    """
+    r = spec.housing_bolt_diameter / 2.0
+    return [_circle(spec.housing_bolt_radius * math.cos(a),
+                    spec.housing_bolt_radius * math.sin(a), r, 12)
+            for a in (2.0 * np.pi * k / max(spec.housing_bolt_count, 1)
+                      for k in range(spec.housing_bolt_count))]
+
+
 def _plate_bolt_holes(spec: GearSpec, motor_face: bool) -> list[np.ndarray]:
     """Every hole through an end plate: the tie bolts, and the motor's four.
 
@@ -394,12 +425,7 @@ def _plate_bolt_holes(spec: GearSpec, motor_face: bool) -> list[np.ndarray]:
     puts all four holes somewhere the motor has nothing, which would look
     entirely plausible and be entirely wrong.
     """
-    holes: list[np.ndarray] = []
-    r = spec.housing_bolt_diameter / 2.0
-    for k in range(spec.housing_bolt_count):
-        a = 2.0 * np.pi * k / max(spec.housing_bolt_count, 1)
-        holes.append(_circle(spec.housing_bolt_radius * math.cos(a),
-                             spec.housing_bolt_radius * math.sin(a), r, 12))
+    holes = tie_bolt_holes(spec)
 
     if motor_face and spec.has_motor_face:
         frame = spec.motor
@@ -452,7 +478,8 @@ def build_mesh(spec: GearSpec,
         # bore broached in one setup looks like and is why this is one prism.
         b.prism(_circle(0.0, 0.0, spec.housing_outer_radius, 96),
                 (pocketed_bore(spec.pin_circle_radius, spec.pin_radius,
-                               spec.pin_count),),
+                               spec.pin_count),
+                 *tie_bolt_holes(spec)),
                 spec.barrel_bottom, stack)
 
     # A pin carrying a roller loses its outside to it - drawn at full size it
@@ -586,6 +613,22 @@ def build_mesh(spec: GearSpec,
                 b.prism(_circle(r.cx, r.cy, placement.outer / 2.0, segments),
                         (_circle(r.cx, r.cy, placement.bore / 2.0, segments),),
                         r.z0, r.z1)
+
+    # The bolts that hold the two plates on.  Bought, like the bearings, so
+    # they are in the picture and in the bill of materials and not in the
+    # per-part export - a STEP file of a cap screw is a thing to order.
+    if spec.housing_bolt_count:
+        shank = TIE_BOLT_NOMINAL * spec.housing_bolt_diameter
+        z0 = spec.tie_bolt_bottom
+        z1 = z0 + spec.tie_bolt_length
+        with b.part("tie_bolts", "Tie bolts", "fasteners",
+                    PART_COLOURS["fasteners"]):
+            for a in (2.0 * np.pi * k / spec.housing_bolt_count
+                      for k in range(spec.housing_bolt_count)):
+                cx = spec.housing_bolt_radius * math.cos(a)
+                cy = spec.housing_bolt_radius * math.sin(a)
+                b.prism(_circle(cx, cy, shank / 2.0, _BOLT_SEGMENTS), (),
+                        z0, z1)
 
     return b.build(spec)
 

@@ -14,7 +14,7 @@ animation, a bill of materials and a PDF dossier.
 - **A datasheet, not a drawing.** Contact stress, torque capacity, efficiency,
   torsional stiffness, lost motion, transmission error, PV and running
   temperature, lubrication regime, mass and inertia, bearing life.
-- **Fifty-four checks that explain themselves.** Each says what it tests, what
+- **Fifty-five checks that explain themselves.** Each says what it tests, what
   goes wrong physically when it fails, and which parameter to move — and lights
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
@@ -362,7 +362,8 @@ rather than tests.
 `OVERTEMP` · `RUNNING_HOT` · `SHORT_BEARING_LIFE` · `NO_BEARING_FITS` ·
 `BEARING_DOES_NOT_FIT` · `BEARINGS_OMITTED`
 
-**Mounting** — `MOTOR_SHAFT_MISMATCH` · `MOTOR_FACE_CLASH` · `MOTOR_RADIAL_LOAD`
+**Mounting** — `HOUSING_BOLT_CLASH` · `MOTOR_SHAFT_MISMATCH` ·
+`MOTOR_FACE_CLASH` · `MOTOR_RADIAL_LOAD`
 
 **Dynamics and mass** — `SINGLE_DISC_UNBALANCE` · `UNBALANCE_FORCE` · `MASS`
 

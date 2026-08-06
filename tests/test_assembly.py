@@ -13,7 +13,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from cycloidgen.analysis import analyse
 from cycloidgen.core.spec import GearSpec, preset
+from cycloidgen.core.validate import Severity
 
 RATIOS = [10, 15, 21, 29, 59]
 STACKS = [1, 2, 3]
@@ -121,3 +123,97 @@ def test_assembly_reports_that_the_discs_differ():
     spec = preset(15)
     spec.disc_count = 2
     assert "DISCS_DIFFER" in {f.code for f in validate(spec).findings}
+
+
+# ------------------------------------------------------- what holds it together
+
+
+@pytest.mark.parametrize("ratio", [15, 21, 33])
+def test_the_tie_bolts_pass_through_the_thing_they_clamp(ratio):
+    """The bill of materials orders six of them and both end plates are
+    drilled for them.  The barrel they clamp was not, so the exported gearbox
+    was a stack of parts whose bolts landed on solid wall - which nothing in
+    the app noticed, because nothing was looking at the barrel.
+    """
+    import math
+
+    from cycloidgen.export.solid import ring_housing
+
+    spec = preset(ratio)
+    assert spec.housing_bolt_count, "this preset has no tie bolts to check"
+
+    drilled = ring_housing(spec).val().Volume()
+    plain = ring_housing(
+        spec.model_copy(update={"housing_bolt_count": 0})).val().Volume()
+
+    hole = (math.pi * (spec.housing_bolt_diameter / 2.0) ** 2
+            * spec.barrel_height * spec.housing_bolt_count)
+    assert plain - drilled == pytest.approx(hole, rel=0.02)
+
+
+@pytest.mark.parametrize("ratio", [10, 15, 21, 29, 39, 59])
+def test_no_preset_puts_its_bolts_where_there_is_no_wall(ratio):
+    spec = preset(ratio)
+    codes = [f.code for f in analyse(spec).report.findings]
+    assert "HOUSING_BOLT_CLASH" not in codes
+
+
+def test_a_bolt_that_breaks_into_the_pockets_is_an_error():
+    """Inward: the bolt reaches the bore the discs run against."""
+    spec = preset(21).model_copy(update={"housing_bolt_diameter": 9.0})
+    finding = next(f for f in analyse(spec).report.findings
+                   if f.code == "HOUSING_BOLT_CLASH")
+    assert finding.severity is Severity.ERROR
+    assert "pockets" in finding.message
+
+
+def test_a_bolt_too_big_for_its_wall_is_an_error():
+    """It breaks into the pockets and out through the rim at the same moment,
+    because the circle is derived as the middle of the wall - which is why this
+    is one question rather than an inner test and an outer one."""
+    spec = preset(21)
+    fat = spec.model_copy(update={"housing_bolt_diameter": spec.housing_wall})
+    finding = next(f for f in analyse(fat).report.findings
+                   if f.code == "HOUSING_BOLT_CLASH")
+    assert finding.severity is Severity.ERROR
+
+
+@pytest.mark.parametrize("ratio", [15, 21, 33])
+def test_the_bolt_length_is_the_distance_it_has_to_span(ratio):
+    """It used to be quoted off the disc stack.  When the barrel was lengthened
+    to reach the plates it bolts to, the bill of materials did not follow - so
+    the drive was ordering bolts seven millimetres short of the thing they pass
+    through, and nothing compared the two.
+    """
+    from cycloidgen.export.bom import bom_items
+    from cycloidgen.viz.mesh import mesh_for_spec
+
+    spec = preset(ratio)
+    mesh = mesh_for_spec(spec)
+
+    faces = []
+    for part in mesh.parts:
+        if part.group == "end_plates":
+            z = mesh.vertices[part.vertices][:, 2]
+            faces += [float(z.min()), float(z.max())]
+    assert max(faces) - min(faces) == pytest.approx(spec.tie_bolt_length)
+
+    stated = next(i for i in bom_items(analyse(spec)) if i.part == "Tie bolt")
+    assert f"{spec.tie_bolt_length:.0f} mm under the head" in stated.size
+
+
+@pytest.mark.parametrize("ratio", [15, 21, 33])
+def test_the_bolts_are_drawn_where_the_holes_are(ratio):
+    """Bought, so they are in the picture and the STEP assembly and not in the
+    per-part export - the same treatment the bearings get."""
+    from cycloidgen.export.solid import build_assembly, parts, tie_bolts
+
+    spec = preset(ratio)
+    assert "tie_bolts" not in parts(spec)
+    assert "tie_bolts" in {c.name for c in build_assembly(spec).children}
+
+    bounds = tie_bolts(spec).val().BoundingBox()
+    assert bounds.zmin == pytest.approx(spec.tie_bolt_bottom)
+    assert bounds.zlen == pytest.approx(spec.tie_bolt_length)
+    # inside the clearance holes they run in, not filling them
+    assert bounds.xmax < spec.housing_bolt_radius + spec.housing_bolt_diameter / 2.0

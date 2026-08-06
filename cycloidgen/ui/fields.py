@@ -246,6 +246,8 @@ CODE_FIELDS: dict[str, tuple[str, ...]] = {
                            "ring_pins_are_rollers"),
     "MOTOR_SHAFT_MISMATCH": ("motor_frame", "input_shaft_diameter",
                              "motor_drives_the_shaft"),
+    "HOUSING_BOLT_CLASH": ("housing_bolt_diameter", "housing_bolt_count",
+                           "housing_wall", "pin_radius"),
     "MOTOR_FACE_CLASH": ("motor_frame", "housing_wall", "output_hub_diameter"),
     "MOTOR_RADIAL_LOAD": ("motor_frame", "shaft_bearings_fitted", "output_torque_Nm"),
     "BEARING_DOES_NOT_FIT": ("cam_bearing", "shaft_bearing", "output_bearing",

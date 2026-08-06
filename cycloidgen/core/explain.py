@@ -420,6 +420,19 @@ EXPLANATIONS: dict[str, Explanation] = {
         "drives the shaft' and drive it through a coupling - which is a real "
         "answer, and needs the shaft bearings fitted.",
         unit="mm"),
+    "HOUSING_BOLT_CLASH": Explanation(
+        "The tie bolts do not fit in the wall they run through",
+        "tie-bolt diameter  <  housing wall, with metal left either side",
+        "The bolts that hold the two end plates on run the length of the "
+        "barrel, up the middle of the wall between the ring-pin pockets and the "
+        "outside. That wall is all there is: too big a bolt breaks into the "
+        "bore the discs run against and out through the rim at the same moment, "
+        "because the circle sits halfway between the two. What is left either "
+        "side is what the joint clamps against, and on a printed housing it is "
+        "where the part splits.",
+        "Thicken the housing wall, or use a smaller bolt. The wall is what "
+        "creates the band these have to fit in, so it is the one that moves.",
+        keep="above", unit="mm"),
     "MOTOR_FACE_CLASH": Explanation(
         "The motor's bolt pattern misses the metal",
         "bore < bolt circle < the rim, with room for the bolt itself",

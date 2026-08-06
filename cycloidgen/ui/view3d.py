@@ -137,7 +137,12 @@ _ZOOM_PER_NOTCH = 0.86
 #: exactly no use as the first thing a design tool shows you.  They are one click
 #: away and the checkbox is visibly unticked, so nothing is being hidden from
 #: anyone; the default just starts where the work is.
-_HIDDEN_BY_DEFAULT: frozenset[str] = frozenset({"end_plates"})
+#: The tab opens on an open gearbox: with the plates on, the assembled view is
+#: a closed cylinder with a shaft out of one end, which is what the gearbox
+#: looks like and exactly no use as the first thing a design tool shows you.
+#: The bolts go with them - six fasteners floating where the plates they hold
+#: on are not is a stranger picture than either.
+_HIDDEN_BY_DEFAULT: frozenset[str] = frozenset({"end_plates", "fasteners"})
 
 
 def _polygon(points: np.ndarray) -> QPolygonF:

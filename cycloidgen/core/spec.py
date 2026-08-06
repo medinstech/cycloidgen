@@ -726,6 +726,23 @@ class GearSpec(BaseModel):
         return self.housing_outer_radius - self.housing_wall / 2.0
 
     @property
+    def tie_bolt_bottom(self) -> float:
+        """Where a tie bolt starts: the outer face of the output end plate."""
+        return self.barrel_bottom - self.plate_thickness
+
+    @property
+    def tie_bolt_length(self) -> float:
+        """Under the head: through one plate, the barrel, and the other plate.
+
+        Off the barrel rather than off the disc stack, which is what the bill
+        of materials used to say.  When the barrel was lengthened to reach the
+        plates it bolts to, this did not follow it - so the drive was ordering
+        bolts seven millimetres short of the thing they had to pass through.
+        One property now, read by the bill of materials and by both renderers.
+        """
+        return self.barrel_height + 2.0 * self.plate_thickness
+
+    @property
     def output_bearing_seat_diameter(self) -> float:
         """Bore in the output end plate: what the main output bearing sits *in*.
 

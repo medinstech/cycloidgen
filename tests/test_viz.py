@@ -82,6 +82,11 @@ def test_every_part_is_a_closed_surface(mesh):
         assert residual / scale < 1e-9, f"{part.name} is not closed"
 
 
+#: Groups whose parts are bought rather than made: they are in the picture and
+#: in the STEP assembly, and they get no file of their own in the per-part
+#: export - an STL of a bearing or a cap screw is a thing to order, not to make.
+BOUGHT_GROUPS = ("bearings", "fasteners")
+
 @pytest.mark.parametrize("ratio,discs", [(15, 2), (10, 1), (29, 3)])
 def test_mesh_volume_matches_the_exported_solid(ratio, discs):
     """The viewer and the STEP file must be the same gearbox.
@@ -95,10 +100,11 @@ def test_mesh_volume_matches_the_exported_solid(ratio, discs):
     s.disc_count = discs
     mesh = build_mesh(s)
     volumes = _part_volumes(mesh)
-    # `parts` is the made ones and `bearing_solids` the bought ones; a bearing
-    # gets no STL of its own, but it is still in the picture and in the STEP
-    # assembly, so it is still held to the same agreement.
-    solids = {**solid.parts(s), **solid.bearing_solids(s)}
+    # `parts` is the made ones; the bearings and the tie bolts are bought, so
+    # they get no STL of their own - but they are in the picture and in the
+    # STEP assembly, so they are held to the same agreement as everything else.
+    solids = {**solid.parts(s), **solid.bearing_solids(s),
+              "tie_bolts": solid.tie_bolts(s)}
     for i, part in enumerate(mesh.parts):
         name = part.name
         if part.group == "discs" and s.discs_are_identical:
@@ -109,7 +115,9 @@ def test_mesh_volume_matches_the_exported_solid(ratio, discs):
     # own part list rather than a count, which was a magic number that had to be
     # edited every time the gearbox grew a part - and would have been just as
     # happy with a part missing as with one added.
-    drawn = {p.name for p in mesh.parts if p.group != "bearings"}
+    # The bought groups are in the picture and in the STEP assembly but not in
+    # the per-part export, so they are the ones this comparison leaves out.
+    drawn = {p.name for p in mesh.parts if p.group not in BOUGHT_GROUPS}
     exported = set(solid.parts(s))
     if s.discs_are_identical:
         # One file for a stack of identical discs, but still a body each - and a

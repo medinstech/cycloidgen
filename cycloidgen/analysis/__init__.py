@@ -379,6 +379,27 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
             f"{mass.reflected_inertia_kg_mm2:.3f} kg mm2.",
             mass.total_mass_g)
 
+    # ---- what holds it together ---------------------------------------------
+    #
+    # The tie bolts run the length of the barrel, in the band of wall between
+    # the ring-pin pockets and the outside.  Nothing asked whether that band
+    # exists: the bill of materials orders the bolts and both plates are
+    # drilled for them, so a design where they cut into the pockets or off the
+    # rim exported as a gearbox that cannot be assembled, and said nothing.
+    # One question, not two.  The circle is derived as the middle of the wall,
+    # so a bolt too big for that wall breaks *into the pockets and off the rim
+    # at the same moment* - asking about the two sides separately would have
+    # been an inner test and an outer branch that could never run.
+    if spec.housing_bolt_count and \
+            spec.housing_bolt_diameter >= spec.housing_wall:
+        rep.add(Severity.ERROR, "HOUSING_BOLT_CLASH",
+                f"A {spec.housing_bolt_diameter:g} mm tie bolt does not fit in a "
+                f"{spec.housing_wall:g} mm housing wall. It runs up the middle of "
+                f"that wall, so at this size it breaks into the ring-pin pockets "
+                f"on one side and out through the rim on the other. Thicken the "
+                f"wall or use a smaller bolt.",
+                spec.housing_bolt_diameter, spec.housing_wall)
+
     # Not "has no bearing" - a plain cam has none and the drive still carries
     # that force, sliding, which the PV check is there for.  This is the narrower
     # question of a load leaving the gearbox for something on the other end of it.

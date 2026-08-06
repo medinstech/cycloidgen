@@ -121,7 +121,7 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
         items.append(BomItem(
             part="Tie bolt", quantity=s.housing_bolt_count, material=s.pin_material,
             size=f"{s.housing_bolt_diameter:g} mm clearance, about "
-                 f"{s.stack_height + 2 * s.plate_thickness:.0f} mm under the head",
+                 f"{s.tie_bolt_length:.0f} mm under the head",
             mass_each_g=0.0, source="buy",
             note=f"through both end plates into the barrel, on a "
                  f"{2 * s.housing_bolt_radius:.1f} mm circle"))

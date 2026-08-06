@@ -18,7 +18,7 @@ from ..analysis.bearings import (
 )
 from ..core import profile as prof
 from ..core.spec import CARRIER_DROP, GearSpec
-from ..viz.mesh import PART_COLOURS
+from ..viz.mesh import PART_COLOURS, TIE_BOLT_NOMINAL
 from .manifest import disc_names
 
 __all__ = [
@@ -29,6 +29,7 @@ __all__ = [
     "output_flange",
     "parts",
     "ring_housing",
+    "tie_bolts",
     "write_part_steps",
     "write_step",
     "write_stls",
@@ -93,7 +94,20 @@ def ring_housing(spec: GearSpec) -> cq.Workplane:
                .polarArray(spec.pin_circle_radius, 0, 360, spec.pin_count)
                .circle(spec.pin_radius)
                .extrude(h))
-    return body.cut(pockets)
+    body = body.cut(pockets)
+
+    # The bolts that hold the plates on have to pass through the thing they are
+    # clamping.  Both plates were drilled for them and the bill of materials
+    # orders them; the barrel was not, so the exported assembly was a gearbox
+    # whose six tie bolts land on solid wall.
+    if spec.housing_bolt_count:
+        bolts = (cq.Workplane("XY").workplane(offset=z0)
+                 .polarArray(spec.housing_bolt_radius, 0, 360,
+                             spec.housing_bolt_count)
+                 .circle(spec.housing_bolt_diameter / 2.0)
+                 .extrude(h))
+        body = body.cut(bolts)
+    return body
 
 
 def ring_pins(spec: GearSpec, placements: Sequence[BearingPlacement] = ()) -> cq.Workplane:
@@ -230,6 +244,29 @@ def bearing_solids(spec: GearSpec,
     return out
 
 
+def tie_bolts(spec: GearSpec) -> cq.Workplane:
+    """The bolts themselves, as one multi-solid part.
+
+    Bought, like the bearings and the pins, so they are in the assembly and not
+    in the per-part export: a STEP file of a cap screw is a thing to order, not
+    a thing to make.  Drawn at the nominal size rather than at the clearance
+    hole, because that is the bolt - the gap round it is the fit.
+
+    Shank only, and deliberately.  Where the head sits is a design decision this
+    app has not been given - proud, counterbored, or threaded into a blind hole
+    - and the one face it would land on is the input plate's outside, which is
+    where a motor bolts on.  A head standing proud there is an interference; a
+    counterbore is a change to a part this app dimensions for a shop to make.
+    Drawing a head we cannot place correctly is worse than drawing the shank we
+    can, and the bill of materials is what you order from.
+    """
+    shank = TIE_BOLT_NOMINAL * spec.housing_bolt_diameter
+    return (cq.Workplane("XY").workplane(offset=spec.tie_bolt_bottom)
+            .polarArray(spec.housing_bolt_radius, 0, 360, spec.housing_bolt_count)
+            .circle(shank / 2.0)
+            .extrude(spec.tie_bolt_length))
+
+
 def build_assembly(spec: GearSpec) -> cq.Assembly:
     """Full gearbox at crank angle zero, each disc on its own phase."""
     assy = cq.Assembly(name=f"cycloidal_{spec.ratio}to1")
@@ -284,6 +321,9 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
     for name, body in bearing_solids(spec, placements).items():
         host = next(p.host for p in placements if p.name == name)
         assy.add(body, name=name, loc=planar[host], color=_colour("bearings"))
+
+    if spec.housing_bolt_count:
+        assy.add(tie_bolts(spec), name="tie_bolts", color=_colour("fasteners"))
     return assy
 
 

@@ -189,7 +189,9 @@ def test_the_tab_opens_with_the_end_plates_off(app):
     """With them on, the first thing a design tool shows is a closed cylinder.
 
     Not hidden from anyone - the checkbox is visibly unticked and one click
-    away - but the default starts where the work is.
+    away - but the default starts where the work is.  The bolts go with them:
+    six fasteners floating where the plates they hold on are not is a stranger
+    picture than either.
     """
     from cycloidgen.ui.view3d import _HIDDEN_BY_DEFAULT
 
@@ -197,13 +199,15 @@ def test_the_tab_opens_with_the_end_plates_off(app):
     tab.set_spec(_spec())
     assert not tab._groups["end_plates"].isChecked()
     assert tab._groups["housing"].isChecked()
+    assert not tab._groups["fasteners"].isChecked()
     assert "end_plates" in tab.render_options()["hidden"]
+    assert "fasteners" in tab.render_options()["hidden"]
 
     counts = _faces_by_part(_spec(), hidden=tab.render_options()["hidden"])
     plates = [p.name for p in mesh_for_spec(_spec()).parts
               if p.group == "end_plates"]
     assert plates and all(counts[n] == 0 for n in plates)
-    assert set(_HIDDEN_BY_DEFAULT) == {"end_plates"}
+    assert set(_HIDDEN_BY_DEFAULT) == {"end_plates", "fasteners"}
 
 
 def test_taking_the_plates_back_off_hidden_survives_a_restart(app, tmp_path,
@@ -211,14 +215,16 @@ def test_taking_the_plates_back_off_hidden_survives_a_restart(app, tmp_path,
     """A stored empty list means "everything on", not "no preference" - reading
     it as the latter put the plates back every time you switched them on."""
     from cycloidgen.ui.settings import ENV_VAR
+    from cycloidgen.ui.view3d import _HIDDEN_BY_DEFAULT
 
     monkeypatch.setenv(ENV_VAR, str(tmp_path / "cycloidgen.ini"))
     tab = Assembly3DTab()
     tab.set_spec(_spec())
-    tab._groups["end_plates"].setChecked(True)
+    for group in _HIDDEN_BY_DEFAULT:
+        tab._groups[group].setChecked(True)
     assert tab._hidden() == []
     tab.save_state()
 
     other = Assembly3DTab()
     other.restore_state()
-    assert other._groups["end_plates"].isChecked()
+    assert all(other._groups[g].isChecked() for g in _HIDDEN_BY_DEFAULT)
