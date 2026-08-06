@@ -45,6 +45,13 @@ from PySide6.QtWidgets import (
 
 from .. import __version__
 from ..analysis import DesignAnalysis, analyse
+from ..core.designfile import (
+    design_dict,
+    numbers_may_have_moved,
+    provenance,
+    spec_from_dict,
+    written_by,
+)
 from ..core.explain import explain, margin
 from ..core.guide import guide
 from ..core.spec import GearSpec, OffsetMode, Process, preset
@@ -237,6 +244,10 @@ class MainWindow(QMainWindow):
         logger.info("cycloidgen starting")
 
         self._settings = app_settings()
+        # A preset is nobody's saved work, so a fresh install has nothing to be
+        # warned about.  Only a design that was actually restored can be stale.
+        self._restored_session = False
+        self._restored_from: str | None = None
         self.spec = self._restore_spec()
         self.analysis: DesignAnalysis | None = None
         self._pinned: GearSpec | None = None
@@ -339,6 +350,10 @@ class MainWindow(QMainWindow):
             crank = 0
         self._crank_slider.setValue(max(0, min(359, crank)))
         self._view3d.restore_state()
+
+        if self._restored_session and numbers_may_have_moved(self._restored_from):
+            self._say(provenance(self._restored_from),
+                      level=logging.WARNING, seconds=20)
 
     def showEvent(self, event) -> None:
         """Restore the split once the window actually has a size.
@@ -1120,13 +1135,24 @@ class MainWindow(QMainWindow):
 
     # ----------------------------------------------------------------- state
     def _restore_spec(self) -> GearSpec:
-        """Reopen on the design the last session was working on."""
+        """Reopen on the design the last session was working on.
+
+        Which build left it is remembered beside it, because an upgrade happens
+        between the two halves of this: the session that saved it was running
+        one version and the session reading it is running another.  The status
+        bar is told once the window has one, in ``_restore_workspace``.
+        """
         saved = self._settings.value("last_design")
         if saved:
             try:
-                return GearSpec.model_validate_json(saved)
+                spec = GearSpec.model_validate_json(saved)
             except Exception:
                 pass
+            else:
+                stored = self._settings.value("last_design_version")
+                self._restored_session = True
+                self._restored_from = stored if isinstance(stored, str) else None
+                return spec
         return preset(15)
 
     def _load_spec_into_widgets(self) -> None:
@@ -1866,7 +1892,8 @@ class MainWindow(QMainWindow):
             self, "Save design", f"cycloidal_{self.spec.ratio}to1.json",
             "Design files (*.json)")
         if path:
-            Path(path).write_text(self.spec.model_dump_json(indent=2), encoding="utf-8")
+            Path(path).write_text(
+                json.dumps(design_dict(self.spec), indent=2), encoding="utf-8")
             self._remember_recent(path)
             self._say(f"saved {path}", seconds=4)
 
@@ -1879,8 +1906,7 @@ class MainWindow(QMainWindow):
     def _load_path(self, path: str) -> None:
         try:
             data = json.loads(Path(path).read_text(encoding="utf-8"))
-            data = data.get("spec", data)             # accept a full report too
-            spec = GearSpec.model_validate(data)
+            spec = spec_from_dict(data)               # design, report or bare spec
         except Exception as exc:
             logger.error("could not open %s: %s", path, exc)
             QMessageBox.critical(self, "Could not open", str(exc))
@@ -1889,6 +1915,17 @@ class MainWindow(QMainWindow):
         self._replace_spec(spec, record=False)
         self._remember_recent(path)
         self._say(f"opened {path}", seconds=4)
+
+        written = written_by(data)
+        if numbers_may_have_moved(written):
+            # A file somebody went and opened is one they are about to act on,
+            # so this is worth stopping for.  The session restore is not, and
+            # says the same thing on the status bar instead: that design is
+            # their own unfinished work rather than something handed over, and
+            # a modal on every launch after an upgrade is how people learn to
+            # dismiss the one that mattered without reading it.
+            QMessageBox.information(self, "Saved by a different version",
+                                    provenance(written))
 
     def _recent_files(self) -> list[str]:
         stored = self._settings.value("recent_files") or []
@@ -2032,6 +2069,7 @@ class MainWindow(QMainWindow):
     # ---------------------------------------------------------------- close
     def closeEvent(self, event) -> None:
         self._settings.setValue("last_design", self.spec.model_dump_json())
+        self._settings.setValue("last_design_version", __version__)
         self._save_workspace()
         for worker in list(self._workers):
             worker.wait(2000)

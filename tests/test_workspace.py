@@ -6,6 +6,7 @@ actual preferences would silently rearrange their application.
 """
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -807,3 +808,97 @@ def test_the_preset_box_says_which_preset_this_actually_is(app):
         assert w.spec.model_dump_json() == before
     finally:
         w.close()
+
+
+# ---------------------------------------------------------------- provenance
+
+
+def test_a_saved_design_is_stamped_and_reopens_without_a_word(app, tmp_path,
+                                                              monkeypatch):
+    """The version goes in on save, and a file from *this* build says nothing.
+
+    A warning that fires on the file you saved a minute ago is a warning people
+    switch off.
+    """
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    import cycloidgen
+    from cycloidgen.core.spec import preset
+
+    path = tmp_path / "design.json"
+    said: list[str] = []
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(path), "")))
+    monkeypatch.setattr(QFileDialog, "getOpenFileName",
+                        staticmethod(lambda *a, **k: (str(path), "")))
+    monkeypatch.setattr(QMessageBox, "information",
+                        staticmethod(lambda *a, **k: said.append(a[-1])))
+
+    w = _window(app)
+    try:
+        w._replace_spec(preset(29))
+        _pump(app, 0.3)
+        w._save_spec()
+
+        written = json.loads(path.read_text(encoding="utf-8"))
+        assert written["version"] == cycloidgen.__version__
+        assert written["spec"]["lobes"] == preset(29).lobes
+
+        w._replace_spec(preset(15))
+        _pump(app, 0.3)
+        w._open_spec()
+        _pump(app, 0.3)
+        assert w.spec == preset(29)
+        assert said == []
+    finally:
+        w.close()
+
+
+def test_a_design_from_another_build_says_so_before_it_is_acted_on(app, tmp_path,
+                                                                   monkeypatch):
+    """Including one saved before files carried a version at all - which is
+    every design anybody has saved from this app so far."""
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    from cycloidgen.core.spec import preset
+
+    path = tmp_path / "old.json"
+    path.write_text(preset(21).model_dump_json(indent=2), encoding="utf-8")
+
+    said: list[str] = []
+    monkeypatch.setattr(QFileDialog, "getOpenFileName",
+                        staticmethod(lambda *a, **k: (str(path), "")))
+    monkeypatch.setattr(QMessageBox, "information",
+                        staticmethod(lambda *a, **k: said.append(a[-1])))
+
+    w = _window(app)
+    try:
+        w._open_spec()
+        _pump(app, 0.3)
+        # It loads - the warning is about the numbers, not about the file
+        assert w.spec == preset(21)
+        assert len(said) == 1
+        assert "may have moved" in said[0]
+    finally:
+        w.close()
+
+
+def test_an_upgrade_between_sessions_is_reported_on_the_status_bar(app):
+    """The dangerous case with nobody to ask: close 6.0, install 6.1, and the
+    design that reopens is the one numbers were written down from."""
+    from cycloidgen.core.spec import preset
+
+    settings = _settings()
+    settings.setValue("last_design", preset(29).model_dump_json())
+    settings.setValue("last_design_version", "1.0.0")
+    settings.sync()
+
+    w = _window(app)
+    try:
+        assert w.spec == preset(29)
+        assert "1.0.0" in w.statusBar().currentMessage()
+    finally:
+        w.close()
+        settings.remove("last_design")
+        settings.remove("last_design_version")
+        settings.sync()

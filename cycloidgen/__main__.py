@@ -16,10 +16,16 @@ def _spec_from_args(args):
     """The design a headless run works on: a saved file if given, else a preset."""
     import json
 
-    from .core.spec import GearSpec, preset
+    from .core.designfile import numbers_may_have_moved, provenance, spec_from_dict, written_by
+    from .core.spec import preset
     if args.design:
         data = json.loads(args.design.read_text(encoding="utf-8"))
-        spec = GearSpec.model_validate(data.get("spec", data))
+        spec = spec_from_dict(data)
+        # No dialog to put it in out here, and a headless run is the one most
+        # likely to end up in a script whose output nobody reads twice.
+        written = written_by(data)
+        if numbers_may_have_moved(written):
+            print(provenance(written), file=sys.stderr)
     else:
         spec = preset(args.ratio or 15)
     return _apply_omissions(spec, args)

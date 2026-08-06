@@ -148,6 +148,15 @@ declares every deliverable once; `write_bundle`, the Outputs tab and
 `--list-outputs` all read it, and a test compares the declaration against the
 files that actually appear on disk — including this table.
 
+**Every file says which build wrote it.** A saved design, the JSON report, the
+PDF and every DXF carry the version, because none of the numbers here are
+measurements: they are a model's answers, and the model gets better between
+releases. So a design saved by an earlier build says so when you open it —
+which quantities may have moved, and that the inputs still mean what they
+meant — instead of quietly reporting a different mass than the one you wrote
+down. [RELEASING.md](RELEASING.md) says which version digits are allowed to
+move a number and which one is defined as the digit that cannot.
+
 **Why the animation loops without a jump.** A GIF restarts whether or not the
 mechanism is back where it started, and one that is not reads as a fault in the
 drive rather than in the file. Different parts close at different times. The

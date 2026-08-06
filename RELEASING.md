@@ -18,6 +18,7 @@ Everything else reads it from there and nothing copies it:
 | The executable's file properties | `cycloidgen.spec` parses the line and writes a Windows version resource |
 | The installer, its filename and its Add/Remove entry | `packaging/cycloidgen.nsi`, `!searchparse` on the same line |
 | The release workflow | compares the git tag against it and refuses to publish a mismatch |
+| A saved design, the JSON report, the PDF and every DXF | stamped in as the file is written — `core/designfile.py` and the writers |
 
 That is why the line has to stay a plain string literal on one line:
 setuptools reads it *statically*, without importing the package, and NSIS reads
@@ -27,22 +28,39 @@ fails if `CHANGELOG.md` has no section for the current version.
 ## What the numbers mean
 
 `MAJOR.MINOR.PATCH`, and the question that decides which one moves is **what
-does this do to a design someone has already built?**
+does this ask of someone who already has a design?**
 
-- **PATCH** — a fix that changes no computed number, or a change to the UI, the
-  documentation or the packaging. Reopening a saved design gives the same
-  answers.
-- **MINOR** — new capability, new outputs, new checks. A saved design still
-  loads and still means what it meant. A number may *appear* that was not there
-  before, but the ones that were there do not move.
-- **MAJOR** — a computed number changes, a check changes verdict on designs that
-  used to pass, a file disappears from the bundle, or a saved design no longer
-  loads. This is a tool people cut metal from: a quietly different torque
-  capacity is a breaking change even though no API moved.
+- **PATCH** — nothing computed moves. A fix, the UI, the documentation, the
+  packaging. Reopening a saved design gives the same answers to the digit.
+- **MINOR** — new capability, new outputs, new checks, **or a better model**. A
+  saved design still loads and every input still means what it meant, but the
+  answers may be different, because the answers are a model of a machine and
+  the model improves. When they move, the changelog's **Numbers** section says
+  which quantity, on which design, and by how much. That section is not
+  optional.
+- **MAJOR** — the contract breaks, and reading the changelog is not enough to
+  put it right. A saved design no longer loads, an input changes meaning or
+  disappears, a file leaves the bundle, or a check starts failing designs that
+  used to pass. Something has to be *done* — to the design, or to whatever
+  consumes its files.
 
-A change to `core/`, `analysis/` or `design/` should make you stop and ask which
-of those three it is. If a number moved, say so in the changelog and say by how
-much — the pull request template asks the same question for the same reason.
+This used to say that any moved number was major, and for four releases in
+three days it was — which is the tell rather than the vindication. This tool is
+*made of* numbers that get better; a rule that makes every improvement a
+breaking change spends the major digit on the ordinary case and has nothing
+left to say when the extraordinary one arrives.
+
+The warning that rule was protecting is still owed. It is paid in the two
+places that can be precise about it instead of the one that cannot:
+
+- the **Numbers** section says what moved and by how much, on a named design;
+- **every file the app writes carries the version that wrote it**, so a design
+  opened in a later build is told to its face that the model has changed under
+  it, and a report or a DXF found in six months says which model produced it.
+
+A change to `core/`, `analysis/` or `design/` should still make you stop and ask
+which of the three it is. If a number moved, say so and say by how much — the
+pull request template asks the same question for the same reason.
 
 ## The steps
 

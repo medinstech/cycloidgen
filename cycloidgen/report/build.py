@@ -22,6 +22,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from .. import __version__
 from ..analysis import DesignAnalysis
 from ..core.validate import Severity
 from . import plots
@@ -50,6 +51,10 @@ def report_dict(a: DesignAnalysis) -> dict:
     s = a.spec
     return {
         "generator": "cycloidgen",
+        # Which build produced these numbers.  A report outlives the session
+        # that made it, and every quantity below is a model's answer rather
+        # than a measurement - so the model has to be named alongside them.
+        "version": __version__,
         "generated": datetime.now().isoformat(timespec="seconds"),
         "spec": json.loads(s.model_dump_json()),
         "derived": {
@@ -302,7 +307,8 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
             f"{s.lobes} lobes / {s.pin_count} ring pins &middot; "
             f"{2 * s.housing_outer_radius:.1f} mm outside diameter &middot; "
             f"{s.disc_count} disc(s) &middot; {s.process.value} &middot; "
-            f"generated {datetime.now():%Y-%m-%d %H:%M}", body),
+            f"generated {datetime.now():%Y-%m-%d %H:%M} "
+            f"by cycloidgen {__version__}", body),
         Spacer(1, 6),
         # The drawing and the assembly side by side.  They answer different
         # questions - what the geometry is, and what the thing looks like - and

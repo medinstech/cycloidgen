@@ -10,6 +10,7 @@ from pathlib import Path
 import ezdxf
 import numpy as np
 
+from .. import __version__
 from ..analysis.bearings import pin_shank_diameter, placements_for_spec
 from ..core import profile as prof
 from ..core.spec import GearSpec
@@ -35,6 +36,12 @@ LAYERS = {
 def _new_doc() -> tuple:
     doc = ezdxf.new("R2010", setup=True)
     doc.header["$INSUNITS"] = 4  # millimetres
+    # Which build cut this file.  A DXF gets mailed to a shop and comes back as
+    # metal six weeks later, by which time nothing else in the room remembers
+    # what produced it.  Custom header vars are the standard place for it and
+    # no CAM package cares what is in them.
+    doc.header.custom_vars.append("GENERATOR", "cycloidgen")
+    doc.header.custom_vars.append("CYCLOIDGEN_VERSION", __version__)
     for name, color in LAYERS.items():
         doc.layers.add(name=name, color=color)
     return doc, doc.modelspace()
