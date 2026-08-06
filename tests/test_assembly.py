@@ -217,3 +217,23 @@ def test_the_bolts_are_drawn_where_the_holes_are(ratio):
     assert bounds.zlen == pytest.approx(spec.tie_bolt_length)
     # inside the clearance holes they run in, not filling them
     assert bounds.xmax < spec.housing_bolt_radius + spec.housing_bolt_diameter / 2.0
+
+
+@pytest.mark.parametrize("ratio", [15, 21, 33])
+def test_the_mass_model_knows_about_every_hole_in_the_barrel(ratio):
+    """It already subtracted the ring-pin pockets.  The tie-bolt holes went in
+    later, and a mass model that knows about one set of holes and not the other
+    is describing a different part from the one the exporter writes."""
+    from cycloidgen.export.solid import housing_end_plate, ring_housing
+
+    spec = preset(ratio)
+    a = analyse(spec)
+    # `housing_mass_g` is the barrel and both plates, so it is measured against
+    # the three solids that carry that name and no others.
+    drawn = (ring_housing(spec).val().Volume()
+             + housing_end_plate(spec, spec.hub_bore,
+                                 motor_face=True).val().Volume()
+             + housing_end_plate(
+                 spec, spec.output_bearing_seat_diameter).val().Volume())
+    modelled = a.mass.housing_mass_g / spec.housing_mat.density_g_cm3 * 1000.0
+    assert modelled == pytest.approx(drawn, rel=0.02)

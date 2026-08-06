@@ -105,11 +105,17 @@ def analyse_mass(spec: GearSpec) -> MassResult:
     h = spec.stack_height
     ring_area = math.pi * (spec.housing_outer_radius ** 2 - spec.pin_circle_radius ** 2)
     pocket_area = spec.pin_count * 0.5 * math.pi * spec.pin_radius ** 2
+    # Every hole through the barrel, not just the ones the pins sit in: the tie
+    # bolts run its whole length too, and a mass model that knows about one set
+    # and not the other is describing a different part from the one the exporter
+    # writes.
+    bolt_area = (spec.housing_bolt_count * math.pi
+                 * (spec.housing_bolt_diameter / 2.0) ** 2)
     # The barrel is longer than the disc stack: it reaches down past the carrier
     # to the output end plate it bolts to.  The pins are not - they only have to
     # span the discs - which is why these two lengths are different.
-    housing_mass = (max(ring_area - pocket_area, 0.0) * spec.barrel_height
-                    * _MM3_TO_CM3 * rho_house)
+    housing_mass = (max(ring_area - pocket_area - bolt_area, 0.0)
+                    * spec.barrel_height * _MM3_TO_CM3 * rho_house)
 
     pins_volume = spec.pin_count * math.pi * spec.pin_radius ** 2 * h
     pins_volume += (spec.output_pin_count * math.pi
@@ -136,6 +142,7 @@ def analyse_mass(spec: GearSpec) -> MassResult:
     plates_volume = (2.0 * outer_area
                      - math.pi * (spec.hub_bore / 2.0) ** 2
                      - math.pi * (spec.output_bearing_seat_diameter / 2.0) ** 2
+                     - 2.0 * bolt_area          # the tie bolts go through both
                      ) * spec.plate_thickness
     plates_mass = max(plates_volume, 0.0) * _MM3_TO_CM3 * rho_house
     housing_mass += plates_mass

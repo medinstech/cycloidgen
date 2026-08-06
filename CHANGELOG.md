@@ -5,6 +5,116 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 7.0.0
+
+**Added**
+
+- **A documented Python API, and a grid to put designs through.** The analysis
+  was always importable and never documented as something to import.
+  [`docs/api.md`](docs/api.md) is what it looks like from the outside — the
+  spec, the analysis, the exporters, the sweep, the search — and every example
+  in it is executed by the test suite, in order, in one namespace. A document
+  nobody runs is worse than none: it is confidently wrong the first time a name
+  moves, and the person it misleads is the one who trusted it enough to build
+  on. Two names in it were already wrong when it was written.
+
+  Alongside it, `--vary` puts a design through every combination of whatever
+  you name and returns a table: twice for one field is two values of one axis,
+  once each for two fields is a grid, and numeric fields also take
+  `lo:hi:steps`. Fifteen metrics per design, declared once so the CSV, the
+  terminal table and the documentation cannot describe different tables — the
+  first five of them the five the calibration plan measures on real hardware.
+  Designs that fail a check stay in with their error codes, because where the
+  feasible region *ends* is most of what a study is for.
+
+  Together these are the half of **calibration against real hardware** that was
+  never waiting on a lathe: fitting the model's free constants is a script over
+  a grid, and until both existed it was blocked on something other than
+  hardware.
+
+- **Every file the app writes says which build wrote it** — a saved design, the
+  JSON report, the PDF and every DXF. None of the numbers here are
+  measurements; they are a model's answers, and the model improves between
+  releases. So a design saved by an earlier build says so when you open it,
+  and says what may have moved and what has not, instead of quietly reporting a
+  different mass than the one you wrote down. Which digits are allowed to move
+  a number is now stated in [RELEASING.md](RELEASING.md) and enforced in code:
+  patch is *defined* as the one that cannot.
+
+**Fixed**
+
+- **The tie bolts had nothing to pass through.** The bill of materials ordered
+  six of them, both end plates were drilled for them and the DXF drew the
+  circle — and the barrel they clamp had no holes in it. The app billed you for
+  six bolts, drilled two plates, and exported a gearbox they could not pass
+  through. The holes are cut now, in the STEP solid and in the viewer, the
+  bolts themselves are drawn, and the check that was missing is there:
+  **`HOUSING_BOLT_CLASH`**, which asks whether the bolt fits in the wall it
+  runs up the middle of.
+
+- **The bolt length was seven millimetres short.** The bill of materials quoted
+  it off the disc stack, and when the barrel was lengthened in 5.0.0 to reach
+  the plates it bolts to, that number did not follow. It is one derived
+  property now, read by the bill of materials and by both renderers, and a test
+  measures the span in the geometry and compares it against what is printed.
+
+- **The mass model did not know about the holes.** It already subtracted the
+  ring-pin pockets; the tie-bolt holes went in later and it was still weighing
+  a barrel that did not have them. It is checked against the volume the three
+  housing solids actually enclose now, rather than against arithmetic that
+  happens to agree.
+
+- **Dark mode drew white edges.** Turning edges on in the 3D view painted a
+  bright halo round every ring pin, and the model read as a wireframe lit from
+  inside rather than as shaded solids. What was wrong underneath is that the
+  two renderers disagreed: the software painter has always drawn an edge as the
+  part's own colour darkened, which needs no theme at all, and the hardware
+  path was drawing the window's ink. One shared constant now.
+
+**Changed**
+
+- **The at-a-glance strip says what its numbers are.** It was eight bare
+  values — `15:1 120 mm OD 40 mm LONG 620 g 0.73 Nm 71% 98' 52 C` — which is a
+  summary only the person who wrote it can read. Each carries its own name and
+  a tooltip, and two of the eight are coloured against a limit the analysis
+  itself computes: whether the drive carries the torque it is rated for, and
+  whether it stays under the temperature its materials allow. Colouring the
+  rest would have meant inventing thresholds.
+
+- **A finding can be read without being clicked.** The detail column was cut
+  off on every row, so the checks list was a set of codes you opened one at a
+  time. It wraps. On a window too narrow for both, the explanation panel yields
+  to the list rather than the list's detail being squeezed to nothing. The
+  Outputs tab had the same defect and got the same treatment.
+
+- **Empty panels say what they are waiting for.** The trade study opened on a
+  blank white rectangle under a chart toolbar, which reads as a chart that
+  failed to draw; the comparison tab showed an empty table with its headings
+  on, above two buttons that acted on a reference that did not exist. Also the
+  steps box held 21 and displayed `2`.
+
+- **The project is reachable from inside the application** — the repository,
+  the issue tracker, the release notes and the company site, in the Help menu
+  and the About box, with the wordmark as a link.
+
+**Numbers**
+
+- **Assembled mass is down about 0.8%**, because the barrel and both plates
+  lost the tie-bolt holes they always had on the drawing. On the presets:
+  620.3 g → 615.5 g at 15:1, 729.6 g → 724.9 g at 21:1, 858.3 g → 853.5 g at
+  33:1.
+- **The tie bolt in the bill of materials is 40 mm rather than 33** on every
+  preset. If you ordered bolts from a 6.x bill of materials, they are short.
+- **`HOUSING_BOLT_CLASH` is an error**, so a design whose bolt does not fit its
+  housing wall now blocks an export that used to run. No preset trips it; a
+  wall thinner than the bolt through it does, and that is the case where the
+  exported barrel was wrong before.
+
+Unchanged: contact stress, torque capacity, efficiency, lost motion,
+transmission error, fatigue, lubrication, bearing selection, and every
+dimension of the disc, ring and carrier. A saved design reopens as the drive it
+was, and now says which build it was saved by.
+
 ## 6.0.0
 
 **Added**
