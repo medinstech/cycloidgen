@@ -205,11 +205,76 @@ def test_only_front_faces_survive(mesh):
         assert area <= 1e-9        # screen y points down, so front faces are CW
 
 
-def test_faces_are_painted_back_to_front(mesh):
-    """Without a depth buffer the paint order *is* the depth test."""
+def test_faces_of_one_part_are_painted_back_to_front(mesh):
+    """Without a depth buffer the paint order *is* the depth test.
+
+    Within a part, and only within it. A single global depth sort is what this
+    used to assert and it is what put the ring pins on top of the end plate:
+    one centroid cannot order a face that spans the whole depth of the drive
+    against the small parts underneath it.
+    """
     draw = render(mesh, 0.0, Camera.framing(mesh), 640, 480)
     assert np.all(draw.depths > 0.0)                  # nothing behind the camera
-    assert np.all(np.diff(draw.depths) <= 1e-9)       # farthest first
+    for part in np.unique(draw.parts):
+        depths = draw.depths[draw.parts == part]
+        assert np.all(np.diff(depths) <= 1e-9), mesh.parts[part].name
+
+
+def test_a_part_is_painted_in_one_go(mesh):
+    """The two-level order only means anything if a part is contiguous: a part
+    interleaved with another has no position in the part order at all."""
+    draw = render(mesh, 0.0, Camera.framing(mesh), 640, 480)
+    starts = np.flatnonzero(np.diff(draw.parts, prepend=-1))
+    assert len(starts) == len(np.unique(draw.parts))
+
+
+SEALED_GROUPS = ("discs", "ring_pins", "shaft", "carrier", "bearings")
+
+
+def _painted(mesh, draw):
+    """Paint the draw list in order and return the part index at each pixel.
+
+    The list is an ordering, and an ordering is only wrong where it puts the
+    wrong thing in front of your eye - so this checks the picture rather than
+    the permutation. Holes are composited through a mask rather than filled with
+    background, which is what ``QPainter`` does with one path and the fill rule.
+    """
+    from PIL import Image, ImageDraw
+
+    width, height = draw.size
+    out = np.full((height, width), -1, np.int32)
+    for loops, part in zip(draw.loops, draw.parts, strict=True):
+        img = Image.new("1", (width, height), 0)
+        pen = ImageDraw.Draw(img)
+        pen.polygon([tuple(p) for p in loops[0]], fill=1)
+        for hole in loops[1:]:
+            pen.polygon([tuple(p) for p in hole], fill=0)
+        out[np.array(img, bool)] = part
+    return out
+
+
+@pytest.mark.parametrize("phi", [0.0, 1.3, 2.7])
+def test_a_closed_gearbox_looks_closed(mesh, phi):
+    """The bug this ordering exists for: the guts showing through the lid.
+
+    With the housing and both end plates on, the drive is a closed cylinder with
+    two bores in it. A little of the inside is genuinely visible down those
+    bores; what is not acceptable is ring pins and discs painted across the top
+    face, which is what a single global depth sort produced - the end plate's
+    centroid sits at the middle of the drive while the near pins are in front of
+    it, so they went down last.
+
+    The bound is deliberately loose. This is not a claim that the painter's
+    algorithm is exact - it is not, and the module says so - only that the shell
+    is no longer transparent.
+    """
+    draw = render(mesh, phi, Camera.framing(mesh), 480, 360)
+    groups = np.array([p.group for p in mesh.parts])
+    painted = _painted(mesh, draw)
+    body = painted >= 0
+    sealed = np.isin(groups[np.where(body, painted, 0)], SEALED_GROUPS) & body
+    assert body.sum() > 10_000
+    assert sealed.sum() / body.sum() < 0.02
 
 
 def test_hiding_a_group_removes_exactly_that_group(mesh):
