@@ -5,6 +5,96 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 5.0.0
+
+**Added**
+
+- **The two seats the model did not have.** The bearing schedule had five load
+  paths and the geometry had somewhere to put three. The main output bearing was
+  sized and then not drawn — there was no hub for its bore and no plate for its
+  outside — and the shaft supports were rings on a bare shaft with nothing
+  around them at all.
+
+  Two end plates close the housing, one on each face, and the output carrier
+  grew the boss the drive actually turns on: the output bearing rides its
+  outside, a shaft support sits in its bore, the other sits in the input plate.
+  All three seats are dimensions of the design rather than consequences of a
+  selection — the geometry is the input and the bearing fits into it, the same
+  way round as the cam — so nothing is circular and a bearing that stands off
+  its journal is reported rather than accommodated.
+
+  The plates are their own visibility group, and the 3D tab opens with them off:
+  with them on the assembled view is a closed cylinder with a shaft out of one
+  end, which is exactly what the gearbox looks like and exactly no use as the
+  first thing a design tool shows you.
+
+- **A face to bolt a motor to, and one to grip at the other end.** The app
+  mentioned the motor in four places and had no motor interface: no bolt
+  pattern, no register, no motor shaft. Turning the shaft supports off is
+  documented, in those words, as *"the drive hangs on the motor face"* — and
+  there was no face.
+
+  Motor frames are a table now, like the materials and the bearing catalogue,
+  and the input end plate is cut to whichever you pick: the register first,
+  because four clearance holes on their own leave a motor free to sit anywhere
+  inside them, then the bolts. **NEMA patterns are a square, not a bolt
+  circle** — four holes on a circle of the same span land where the motor has
+  nothing, which draws perfectly and does not fit — so the pattern kind is data
+  rather than something to remember. `None` is the default: presuming a motor
+  would put a finding on every design out of the box, because no frame here
+  matches a 10 mm shaft.
+
+  Three checks come with it. `MOTOR_SHAFT_MISMATCH` — a NEMA 17 turns 5 mm and
+  every preset is drawn around 10 mm; with the motor driving the cam directly
+  those are the same shaft, so the pairing is wrong and the app used to take it
+  without comment. A warning rather than an error, because every exported file
+  is still right; what is wrong is which motor you bought.
+  `MOTOR_FACE_CLASH` — a pattern falling into the bore or off the rim, which
+  *is* an error, because then the plate is wrong; a small drive being narrower
+  across than its motor is as reachable as the obvious way round.
+  `MOTOR_RADIAL_LOAD` — with no shaft bearings, the crank reaction measured
+  against the frame's own radial rating instead of "check its rating".
+
+  The output end of this topology is a boss on the axis rather than a bolt
+  face — what goes on there is a coupling or a clamp hub — so what it needed was
+  somewhere to grip, and it was coming out flush with the end plate. It stands
+  proud now. The tie bolts that hold the plates on are drawn as well.
+
+**Fixed**
+
+- **The input shaft was too short to reach through its own bearing.** Twelve
+  millimetres of overhang each end predates the carrier boss existing, so the
+  outboard shaft support fell off the end of the shaft it is meant to sit on —
+  by a hair on the default and by more on any deeper carrier. The overhang is
+  derived from what it has to reach through now, which also retires the last
+  hand-copied instance of that constant.
+
+**Numbers**
+
+Every one of these moves because the gearbox gained parts it always needed and
+was never counting.
+
+- **Mass is up by about a third.** On the 21:1 preset, 447 g → 702 g: the two
+  end plates and the carrier boss are 36% of the assembled drive and were
+  simply not being weighed.
+- **The envelope is 23.0 mm → 40.0 mm** on the same design. The plates are part
+  of the gearbox — they close it and carry three of its bearings — and leaving
+  them out understated the length of every drive this app has ever sized.
+- **Running temperature falls**, because cooling area follows the envelope:
+  357 cm² → 427 cm² on the preset. The drive is not cooler than it was; the
+  earlier figure was pessimistic about a surface that exists.
+- **Input shaft torsional stiffness is down about 23%**, a longer shaft being a
+  less stiff one. It is the stiffest link in the chain by two orders of
+  magnitude, so the drive's own stiffness barely moves.
+- **Shaft support and main output bearings may change.** Their seats are real
+  now instead of guesses at the pin circle, and tighter for it, so a
+  hard-worked design can be told that nothing fits a 22 mm boss bore eight deep
+  — which is true, and says which two dimensions to open.
+
+Unchanged: contact stress, torque capacity, efficiency, lost motion,
+transmission error, fatigue, and the disc, ring and carrier geometry. A saved
+design reopens as the drive it was, with a motor face of `None`.
+
 ## 4.0.0
 
 **Added**
