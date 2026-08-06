@@ -4,6 +4,8 @@
     python -m cycloidgen --ratio 29 --out ./x     # headless export
     python -m cycloidgen --ratio 29 --list-outputs # what an export would write
     python -m cycloidgen --optimise --ratio 29 --torque 20 --max-od 120 --out ./x
+    python -m cycloidgen --ratio 21 --vary disc_count=1 --vary disc_count=2 \
+        --vary output_pin_count=8:16:5 --csv study.csv       # parameter study
 """
 from __future__ import annotations
 
@@ -70,6 +72,87 @@ def _list_outputs(spec, groups: set[str]) -> int:
         print()
     print(f"{total} file(s) with the current selection.")
     return 0
+
+
+def _batch(args, spec) -> int:
+    """Run the parameter study and print it, or write it, and stop there.
+
+    A study is numbers rather than parts: four hundred designs are four hundred
+    answers and one folder of STEP files nobody asked for, so this deliberately
+    does not export.  ``--out`` with ``--vary`` is refused rather than ignored,
+    because ignoring it would look like it had worked.
+    """
+    import sys as _sys
+
+    from .design.batch import METRICS, as_text, merge_axes, parse_axis, run_batch, write_csv
+
+    if args.out:
+        print("--out writes one design; --vary evaluates many. Use --csv for a "
+              "study, or drop --vary to export this design.", file=_sys.stderr)
+        return 2
+
+    try:
+        axes = merge_axes([parse_axis(*_split_vary(text)) for text in args.vary])
+    except ValueError as exc:
+        print(exc, file=_sys.stderr)
+        return 2
+
+    total = 1
+    for axis in axes:
+        total *= len(axis)
+    plan = " x ".join(f"{len(a)} {a.field}" for a in axes)
+    print(f"{total} design(s): {plan}", file=_sys.stderr)
+
+    def tick(done: int, of: int) -> None:
+        if of > 20 and (done % max(1, of // 20) == 0 or done == of):
+            print(f"\r  {done}/{of}", end="", file=_sys.stderr, flush=True)
+
+    points = run_batch(spec, axes, progress=tick)
+    if total > 20:
+        print(file=_sys.stderr)
+
+    if args.csv:
+        path = write_csv(points, axes, args.csv)
+        built = sum(1 for p in points if p.ok)
+        print(f"wrote {len(points)} row(s) to {path}  ({built} built, "
+              f"{len(points) - built} blocked)")
+        return 0
+
+    # No file asked for, so this goes on the terminal - and the whole table is
+    # too wide for one.  The five shown are the five the calibration plan
+    # measures on real hardware, which is why they are the first five in
+    # METRICS rather than a second list kept here.
+    shown = METRICS[:5]
+    header = [a.field for a in axes] + ["ok"] + [m.name for m in shown]
+    rows = [[as_text(p.values[a.field]) for a in axes]
+            + ["yes" if p.ok else "no"]
+            + [f"{p.metrics.get(m.name, float('nan')):.4g}" for m in shown]
+            for p in points]
+
+    # Sized to what is in them.  A lubricant name is 24 characters and a fixed
+    # width either truncates it into two rows that read as the same design or
+    # pushes every column out to fit the longest thing in the app.
+    widths = [max(len(header[i]), *(len(r[i]) for r in rows)) if rows
+              else len(header[i]) for i in range(len(header))]
+    line = "  ".join(h.rjust(w) for h, w in zip(header, widths, strict=True))
+    print(line)
+    print("-" * len(line))
+    for row in rows:
+        print("  ".join(cell.rjust(w) for cell, w in zip(row, widths, strict=True)))
+    print(f"\n{len(METRICS)} metrics per design; --csv writes all of them.")
+    return 0
+
+
+def _split_vary(text: str) -> tuple[str, str]:
+    """``field=value`` into its two halves, splitting on the *first* ``=``.
+
+    Values can contain one - a bearing designation or a lubricant name is
+    somebody else's naming scheme, not ours to constrain.
+    """
+    name, sep, value = text.partition("=")
+    if not sep:
+        raise ValueError(f"--vary wants field=value, not {text!r}")
+    return name.strip(), value
 
 
 def _search(args) -> tuple[int, object | None]:
@@ -150,6 +233,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--list-outputs", action="store_true",
                         help="print every file an export would write, and exit")
 
+    study = parser.add_argument_group(
+        "parameter study", "evaluate a grid of designs and get a table out "
+                           "instead of a folder of parts")
+    study.add_argument("--vary", action="append", default=[], metavar="FIELD=VALUE",
+                       help="a parameter and a value to put the design through. "
+                            "Repeat it for more values of the same field, or for "
+                            "another field - every combination is evaluated. "
+                            "Numeric fields also take a lo:hi:steps range")
+    study.add_argument("--csv", type=Path, metavar="PATH",
+                       help="write the full table here instead of a summary to "
+                            "the terminal")
+
     built = parser.add_argument_group(
         "bearings fitted", "three of the five load paths can be built without a "
                            "bearing of their own; these leave them out of the "
@@ -192,7 +287,9 @@ def main(argv: list[str] | None = None) -> int:
                         choices=["quick", "normal", "thorough"])
     args = parser.parse_args(argv)
 
-    if args.out or args.ratio or args.design or args.optimise or args.list_outputs:
+    headless = (args.out or args.ratio or args.design or args.optimise
+                or args.list_outputs or args.vary)
+    if headless:
         import matplotlib
         matplotlib.use("Agg")
         from .analysis import analyse
@@ -217,6 +314,12 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.list_outputs:
             return _list_outputs(spec, groups)
+
+        if args.vary:
+            # After the search rather than instead of it: varying around a
+            # design the app found is a more useful study than varying around
+            # a preset, and it costs nothing to allow.
+            return _batch(args, spec)
 
         report = analyse(spec).report
         print(report)

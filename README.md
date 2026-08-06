@@ -19,7 +19,7 @@ animation, a bill of materials and a PDF dossier.
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
   a shortlist that passes every check, with the trade-offs side by side.
-- **Nothing is asserted that is not verified.** 666 tests, and where two parts
+- **Nothing is asserted that is not verified.** 712 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -27,7 +27,7 @@ animation, a bill of materials and a PDF dossier.
 **Preliminary sizing numbers, not a certification.** See
 [*How far to trust the analysis*](#how-far-to-trust-the-analysis).
 
-**Jump to** — [Run it](#run-it) · [Two ways to use it](#two-ways-to-use-it) ·
+**Jump to** — [Run it](#run-it) · [Three ways to use it](#three-ways-to-use-it) ·
 [What it produces](#what-it-produces) · [The geometry](#the-geometry) ·
 [What it tells you](#what-it-tells-you) · [Checks](#checks) ·
 [In the app](#in-the-app) · [Tests](#tests) · [Performance](#performance) ·
@@ -87,6 +87,24 @@ python -m cycloidgen --design saved.json --out ./x --no-solids
 python -m cycloidgen --ratio 29 --no-cam-bearing --no-shaft-bearings --out ./x
 ```
 
+Or put a whole grid of designs through it and get a table rather than a folder
+of parts — every combination, every number, for a spreadsheet or a fitting
+script:
+
+```bash
+python -m cycloidgen --ratio 21 \
+    --vary lubricant="None (dry)" \
+    --vary lubricant="Grease NLGI 2 (EP, moly)" \
+    --vary surface_roughness_um=0.2:12:8 \
+    --csv study.csv
+```
+
+`--vary` repeats: twice for one field is two values of one axis, once each for
+two fields is a grid. Numeric fields also take `lo:hi:steps`. Designs that fail
+a check stay in the table with their error codes, because where the feasible
+region *ends* is most of what a study is for. Without `--csv` it prints a
+summary instead.
+
 Or state what you need and let it find the geometry:
 
 ```bash
@@ -95,7 +113,7 @@ python -m cycloidgen --optimise --ratio 29 --torque 20 --rpm 1500 \
     --disc-material "Steel 4140 (hardened)" --rollers --out ./x
 ```
 
-## Two ways to use it
+## Three ways to use it
 
 **Give it a design.** Set the twenty-odd parameters and the app tells you what
 is wrong with them — this is the original mode and everything below still
@@ -105,6 +123,14 @@ applies to it.
 what to optimise for; the search returns a shortlist of geometries that pass
 every check, with the trade-offs side by side. `Ctrl+R` in the app, or
 `--optimise` on the command line.
+
+**Give it a grid, or call it from Python.** `--vary` puts a design through
+every combination of whatever you name and returns a table. The analysis
+underneath is an ordinary importable library — no display, no Qt, no
+matplotlib — and [docs/api.md](docs/api.md) is what it looks like from the
+outside: the spec, the analysis, the exporters, the sweep, the grid and the
+search, with every example in it executed by the test suite so it cannot go
+stale.
 
 Nine free dimensions is too many to grid, so most of them are *derived* from the
 relationships good cycloidal geometry actually obeys — eccentricity from the
@@ -578,7 +604,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          666 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          712 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -745,6 +771,10 @@ real hardware**. Every number here is a first-principles estimate with a stated
 model and stated limits. That is honest, and it is also the ceiling — the moment
 there is a table of predicted versus measured, this stops being a calculator and
 becomes a calibrated instrument.
+
+The half of that which was not waiting on a lathe is in: fitting the model's
+free constants against measurements is a script over a grid, and the grid, the
+importable analysis and the [documented API](docs/api.md) are all here now.
 
 After that, in rough order: bearing life under combined load
 and misalignment; and more kinds of drive — compound and multi-stage, RV-type,
