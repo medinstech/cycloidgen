@@ -105,7 +105,11 @@ def analyse_mass(spec: GearSpec) -> MassResult:
     h = spec.stack_height
     ring_area = math.pi * (spec.housing_outer_radius ** 2 - spec.pin_circle_radius ** 2)
     pocket_area = spec.pin_count * 0.5 * math.pi * spec.pin_radius ** 2
-    housing_mass = max(ring_area - pocket_area, 0.0) * h * _MM3_TO_CM3 * rho_house
+    # The barrel is longer than the disc stack: it reaches down past the carrier
+    # to the output end plate it bolts to.  The pins are not - they only have to
+    # span the discs - which is why these two lengths are different.
+    housing_mass = (max(ring_area - pocket_area, 0.0) * spec.barrel_height
+                    * _MM3_TO_CM3 * rho_house)
 
     pins_volume = spec.pin_count * math.pi * spec.pin_radius ** 2 * h
     pins_volume += (spec.output_pin_count * math.pi

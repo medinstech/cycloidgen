@@ -592,6 +592,27 @@ class GearSpec(BaseModel):
         n = self.disc_count
         return n * self.disc_thickness + (n - 1) * self.disc_gap
 
+    @property
+    def barrel_bottom(self) -> float:
+        """Where the ring housing starts, with the first disc face at zero.
+
+        Negative, and it has to be.  The output carrier hangs below the disc
+        stack - a drop, then its own thickness - and the output end plate bolts
+        to the barrel underneath *that*.  A barrel that stops at the discs
+        leaves the carrier standing in the open with a gap between the housing
+        and the plate it is supposed to be bolted to, which is a gearbox with a
+        slot cut round it.
+
+        The barrel was sized to the disc stack when the disc stack was all there
+        was to enclose.  The end plates gave it something to reach.
+        """
+        return -(CARRIER_DROP + self.output_flange_thickness)
+
+    @property
+    def barrel_height(self) -> float:
+        """Length of the ring housing: the discs *and* the carrier under them."""
+        return self.stack_height - self.barrel_bottom
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def output_rpm(self) -> float:
@@ -790,9 +811,14 @@ class GearSpec(BaseModel):
         supports and the output bearing, and they are what it bolts to the world
         by.  Leaving them out of the envelope understated the length of every
         drive this app has ever sized.
+
+        Stated as the barrel plus its two plates rather than as the same sum
+        written out again, because the two have to agree: this was already
+        counting the carrier's share of the length while the barrel itself
+        stopped at the discs, so the app reported an envelope the geometry did
+        not fill.
         """
-        return (self.stack_height + CARRIER_DROP + self.output_flange_thickness
-                + 2.0 * self.plate_thickness)
+        return self.barrel_height + 2.0 * self.plate_thickness
 
     @property
     def cooling_area_mm2(self) -> float:

@@ -432,10 +432,14 @@ def build_mesh(spec: GearSpec,
     pin_segments = int(np.clip(560 // max(spec.pin_count, 1), 12, 24))
 
     with b.part("housing", "Ring housing", "housing", PART_COLOURS["housing"]):
+        # Down past the disc stack to cover the carrier and land on the output
+        # end plate: the barrel is what the two plates bolt to, so it has to
+        # reach both of them.  The pockets run its whole length, which is what a
+        # bore broached in one setup looks like and is why this is one prism.
         b.prism(_circle(0.0, 0.0, spec.housing_outer_radius, 96),
                 (pocketed_bore(spec.pin_circle_radius, spec.pin_radius,
                                spec.pin_count),),
-                0.0, stack)
+                spec.barrel_bottom, stack)
 
     # A pin carrying a roller loses its outside to it - drawn at full size it
     # would be inside its own sleeve.

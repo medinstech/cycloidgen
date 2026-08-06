@@ -77,13 +77,19 @@ def disc_solid(spec: GearSpec, hole_phase: float = 0.0) -> cq.Workplane:
 
 
 def ring_housing(spec: GearSpec) -> cq.Workplane:
-    """Fixed ring: pins sit half-embedded in pockets on the bore."""
-    h = spec.stack_height
-    body = (cq.Workplane("XY")
+    """Fixed ring: pins sit half-embedded in pockets on the bore.
+
+    It runs from the output end plate's face up to the input one's, which is
+    lower than the disc stack at the output end - the carrier hangs under the
+    discs and the barrel has to cover it.  Sized to the stack alone it left a
+    slot round the gearbox where the carrier was.
+    """
+    z0, h = spec.barrel_bottom, spec.barrel_height
+    body = (cq.Workplane("XY").workplane(offset=z0)
             .circle(spec.housing_outer_radius)
             .circle(spec.pin_circle_radius)
             .extrude(h))
-    pockets = (cq.Workplane("XY")
+    pockets = (cq.Workplane("XY").workplane(offset=z0)
                .polarArray(spec.pin_circle_radius, 0, 360, spec.pin_count)
                .circle(spec.pin_radius)
                .extrude(h))

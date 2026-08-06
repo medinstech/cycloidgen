@@ -228,6 +228,54 @@ def test_a_part_is_painted_in_one_go(mesh):
     assert len(starts) == len(np.unique(draw.parts))
 
 
+def _z_span(mesh, name):
+    part = next(p for p in mesh.parts if p.name == name)
+    z = mesh.vertices[part.vertices][:, 2]
+    return float(z.min()), float(z.max())
+
+
+@pytest.mark.parametrize("ratio", [15, 21, 29])
+def test_the_barrel_reaches_both_end_plates(ratio):
+    """A housing sized to the disc stack leaves a slot round the gearbox.
+
+    The output carrier hangs below the discs - a drop, then its own thickness -
+    and the output end plate bolts on underneath that. The barrel used to stop
+    at the discs, so between it and the plate it is bolted to there was nothing
+    at all: the carrier standing in the open with daylight round it.
+
+    Checked against the *plates* rather than against a number, because the point
+    is that the three parts meet. The envelope length was already counting the
+    carrier's share while the barrel did not fill it, which is exactly the kind
+    of disagreement two separate sums produce.
+    """
+    mesh = mesh_for_spec(preset(ratio))
+    barrel = _z_span(mesh, "housing")
+    below = _z_span(mesh, "output_end_plate")
+    above = _z_span(mesh, "input_end_plate")
+
+    assert barrel[0] == pytest.approx(below[1]), "gap under the barrel"
+    assert barrel[1] == pytest.approx(above[0]), "gap over the barrel"
+    # and it is genuinely longer than the discs it holds
+    assert barrel[1] - barrel[0] > _z_span(mesh, "disc_1")[1] + 1e-9
+
+
+@pytest.mark.parametrize("ratio", [15, 21, 29])
+def test_the_envelope_is_the_length_the_geometry_occupies(ratio):
+    """The number on the header bar against the parts it claims to measure."""
+    spec = preset(ratio)
+    mesh = mesh_for_spec(spec)
+    z = mesh.vertices[:, 2]
+    plates = [_z_span(mesh, n) for n in ("input_end_plate", "output_end_plate")]
+    assert max(p[1] for p in plates) - min(p[0] for p in plates) == pytest.approx(
+        spec.envelope_length)
+    # nothing but the shaft is allowed to stand outside the plates
+    outside = (z < min(p[0] for p in plates) - 1e-6) | (
+        z > max(p[1] for p in plates) + 1e-6)
+    parts_outside = {mesh.parts[i].name for i in range(len(mesh.parts))
+                     if outside[mesh.parts[i].vertices].any()}
+    assert parts_outside <= {"eccentric_shaft", "output_flange"}, parts_outside
+
+
 SEALED_GROUPS = ("discs", "ring_pins", "shaft", "carrier", "bearings")
 
 
