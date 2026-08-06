@@ -393,6 +393,23 @@ EXPLANATIONS: dict[str, Explanation] = {
         "path set by the eccentricity, and the holes are in the disc material.",
         "Bushings or rollers on the output pins fix this directly. Larger or "
         "more numerous pins drop the pressure term.", unit="MPa m/s"),
+    "LUBRICATION_REGIME": Explanation(
+        "Whether a film separates the sliding surfaces, or the peaks touch",
+        "lambda = h_min / composite Rq  >  3 for full separation",
+        "Friction is not a property of two materials, it is a property of what "
+        "is between them and whether there is enough of it. The film is built "
+        "by entrainment - one surface dragging lubricant under the other - so a "
+        "*fixed* pin gets half the entrainment of a rolling one at the same "
+        "speed, and at cycloidal mesh loads that comes out at tens of nanometres "
+        "against hundreds of nanometres of roughness. Below lambda 1 the "
+        "asperities carry the load and the additives, not the oil, decide the "
+        "coefficient.",
+        "Surface finish moves lambda directly and is usually the only thing that "
+        "can: no grade sold builds a film that clears a printed flank. Rollers "
+        "sidestep it by removing the sliding. Where the film is out of reach, "
+        "choose the lubricant for its boundary friction - an EP additive is "
+        "worth a factor of two on every sliding loss - rather than for viscosity.",
+        keep="above"),
     "MOTOR_SHAFT_MISMATCH": Explanation(
         "The motor's shaft is not the shaft this drive was built around",
         "motor shaft diameter == input shaft diameter",

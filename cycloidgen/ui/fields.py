@@ -9,7 +9,14 @@ from dataclasses import dataclass
 from typing import Literal
 
 from ..analysis.bearings import CATALOGUE
-from ..core.spec import AUTOMATIC, MATERIALS, MOTOR_FRAMES, OffsetMode, Process
+from ..core.spec import (
+    AUTOMATIC,
+    LUBRICANTS,
+    MATERIALS,
+    MOTOR_FRAMES,
+    OffsetMode,
+    Process,
+)
 
 Kind = Literal["float", "int", "bool", "choice"]
 
@@ -114,7 +121,18 @@ GROUPS: list[tuple[str, list[Field]]] = [
                   "limit of the structure."),
         Field("shaft_material", "Shaft", "choice", choices=tuple(MATERIALS)),
         Field("friction_coefficient", "Friction", "float", 0.01, 0.9,
-              0.01, decimals=3),
+              0.01, decimals=3,
+              tip="Dry sliding coefficient. Used as-is with no lubricant; with "
+                  "one it is what the film is compared against."),
+        Field("lubricant", "Lubricant", "choice", choices=tuple(LUBRICANTS),
+              tip="What is between the sliding surfaces. Sets the friction "
+                  "coefficient from a film thickness rather than a guess - and "
+                  "on a rough surface, from its boundary additives."),
+        Field("surface_roughness_um", "Surface Rq", "float", 0, 100.0, 0.1,
+              decimals=2, suffix=" um", zero_is_auto=True,
+              tip="0 = automatic: a typical RMS roughness for the process. This "
+                  "is what film thickness is measured against, so it decides "
+                  "the lubrication regime more than the lubricant does."),
         Field("ring_pins_are_rollers", "Ring pins are rollers", "bool",
               tip="Needle rollers on the ring pins remove the largest loss."),
     ]),
@@ -222,6 +240,10 @@ CODE_FIELDS: dict[str, tuple[str, ...]] = {
     "PV_MARGIN_RING": ("ring_pins_are_rollers", "input_rpm"),
     "PV_LIMIT_OUTPUT": ("output_pins_are_rollers", "output_pin_diameter"),
     "PV_LIMIT_CAM": ("cam_bearing_fitted", "input_rpm", "disc_material"),
+    # Roughness before lubricant, deliberately: on most builds here the surface
+    # is what decides the regime and the grade cannot rescue it.
+    "LUBRICATION_REGIME": ("surface_roughness_um", "lubricant", "process",
+                           "ring_pins_are_rollers"),
     "MOTOR_SHAFT_MISMATCH": ("motor_frame", "input_shaft_diameter",
                              "motor_drives_the_shaft"),
     "MOTOR_FACE_CLASH": ("motor_frame", "housing_wall", "output_hub_diameter"),

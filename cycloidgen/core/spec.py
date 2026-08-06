@@ -116,6 +116,103 @@ MATERIALS: dict[str, Material] = {
 }
 
 
+class Lubricant(BaseModel):
+    """What is between the two surfaces, and what it does under pressure.
+
+    Two properties decide whether a film forms at all.  **Viscosity** is the
+    obvious one and it is quoted the way oils are actually sold - kinematic, in
+    centistokes, at 40 and 100 C, which is what an ISO VG grade *is*.  Two points
+    are enough to fit the temperature curve, and a lubricant's whole behaviour
+    here turns on temperature: the drive heats itself, the oil thins, the film
+    collapses, and the friction that caused it goes up again.
+
+    The second is **pressure-viscosity**, ``alpha``.  At a loaded contact the oil
+    sees a gigapascal or so and stiffens by orders of magnitude, and that - not
+    its viscosity in the can - is what holds the surfaces apart.  An oil with a
+    low alpha builds a thinner film at the same grade, which is why the synthetic
+    entries here are not simply better than the mineral ones.
+
+    ``boundary_mu`` is what the contact costs when the film has failed and the
+    asperities are touching: the additive package, not the base oil, and the
+    reason an EP grease is worth having in a drive that will spend its life in
+    the mixed regime.
+    """
+
+    name: str
+    viscosity_40C_cSt: float = Field(gt=0, description="kinematic; ISO VG is this number")
+    viscosity_100C_cSt: float = Field(gt=0)
+    density_g_cm3: float = Field(gt=0, description="to get dynamic viscosity from it")
+    alpha_1_per_GPa: float = Field(
+        gt=0, description="pressure-viscosity coefficient; what actually builds film"
+    )
+    boundary_mu: float = Field(
+        gt=0, lt=1.0, description="friction once the film has gone and asperities touch"
+    )
+    max_temp_C: float = Field(gt=0, description="above this it degrades rather than thins")
+
+    @property
+    def forms_a_film(self) -> bool:
+        """Whether asking for a film thickness means anything for this entry.
+
+        ``False`` for dry, which is not a thin lubricant but the absence of one -
+        there is no viscosity to put in the formula and a number would be an
+        invention - and for a bonded dry film, which works by shearing at a low
+        stress rather than by separating the surfaces.  Both go straight to their
+        boundary coefficient, which for the dry entry is the design's own.
+        """
+        return self.name not in _NO_FILM
+
+
+#: The lubricant field's value when there is nothing in there.  Dry is the
+#: default and the honest one for most printed drives - people build them, run
+#: them dry, and wear them out, which is what the PV checks are about.
+DRY = "None (dry)"
+
+#: Lubricants by what you would actually put in.  The greases are quoted by
+#: their base oil, because that is what forms the film - the thickener holds it
+#: in place and does not carry load.  Alphas are typical values for the chemistry
+#: at room temperature: mineral oils run high, PAO synthetics lower, and that
+#: difference is why a synthetic of the same grade builds a thinner film.
+#: ``PTFE dry film`` is not a lubricant in this model's sense at all - it forms
+#: no hydrodynamic film ever - but it has a low boundary coefficient, which is
+#: the whole reason to use one, so it is here with the viscosity of the base it
+#: is carried in and a flag that stops the film formula being applied to it.
+LUBRICANTS: dict[str, Lubricant] = {
+    lube.name: lube
+    for lube in [
+        Lubricant(name=DRY, viscosity_40C_cSt=1.0, viscosity_100C_cSt=1.0,
+                  density_g_cm3=1.0, alpha_1_per_GPa=1.0, boundary_mu=0.12,
+                  max_temp_C=1000.0),
+        Lubricant(name="Grease NLGI 2 (lithium/mineral)", viscosity_40C_cSt=110.0,
+                  viscosity_100C_cSt=11.0, density_g_cm3=0.89, alpha_1_per_GPa=22.0,
+                  boundary_mu=0.11, max_temp_C=120.0),
+        Lubricant(name="Grease NLGI 2 (PAO synthetic)", viscosity_40C_cSt=100.0,
+                  viscosity_100C_cSt=14.0, density_g_cm3=0.85, alpha_1_per_GPa=15.0,
+                  boundary_mu=0.10, max_temp_C=150.0),
+        Lubricant(name="Grease NLGI 2 (EP, moly)", viscosity_40C_cSt=180.0,
+                  viscosity_100C_cSt=15.0, density_g_cm3=0.90, alpha_1_per_GPa=23.0,
+                  boundary_mu=0.06, max_temp_C=130.0),
+        Lubricant(name="Oil ISO VG 32", viscosity_40C_cSt=32.0, viscosity_100C_cSt=5.4,
+                  density_g_cm3=0.86, alpha_1_per_GPa=20.0, boundary_mu=0.11,
+                  max_temp_C=100.0),
+        Lubricant(name="Oil ISO VG 100", viscosity_40C_cSt=100.0, viscosity_100C_cSt=11.0,
+                  density_g_cm3=0.88, alpha_1_per_GPa=22.0, boundary_mu=0.11,
+                  max_temp_C=100.0),
+        Lubricant(name="Oil ISO VG 220 (gear)", viscosity_40C_cSt=220.0,
+                  viscosity_100C_cSt=19.0, density_g_cm3=0.89, alpha_1_per_GPa=24.0,
+                  boundary_mu=0.08, max_temp_C=110.0),
+        Lubricant(name="PTFE dry film", viscosity_40C_cSt=1.0, viscosity_100C_cSt=1.0,
+                  density_g_cm3=2.2, alpha_1_per_GPa=1.0, boundary_mu=0.05,
+                  max_temp_C=250.0),
+    ]
+}
+
+#: Surfaces that never build a film whatever is put on them, by name.  Kept apart
+#: from :data:`DRY` because "there is no oil" and "there is a solid film and no
+#: oil" are different answers to the same contact.
+_NO_FILM = {DRY, "PTFE dry film"}
+
+
 #: What a bearing field says when the sizing study is to choose the part.
 #: A sentinel rather than an empty string or ``None``: it is a value the user
 #: picks from a list beside forty real designations, and "auto" is what that
@@ -255,6 +352,28 @@ PROCESS_POSITION_TOLERANCE: dict[Process, float] = {
     Process.EDM: 0.02,
 }
 
+#: RMS surface roughness ``Rq`` in micrometres, by process.  Typical as-made
+#: values for the *working* faces, and the number that decides whether a film
+#: separates the surfaces or merely floats between the peaks: what matters is
+#: film thickness measured against roughness, so a rough surface needs a thick
+#: film to reach the same regime.
+#:
+#: This is where a printed drive loses.  A layered flank is not a slightly worse
+#: ground one - it is two orders of magnitude rougher, and no lubricant sold will
+#: build a film that clears it.  That is not a fixable defect, it is what the
+#: process is, and the model says so rather than reporting a regime it cannot
+#: reach.  Unlike the position tolerance this *is* defaulted from the process,
+#: because a surface finish is not a claim about your machine: every process here
+#: has one whether it is stated or not, and the alternative to a typical figure
+#: is no lubrication answer at all.
+PROCESS_ROUGHNESS_UM: dict[Process, float] = {
+    Process.FDM: 15.0,
+    Process.SLA: 3.0,
+    Process.SLS: 12.0,
+    Process.CNC: 1.6,
+    Process.EDM: 0.4,
+}
+
 
 class GearSpec(BaseModel):
     """A complete, self-consistent cycloidal drive definition."""
@@ -317,7 +436,23 @@ class GearSpec(BaseModel):
         "PLA", description="ring, housing and output carrier - printed on most builds"
     )
     shaft_material: str = Field("Steel 1045", description="input/eccentric shaft")
-    friction_coefficient: float = Field(0.12, gt=0, lt=1.0)
+    friction_coefficient: float = Field(
+        0.12, gt=0, lt=1.0,
+        description="dry sliding coefficient; used as-is when there is no "
+                    "lubricant, and as the boundary value a film is compared "
+                    "against when there is",
+    )
+    lubricant: str = Field(
+        DRY,
+        description="what is between the sliding surfaces; dry is the default, "
+                    "so a design that says nothing about lubrication gets the "
+                    "answer it always got",
+    )
+    surface_roughness_um: float | None = Field(
+        None, gt=0,
+        description="RMS roughness Rq of the sliding faces; defaults to a typical "
+                    "figure for the process, because every process has one",
+    )
     ring_pins_are_rollers: bool = Field(
         False, description="ring pins free to rotate (needle rollers) instead of fixed dowels"
     )
@@ -629,6 +764,23 @@ class GearSpec(BaseModel):
     @property
     def shaft_mat(self) -> Material:
         return MATERIALS[self.shaft_material]
+
+    @property
+    def lube(self) -> Lubricant:
+        """The lubricant, falling back to dry rather than raising.
+
+        Same reasoning as the bearing designations: a saved design naming a
+        lubricant this build does not know should cost a conservative answer,
+        not a file that will not open.
+        """
+        return LUBRICANTS.get(self.lubricant, LUBRICANTS[DRY])
+
+    @property
+    def roughness_um(self) -> float:
+        """RMS roughness of one sliding face, stated or typical for the process."""
+        if self.surface_roughness_um is not None:
+            return self.surface_roughness_um
+        return PROCESS_ROUGHNESS_UM[self.process]
 
     @property
     def envelope_length(self) -> float:

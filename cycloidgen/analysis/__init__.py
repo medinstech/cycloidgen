@@ -12,8 +12,9 @@ from dataclasses import dataclass
 from ..core.spec import PROCESS_POSITION_TOLERANCE, GearSpec
 from ..core.validate import Report, Severity, validate
 from .bearings import BearingChoice, select_bearings
-from .efficiency import EfficiencyResult, analyse_efficiency
+from .efficiency import EfficiencyResult
 from .fatigue import FatigueResult, analyse_fatigue
+from .lubrication import FULL_FILM_LAMBDA, LubricationResult
 from .mass import MassResult, analyse_mass
 from .mechanics import ContactResult, analyse_contacts, torque_capacity
 from .stiffness import (
@@ -22,7 +23,7 @@ from .stiffness import (
     analyse_stiffness,
     analyse_transmission_error,
 )
-from .thermal import ThermalResult, analyse_thermal
+from .thermal import ThermalResult, solve_operating_point
 
 __all__ = ["DesignAnalysis", "analyse"]
 
@@ -40,6 +41,16 @@ class DesignAnalysis:
     fatigue: FatigueResult
     bearings: list[BearingChoice]
     torque_capacity_Nm: float
+
+    @property
+    def lubrication(self) -> LubricationResult:
+        """The film behind the friction coefficients, at the running temperature.
+
+        Lives on the efficiency result because that is what computed it, and is
+        surfaced here because it is an answer in its own right rather than an
+        intermediate: the regime is what says whether the drive wears.
+        """
+        return self.efficiency.lubrication
 
     @property
     def ok(self) -> bool:
@@ -71,10 +82,12 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     """Geometry checks plus the full load/efficiency/bearing study."""
     rep = validate(spec)
     contact = analyse_contacts(spec)
-    eff = analyse_efficiency(spec)
     stiff = analyse_stiffness(spec)
     te = analyse_transmission_error(spec)
-    therm = analyse_thermal(spec, efficiency=eff)
+    # Efficiency and temperature come out together, because with a lubricant in
+    # the design they decide each other: friction heats the oil, the hot oil
+    # stops holding the surfaces apart, and that is more friction.
+    eff, therm = solve_operating_point(spec)
     mass = analyse_mass(spec)
     # At the running temperature, not the ambient: the drive heats itself and
     # fatigue strength goes down with it.
@@ -227,6 +240,57 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                 f"long before anything breaks. Fit the bearing, or run a bronze "
                 f"bushing and drop the speed.",
                 therm.pv_cam_MPa_m_s, therm.pv_cam_limit_MPa_m_s)
+
+    # ---- what is between the surfaces ---------------------------------------
+    # The regime, not the coefficient: a friction number on its own says what the
+    # drive costs and not why, and the why is the part you can do something
+    # about.  Reported on every design, because "there is no film and there was
+    # never going to be one" is an answer and the app used to give none.
+    lub = eff.lubrication
+    worst_film = lub.governing
+    if worst_film is None:
+        rep.add(Severity.INFO, "LUBRICATION_REGIME",
+                "Nothing in this drive slides: rolling elements at every contact "
+                "the model tracks, so there is no film to build and lubrication "
+                "is the bearings' own business rather than a design choice here.")
+    elif spec.lube.forms_a_film:
+        needed = FULL_FILM_LAMBDA * worst_film.roughness_um
+        if worst_film.lambda_ratio < 1.0:
+            rep.add(Severity.WARNING, "LUBRICATION_REGIME",
+                    f"{spec.lubricant} does not separate the surfaces at the "
+                    f"{worst_film.name.lower()}: {1000 * worst_film.film_um:.0f} nm "
+                    f"of film against {1000 * worst_film.roughness_um:.0f} nm of "
+                    f"roughness is lambda {worst_film.lambda_ratio:.2f}, which is "
+                    f"boundary lubrication - the peaks are touching and the "
+                    f"additives are carrying the contact, not the oil. It still "
+                    f"earns its place: mu is {worst_film.mu:.3f} against "
+                    f"{spec.friction_coefficient:.3f} dry. Clearing the peaks "
+                    f"would need {needed:.1f} um of film, so the lever is the "
+                    f"surface rather than the grade - or rollers, which change "
+                    f"the contact instead of lubricating it.",
+                    worst_film.lambda_ratio, 1.0)
+        else:
+            rep.add(Severity.INFO, "LUBRICATION_REGIME",
+                    f"{spec.lubricant} at {lub.temperature_C:.0f} C "
+                    f"({lub.viscosity_cSt:.0f} cSt) puts the "
+                    f"{worst_film.name.lower()} in the {worst_film.regime} regime: "
+                    f"{1000 * worst_film.film_um:.0f} nm of film over "
+                    f"{1000 * worst_film.roughness_um:.0f} nm of roughness, lambda "
+                    f"{worst_film.lambda_ratio:.2f}, mu {worst_film.mu:.3f}. That "
+                    f"is the thinnest film in the drive; the others have more.",
+                    worst_film.lambda_ratio, FULL_FILM_LAMBDA)
+    else:
+        rep.add(Severity.INFO, "LUBRICATION_REGIME",
+                f"Running dry, so every sliding contact is at the design's own "
+                f"{spec.friction_coefficient:.3f} and wear is governed by PV "
+                f"rather than by a film. At {spec.roughness_um:.1f} um Rq a film "
+                f"would have to reach "
+                f"{FULL_FILM_LAMBDA * math.sqrt(2.0) * spec.roughness_um:.1f} um "
+                f"to separate these surfaces, which is out of reach of anything "
+                f"pourable on a {spec.process.value} finish - so on this "
+                f"build the lubricant to choose is the one with the lowest "
+                f"boundary friction, not the thickest.",
+                spec.friction_coefficient)
 
     # A warning, not an error: overheating is a duty-point problem, not a part
     # that cannot be made.  Slowing the drive down fixes it without touching the

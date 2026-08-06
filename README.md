@@ -13,13 +13,13 @@ animation, a bill of materials and a PDF dossier.
   exactly the pin radius from the pin-centre locus — envelope deviation 0.0 µm.
 - **A datasheet, not a drawing.** Contact stress, torque capacity, efficiency,
   torsional stiffness, lost motion, transmission error, PV and running
-  temperature, mass and inertia, bearing life.
-- **Fifty-three checks that explain themselves.** Each says what it tests, what
+  temperature, lubrication regime, mass and inertia, bearing life.
+- **Fifty-four checks that explain themselves.** Each says what it tests, what
   goes wrong physically when it fails, and which parameter to move — and lights
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
   a shortlist that passes every check, with the trade-offs side by side.
-- **Nothing is asserted that is not verified.** 569 tests, and where two parts
+- **Nothing is asserted that is not verified.** 596 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -322,10 +322,10 @@ rather than tests.
 **Precision** — `TORSIONAL_STIFFNESS` · `STRUCTURAL_COMPLIANCE` ·
 `LOST_MOTION` · `TRANSMISSION_ERROR`
 
-**Wear, heat and life** — `LOW_EFFICIENCY` · `PV_LIMIT_RING` · `PV_MARGIN_RING` ·
-`PV_LIMIT_OUTPUT` · `PV_LIMIT_CAM` · `OVERTEMP` · `RUNNING_HOT` ·
-`SHORT_BEARING_LIFE` · `NO_BEARING_FITS` · `BEARING_DOES_NOT_FIT` ·
-`BEARINGS_OMITTED`
+**Wear, heat and life** — `LOW_EFFICIENCY` · `LUBRICATION_REGIME` ·
+`PV_LIMIT_RING` · `PV_MARGIN_RING` · `PV_LIMIT_OUTPUT` · `PV_LIMIT_CAM` ·
+`OVERTEMP` · `RUNNING_HOT` · `SHORT_BEARING_LIFE` · `NO_BEARING_FITS` ·
+`BEARING_DOES_NOT_FIT` · `BEARINGS_OMITTED`
 
 **Mounting** — `MOTOR_SHAFT_MISMATCH` · `MOTOR_FACE_CLASH` · `MOTOR_RADIAL_LOAD`
 
@@ -534,7 +534,14 @@ solves; pin position error, profile error and runout are the manufacturing half
 and are not modelled, so a real drive measures worse. The thermal model is a single
 lumped body in still air with no conduction into whatever the gearbox is bolted
 to. Bearing catalogue values are nominal metric-series figures. PV limits are
-dry-against-steel design-guide values.
+dry-against-steel design-guide values. The lubrication model builds a
+Dowson-Hamrock film for a *line* contact and applies it to the two conforming
+ones as well, where the formula was not derived — their film is capped at the
+radial clearance, which is a real bound rather than a fitted one, but a
+close-fitting journal is properly a hydrodynamic problem and this is not that.
+Starvation, grease channelling and the transient film at start-up are not
+modelled, and all three make it worse, so a contact it places in the boundary
+regime is there.
 
 **These are preliminary sizing numbers, not a certification.** Calibrate against
 a physical prototype before committing to a design.
@@ -548,8 +555,9 @@ cycloidgen/
 │               explain (what each check tests, why, and what to change)
 ├── analysis/   mechanics (Hertz), stiffness (contacts, backlash, transmission
 │               error), compliance (the parts around the mesh, as springs),
-│               tolerance (where the pins actually are), thermal, mass,
-│               efficiency, bearings
+│               tolerance (where the pins actually are), lubrication (the
+│               film, and the friction it earns), thermal, mass, efficiency,
+│               bearings
 ├── design/     optimise (requirements -> geometry), sweep (trade studies)
 ├── viz/        3D geometry and rendering maths, no Qt: mesh, scene (the
 │               software projection), vtkbridge (mesh -> VTK polydata)
@@ -560,7 +568,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          569 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          596 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -728,10 +736,7 @@ model and stated limits. That is honest, and it is also the ceiling — the mome
 there is a table of predicted versus measured, this stops being a calculator and
 becomes a calibrated instrument.
 
-After that, in rough order: fatigue rather than only static strength, since the
-disc web and the pins see a fully reversed cycle every input revolution; a
-lubrication regime, because one fixed friction coefficient is carrying
-efficiency, PV and temperature between them; bearing life under combined load
+After that, in rough order: bearing life under combined load
 and misalignment; and more kinds of drive — compound and multi-stage, RV-type,
 a pinwheel output. On the output side, dimensioned drawing sheets with
 tolerances and a title block, which is what a shop actually wants; 3MF with

@@ -44,7 +44,8 @@ from ..core.kinematics import SWEEP_STEPS, output_loads, sweep
 from ..core.spec import GearSpec
 from .efficiency import EfficiencyResult, analyse_efficiency
 
-__all__ = ["CONVECTION_W_M2K", "ThermalResult", "analyse_thermal"]
+__all__ = ["CONVECTION_W_M2K", "ThermalResult", "analyse_thermal",
+           "solve_operating_point"]
 
 #: Combined natural convection and radiation from a small housing in still air,
 #: W/m^2K.  Free convection off a palm-sized body runs about 8; grey-body
@@ -55,6 +56,14 @@ CONVECTION_W_M2K = 12.0
 #: elements do not eliminate micro-slip, but they take the duty far below any
 #: sliding limit; this keeps the reported number honest rather than zero.
 _ROLLING_PV_FACTOR = 0.05
+
+#: Fixed-point settle for the operating temperature.  A quarter of a degree is
+#: far inside what a lumped still-air model is worth, and the iteration is
+#: half-damped because the loop has positive feedback in it - hotter oil is
+#: thinner oil is more friction - and an undamped step can ring.
+_TEMP_TOL_C = 0.25
+_TEMP_RELAX = 0.5
+_TEMP_MAX_ITER = 30
 
 
 @dataclass
@@ -102,6 +111,44 @@ class ThermalResult:
     @property
     def temperature_margin_C(self) -> float:
         return self.temperature_limit_C - self.temperature_C
+
+
+def solve_operating_point(spec: GearSpec, steps: int = SWEEP_STEPS
+                          ) -> tuple[EfficiencyResult, ThermalResult]:
+    """Efficiency and temperature at the point where they agree with each other.
+
+    With a lubricant in it this drive has a loop in its physics that it did not
+    have when friction was a constant: the losses heat the gearbox, the heat
+    thins the oil, the thin oil lets the surfaces touch, and touching surfaces
+    make the losses.  Evaluating the friction at ambient answers for a drive on
+    its first revolution; evaluating it at the running temperature needs the
+    running temperature, which is what the losses produce.
+
+    So it is solved rather than assumed - half-damped substitution from ambient
+    until the temperature stops moving.  It converges because the feedback is
+    bounded: once the film has gone the coefficient is the boundary one and no
+    amount of further heating raises it, so the worst case is a drive running
+    entirely dry and that is a finite temperature.
+
+    Dry designs skip the loop outright.  There is no viscosity in them for
+    temperature to act on, so one pass is the exact answer and iterating would
+    only be a slower way to reach it.
+    """
+    if not spec.lube.forms_a_film:
+        eff = analyse_efficiency(spec, steps)
+        return eff, analyse_thermal(spec, efficiency=eff, steps=steps)
+
+    area_m2 = spec.cooling_area_mm2 * 1e-6
+    t = spec.ambient_temp_C
+    eff = analyse_efficiency(spec, steps, temperature_C=t)
+    for _ in range(_TEMP_MAX_ITER):
+        settled = spec.ambient_temp_C + eff.total_loss_W / max(
+            CONVECTION_W_M2K * area_m2, 1e-9)
+        if abs(settled - t) < _TEMP_TOL_C:
+            break
+        t += _TEMP_RELAX * (settled - t)
+        eff = analyse_efficiency(spec, steps, temperature_C=t)
+    return eff, analyse_thermal(spec, efficiency=eff, steps=steps)
 
 
 def analyse_thermal(spec: GearSpec, efficiency: EfficiencyResult | None = None,

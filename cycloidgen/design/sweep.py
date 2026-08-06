@@ -50,6 +50,7 @@ SWEEPABLE: dict[str, tuple[str, str]] = {
     "input_rpm": ("Input speed", "rpm"),
     "output_torque_Nm": ("Output torque", "Nm"),
     "friction_coefficient": ("Friction coefficient", ""),
+    "surface_roughness_um": ("Surface roughness Rq", "um"),
 }
 
 #: Fields that only make sense as whole numbers.
@@ -102,6 +103,12 @@ def suggested_range(spec: GearSpec, field: str) -> tuple[float, float, int]:
     Integer fields get their own sensible spans instead, because "half the lobe
     count" is a different gearbox, not a variation of this one.
     """
+    if field == "surface_roughness_um":
+        # The one sweepable field that is allowed to be unset, and the one whose
+        # interesting range is not "near where you are": the question it answers
+        # is how good a finish it would take to build a film, and that runs from
+        # a lapped surface to a printed one whatever the design currently says.
+        return 0.02, max(4.0 * spec.roughness_um, 20.0), 25
     current = float(getattr(spec, field))
     if field == "lobes":
         return max(3.0, current - 8), current + 8, 17
@@ -164,4 +171,17 @@ def sweep_parameter(spec: GearSpec, field: str, values: Sequence[float],
             progress(i + 1, len(values))
 
     return SweepResult(field=field, label=label, unit=unit,
-                       current=float(getattr(spec, field)), points=points)
+                       current=_current_value(spec, field), points=points)
+
+
+def _current_value(spec: GearSpec, field: str) -> float:
+    """Where the design sits now, for the marker on the chart.
+
+    Every sweepable field but one is a plain number on the spec.  Surface
+    roughness may be unset, meaning "whatever the process gives" - and the
+    marker has to land on the value the design is actually being analysed at,
+    not on the fact that nobody typed one in.
+    """
+    if field == "surface_roughness_um":
+        return spec.roughness_um
+    return float(getattr(spec, field))

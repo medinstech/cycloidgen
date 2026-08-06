@@ -139,6 +139,23 @@ def report_dict(a: DesignAnalysis) -> dict:
             "temperature_C": a.thermal.temperature_C,
             "temperature_limit_C": a.thermal.temperature_limit_C,
         },
+        "lubrication": {
+            "lubricant": a.lubrication.lubricant,
+            "temperature_C": a.lubrication.temperature_C,
+            "viscosity_cSt": a.lubrication.viscosity_cSt,
+            "roughness_um": a.spec.roughness_um,
+            "contacts": [
+                # ``null`` rather than infinity for a contact that does not
+                # slide: there is no lambda there, and JSON's infinity is a
+                # non-standard extension half the parsers downstream reject.
+                {"name": c.name, "slides": c.slides, "regime": c.regime,
+                 "film_um": c.film_um, "composite_roughness_um": c.roughness_um,
+                 "lambda_ratio": c.lambda_ratio if c.slides else None, "mu": c.mu,
+                 "entrainment_m_s": c.entrainment_m_s,
+                 "sliding_speed_m_s": c.sliding_speed_m_s}
+                for c in a.lubrication.contacts
+            ],
+        },
         "mass": {
             "disc_mass_g": a.mass.disc_mass_g,
             "disc_volume_cm3": a.mass.disc_volume_cm3,
@@ -537,6 +554,37 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
              "Steady temperature",
              f"{th.temperature_C:.0f} C of {th.temperature_limit_C:.0f} C"],
         ], [42 * mm, 36 * mm, 42 * mm, 36 * mm]),
+    ]
+
+    # --- what is between the surfaces ----------------------------------------
+    lb = a.lubrication
+    rows = [["Contact", "Regime", "Film", "Roughness", "Lambda", "mu"]]
+    for c in lb.contacts:
+        if not c.slides:
+            rows.append([c.name, "rolling", "-", "-", "-", "-"])
+            continue
+        rows.append([c.name, c.regime,
+                     f"{1000 * c.film_um:.0f} nm" if c.film_um else "none",
+                     f"{1000 * c.roughness_um:.0f} nm",
+                     f"{c.lambda_ratio:.2f}", f"{c.mu:.3f}"])
+    story += [
+        CondPageBreak(60 * mm),
+        Paragraph("Lubrication regime", h2),
+        Paragraph(
+            f"{lb.lubricant} at the running temperature of "
+            f"{lb.temperature_C:.0f} C"
+            + (f", where it is {lb.viscosity_cSt:.0f} cSt. " if lb.viscosity_cSt
+               else ". ")
+            + "Lambda is the minimum film thickness over the composite "
+              "roughness of the two surfaces, and it is the number that decides "
+              "whether they touch: above 3 they are separated, below 1 the peaks "
+              "carry the load and the friction coefficient belongs to the "
+              "additives rather than to the oil. Film thickness is "
+              "Dowson-Hamrock for a line contact, entrained at half the sliding "
+              "speed because a fixed pin does not move - which is most of why a "
+              "rolling pin is worth having.", body),
+        Spacer(1, 4),
+        _table(rows, [46 * mm, 22 * mm, 22 * mm, 24 * mm, 20 * mm, 22 * mm]),
     ]
 
     # --- mass, inertia, structure --------------------------------------------

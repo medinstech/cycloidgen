@@ -18,6 +18,16 @@ coefficient for it.  A bearing the drive does not carry - a flange located by
 the machine it drives - is not counted here at all, because that drag is the
 machine's and not this gearbox's.
 
+The *sliding* coefficient is no longer a number off the spec.  It comes from
+:mod:`cycloidgen.analysis.lubrication`, which builds the film at each of those
+contacts and returns the friction the regime earns - so it depends on the load,
+the speed, the surface finish, what is in there and how hot it has got.  With no
+lubricant that resolves to the design's own ``friction_coefficient`` and nothing
+about the answer changes.  The rolling coefficients below stay constants,
+deliberately: a needle roller's own contact is the bearing's business and not
+this mesh's, and pretending otherwise would put a film model inside a catalogue
+part that already comes with a rated life.
+
 Not modelled: seal drag, lubricant churning, bearing preload, and any losses from
 misalignment or clearance take-up.  The result is therefore an **upper bound**.
 Well-built steel drives measure 88-94%; a printed one with fixed pins is usually
@@ -32,6 +42,7 @@ import numpy as np
 
 from ..core.kinematics import SWEEP_STEPS, output_loads, sweep
 from ..core.spec import GearSpec
+from .lubrication import LubricationResult, analyse_lubrication
 
 __all__ = ["EfficiencyResult", "analyse_efficiency"]
 
@@ -54,31 +65,78 @@ class EfficiencyResult:
     output_power_W: float
     input_power_W: float
     input_torque_Nm: float
+    #: The regime behind the sliding coefficients above, at the temperature this
+    #: was evaluated at.  Carried on the result because the coefficients are no
+    #: longer constants anybody can look up - they are an output now, and the
+    #: film they came from is what makes them arguable.
+    lubrication: LubricationResult
 
     @property
     def total_loss_W(self) -> float:
         return self.loss_ring_pins_W + self.loss_output_pins_W + self.loss_bearings_W
 
 
-def analyse_efficiency(spec: GearSpec, steps: int = SWEEP_STEPS) -> EfficiencyResult:
-    """Average the loss over one lobe pitch and turn it into an efficiency."""
+def analyse_efficiency(spec: GearSpec, steps: int = SWEEP_STEPS,
+                       temperature_C: float | None = None) -> EfficiencyResult:
+    """Average the loss over one lobe pitch and turn it into an efficiency.
+
+    ``temperature_C`` is where the lubricant is asked how thick it is.  It
+    defaults to ambient, which is the cold-start answer; the running one is a
+    fixed point, because the losses computed here are what heats the drive that
+    thins the oil that sets the losses.  :func:`cycloidgen.analysis.thermal
+    .solve_operating_point` closes that loop.
+    """
     omega_in = spec.input_rpm * 2.0 * np.pi / 60.0
     omega_out = omega_in / spec.ratio
     torque_out_Nmm = spec.output_torque_Nm * 1000.0
     torque_per_disc = torque_out_Nmm / spec.disc_count
-
-    mu_ring = ROLLING_MU if spec.ring_pins_are_rollers else spec.friction_coefficient
-    mu_out = ROLLING_MU if spec.output_pins_are_rollers else spec.friction_coefficient
-
-    ring_losses: list[float] = []
-    out_losses: list[float] = []
-    ecc_losses: list[float] = []
 
     # relative sliding speed of the disc in the carrier frame (mm/s)
     v_out = spec.eccentricity * omega_in * (1.0 - 1.0 / spec.ratio)
     # eccentric bearing: inner race at input speed, outer at disc speed
     omega_rel = omega_in * (1.0 - 1.0 / spec.ratio)
     d_mean = (spec.input_shaft_diameter + spec.center_bore_diameter) / 2.0
+    r_cam = spec.cam_diameter / 2.0
+    v_cam = omega_rel * r_cam / 1000.0                       # m/s
+
+    # One sweep, and the friction coefficients applied to the total afterwards.
+    # They cannot be applied inside it: the coefficient at a sliding contact now
+    # comes from a film thickness, the film thickness from the load, and the load
+    # is what this loop is working out.  So the loop collects what is independent
+    # of friction and the coefficients multiply it at the end.
+    ring_fv: list[float] = []                                # sum(F*v), N mm/s
+    out_f: list[float] = []                                  # sum(F), N
+    ecc_f: list[float] = []                                  # crank reaction, N
+    peak_pin = 0.0
+    peak_out = 0.0
+    peak_slide = 0.0
+
+    for cs in sweep(spec, steps):
+        f = cs.forces(torque_per_disc)                       # N
+        v = cs.sliding_speed * omega_in                      # mm/s
+        ring_fv.append(float((f * v).sum()))
+        peak_pin = max(peak_pin, float(f.max(initial=0.0)))
+        peak_slide = max(peak_slide, float(cs.sliding_speed.max(initial=0.0)))
+
+        ol = output_loads(spec, cs.phi, torque_per_disc)
+        out_f.append(float(ol.forces.sum()))
+        peak_out = max(peak_out, float(ol.forces.max(initial=0.0)))
+
+        fv = (f[:, None] * cs.normals).sum(axis=0)
+        ecc_f.append(float(np.hypot(*fv)))
+
+    # The film is evaluated at the peak load of the cycle, which is the thinnest
+    # it gets.  A coefficient averaged over the cycle would be kinder and would
+    # describe a contact that is not the one that wears.
+    lub = analyse_lubrication(
+        spec, ring_load_N=peak_pin, output_load_N=peak_out,
+        cam_load_N=max(ecc_f, default=0.0),
+        ring_sliding_m_s=peak_slide * omega_in / 1000.0,
+        output_sliding_m_s=v_out / 1000.0, cam_sliding_m_s=v_cam,
+        temperature_C=temperature_C)
+
+    mu_ring = ROLLING_MU if spec.ring_pins_are_rollers else lub["Ring pin / disc flank"].mu
+    mu_out = ROLLING_MU if spec.output_pins_are_rollers else lub["Output pin / disc hole"].mu
 
     # With no cam bearing the disc bore is a plain journal on the cam: the same
     # torque expression, but the sliding coefficient instead of the rolling one
@@ -88,24 +146,12 @@ def analyse_efficiency(spec: GearSpec, steps: int = SWEEP_STEPS) -> EfficiencyRe
     if spec.cam_bearing_fitted:
         mu_ecc, r_ecc = BEARING_MU, d_mean / 2.0
     else:
-        mu_ecc, r_ecc = spec.friction_coefficient, spec.cam_diameter / 2.0
-
-    for cs in sweep(spec, steps):
-        f = cs.forces(torque_per_disc)                       # N
-        v = cs.sliding_speed * omega_in                      # mm/s
-        ring_losses.append(float((mu_ring * f * v).sum()) / 1000.0)   # W
-
-        ol = output_loads(spec, cs.phi, torque_per_disc)
-        out_losses.append(float(mu_out * ol.forces.sum() * v_out) / 1000.0)
-
-        fv = (f[:, None] * cs.normals).sum(axis=0)
-        f_ecc = float(np.hypot(*fv))
-        ecc_losses.append(mu_ecc * f_ecc * r_ecc * omega_rel / 1000.0)
+        mu_ecc, r_ecc = lub["Disc bore / cam"].mu, r_cam
 
     n = spec.disc_count
-    loss_ring = float(np.mean(ring_losses)) * n
-    loss_out = float(np.mean(out_losses)) * n
-    loss_ecc = float(np.mean(ecc_losses)) * n
+    loss_ring = mu_ring * float(np.mean(ring_fv)) / 1000.0 * n
+    loss_out = mu_out * float(np.mean(out_f)) * v_out / 1000.0 * n
+    loss_ecc = mu_ecc * float(np.mean(ecc_f)) * r_ecc * omega_rel / 1000.0 * n
 
     # Main output bearing: slow, but it reacts the whole output torque.  With no
     # bearing fitted the flange is located by the machine it drives, so that drag
@@ -127,4 +173,5 @@ def analyse_efficiency(spec: GearSpec, steps: int = SWEEP_STEPS) -> EfficiencyRe
         output_power_W=p_out,
         input_power_W=p_in,
         input_torque_Nm=(p_in / omega_in) if omega_in > 0 else 0.0,
+        lubrication=lub,
     )
