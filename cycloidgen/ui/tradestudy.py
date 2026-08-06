@@ -29,6 +29,57 @@ from .logpanel import logger
 
 __all__ = ["TradeStudyTab"]
 
+#: The widest bound these boxes realistically hold - a five-figure input speed
+#: with the decimals the geometry ones need.  They are capped at all because Qt
+#: sizes a spin box for its whole *range*, and 0..100000 asks for far more than
+#: any sweep bound uses; the cap is measured against this rather than picked,
+#: because a figure chosen by eye is how the steps box came to display 21 as
+#: "2" - 70 px is not two digits once the arrows and the frame have had theirs.
+_WIDEST_BOUND = "100000.000"
+
+#: ...and what it may shrink to when the window is narrow.  Four figures is
+#: every bound anyone sweeps here except an input speed, so the number is
+#: whole on almost every design and scrolls within its box on the rest.
+_NARROWEST_BOUND = "0000"
+
+#: What the chart says before it is a chart.  It goes *in* the panel: a blank
+#: white rectangle under a toolbar reads as a chart that failed to draw, and a
+#: caption below it is read after that conclusion has been reached.
+_EMPTY_CHART = ("Pick a parameter above and press Run.\n\n"
+                "Four curves come back - torque capacity, efficiency, lost\n"
+                "motion and mass - against the one thing you swept, on their\n"
+                "own units. The dashed line is where the current design sits,\n"
+                "and shaded bands are where designs stop passing their checks.")
+
+
+def _size_box(box, widest: str) -> None:
+    """Room for ``widest`` when there is width to spare, and room to shrink.
+
+    Both halves matter and the old code only had one.  A maximum on its own is
+    what clipped the steps box, because Qt takes the *smaller* of the size hint
+    and the maximum - so capping at 70 px hid a digit.  But raising the cap and
+    stopping there pushes the whole window's smallest usable size up with it,
+    since this row cannot then compress: doing only that moved it from 1077 px
+    to 1247.  A low minimum is what lets the row give way on a narrow window
+    while still showing the whole number wherever there is room for it.
+
+    The frame and the arrows are measured off the widget's own size hint rather
+    than allowed for by a constant, since how much they take is the style's
+    business and differs between platforms and themes.
+    """
+    metrics = box.fontMetrics()
+    longest = max((box.textFromValue(box.minimum()),
+                   box.textFromValue(box.maximum())), key=len)
+    chrome = box.sizeHint().width() - metrics.horizontalAdvance(longest)
+    # A box whose widest value is already short - the steps one holds two
+    # digits - must not be given a floor wider than its ceiling.  Qt resolves
+    # that by raising the ceiling to meet it, which is the opposite of what
+    # either number was for.
+    room = metrics.horizontalAdvance(widest)
+    box.setMaximumWidth(room + chrome)
+    box.setMinimumWidth(min(room, metrics.horizontalAdvance(_NARROWEST_BOUND))
+                        + chrome)
+
 
 class _Worker(QThread):
     tick = Signal(int, int)
@@ -83,11 +134,11 @@ class TradeStudyTab(QWidget):
 
         self._figure = Figure(figsize=(7.2, 5.0), dpi=100)
         self._canvas = Canvas(self._figure)
+        plots.placeholder_figure(_EMPTY_CHART, self._figure)
         layout.addWidget(NavBar(self._canvas, self))
         layout.addWidget(self._canvas, 1)
 
-        self._note = QLabel("Pick a parameter and press Run. The dashed line is "
-                            "where the current design sits.")
+        self._note = QLabel()
         self._note.setWordWrap(True)
         layout.addWidget(self._note)
 
@@ -119,7 +170,7 @@ class TradeStudyTab(QWidget):
         self._steps = QSpinBox()
         self._steps.setRange(3, 81)
         self._steps.setValue(21)
-        self._steps.setMaximumWidth(70)
+        _size_box(self._steps, "81")
         row.addWidget(self._steps)
 
         self._run_btn = QPushButton("Run")
@@ -133,18 +184,31 @@ class TradeStudyTab(QWidget):
         box = QDoubleSpinBox()
         box.setRange(0.0, 100_000.0)
         box.setDecimals(3)
-        box.setMaximumWidth(120)
+        # No steppers on these two.  They are typed into - a range comes from
+        # the suggestion or from a number you have in mind - and nobody drives
+        # 27.5 anywhere useful in thousandths.  The arrows are a third of the
+        # box's width each, and this row is what sets the whole window's
+        # smallest usable size, so they are the most expensive thing in it that
+        # nothing was using.  The steps box keeps its own: 21 to 22 is exactly
+        # the kind of nudge a stepper is for.
+        box.setButtonSymbols(QDoubleSpinBox.NoButtons)
+        _size_box(box, _WIDEST_BOUND)
         return box
 
     def refresh_theme(self) -> None:
-        """Redraw the last sweep after an appearance change.
+        """Redraw after an appearance change - the sweep, or the empty state.
 
         The figure's colours were fixed when it was drawn, so a live theme
-        switch has to rebuild it or the panel keeps the old surface.
+        switch has to rebuild it or the panel keeps the old surface.  That is
+        as true of the placeholder as of a chart: it is a figure like any
+        other, and a white card left in a dark window is the exact defect
+        following the desktop theme was meant to prevent.
         """
         if self._result is not None:
             plots.sweep_figure(self._result, self._figure)
-            self._canvas.draw_idle()
+        else:
+            plots.placeholder_figure(_EMPTY_CHART, self._figure)
+        self._canvas.draw_idle()
 
     # ------------------------------------------------------------------ state
     def set_spec(self, spec: GearSpec) -> None:

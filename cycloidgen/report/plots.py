@@ -28,6 +28,7 @@ __all__ = [
     "force_figure",
     "light_theme",
     "loss_figure",
+    "placeholder_figure",
     "print_theme",
     "profile_figure",
     "set_theme",
@@ -645,6 +646,27 @@ def sweep_figure(result, fig: Figure | None = None) -> Figure:
     fig.suptitle(f"Sweeping {result.label}{tail}", color=t["ink"], fontsize=10,
                  x=0.02, ha="left")
     fig.tight_layout(rect=(0, 0, 1, 0.95))
+    return fig
+
+
+def placeholder_figure(message: str, fig: Figure | None = None) -> Figure:
+    """A figure that says why it is empty, instead of being a white rectangle.
+
+    An axis-less blank panel under a toolbar reads as a chart that failed to
+    draw, and the caption underneath it - which is where the explanation used
+    to live - is read after the conclusion has already been reached.  So the
+    explanation goes where the chart would be.
+    """
+    t = theme()
+    fig = fig or Figure(figsize=(7.2, 5.0), dpi=110)
+    fig.clear()
+    fig.patch.set_facecolor(t["surface"])
+    ax = fig.add_subplot(111)
+    ax.set_facecolor(t["surface"])
+    ax.axis("off")
+    ax.text(0.5, 0.5, message, transform=ax.transAxes, ha="center", va="center",
+            color=t["muted"], fontsize=10, linespacing=1.6, wrap=True)
+    fig.tight_layout()
     return fig
 
 

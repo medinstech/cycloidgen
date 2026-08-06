@@ -101,6 +101,15 @@ _DETAIL_COL = 4
 #: give up its width instead.
 _MIN_DETAIL_PX = 260
 
+#: The compare tab before there is anything to compare against.  Declared once
+#: because it is set in two places - when the tab is built and whenever the
+#: reference is cleared - and a state that describes itself differently
+#: depending on how it was reached is a state nobody trusts.
+_NOTHING_PINNED = (
+    "Nothing pinned yet. Press <b>Pin as reference</b> to freeze the current "
+    "design, then change things: this tab shows what moved and the drawing "
+    "shows the old outline underneath.")
+
 #: The at-a-glance strip, as ``(key, caption, tooltip)``.  Ordered the way a
 #: drive is read: what it is, how big it is, then what it does and what that
 #: costs.  Every one of them carries its own name, because a row of bare values
@@ -825,13 +834,17 @@ class MainWindow(QMainWindow):
         self.findings.setRootIsDecorated(False)
         self.findings.currentItemChanged.connect(self._finding_selected)
         header = self.findings.header()
-        # Sized to what is in them rather than to a number chosen once.  A
-        # fixed 210 px for the code held 40 px that the detail needed on every
-        # window, and on a narrow one the four fixed columns added up to more
-        # than the list had - so the detail column was pushed off the side
-        # behind a horizontal scrollbar and the list became a column of codes.
-        for col in (0, 1):
-            header.setSectionResizeMode(col, QHeaderView.ResizeToContents)
+        # The severity and code columns are measured against their contents
+        # once per fill rather than held at a number chosen once: a fixed
+        # 210 px for the code kept 40 px the detail needed on every window, and
+        # on a narrow one the four fixed columns added up to more than the list
+        # had - so the detail was pushed off the side behind a horizontal
+        # scrollbar.  Measured, not `ResizeToContents`: that mode makes the
+        # view report a minimum width wide enough for its columns, which
+        # propagates out to the whole window and stops the main splitter being
+        # dragged where it used to go.
+        for col in (2, 3):
+            header.setSectionResizeMode(col, QHeaderView.Interactive)
         for col, width in ((2, 78), (3, 78)):
             self.findings.setColumnWidth(col, width)
             self.findings.headerItem().setTextAlignment(col, Qt.AlignRight)
@@ -1046,10 +1059,7 @@ class MainWindow(QMainWindow):
     def _build_compare_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        self._compare_note = QLabel(
-            "Nothing pinned yet. Press <b>Pin as reference</b> to freeze the "
-            "current design, then change things: this tab shows what moved and "
-            "the drawing shows the old outline underneath.")
+        self._compare_note = QLabel(_NOTHING_PINNED)
         self._compare_note.setWordWrap(True)
         layout.addWidget(self._compare_note)
 
@@ -1060,6 +1070,10 @@ class MainWindow(QMainWindow):
         for col, width in ((0, 260), (1, 140), (2, 140), (3, 140)):
             self._compare.setColumnWidth(col, width)
         layout.addWidget(self._compare, 1)
+        # Something has to hold the space while the table is away, or the note
+        # stretches down the page and stops reading as one sentence.
+        self._compare_gap = QWidget()
+        layout.addWidget(self._compare_gap, 1)
 
         row = QHBoxLayout()
         clear = QPushButton("Clear reference")
@@ -1071,7 +1085,22 @@ class MainWindow(QMainWindow):
         row.addWidget(swap)
         row.addStretch(1)
         layout.addLayout(row)
+        self._compare_buttons = (clear, swap)
+        self._show_reference(False)
         return page
+
+    def _show_reference(self, pinned: bool) -> None:
+        """Put the tab into its "nothing pinned" state, or take it out of it.
+
+        An empty table with its column headings still on it reads as a table
+        whose contents failed to arrive, and two buttons that act on a
+        reference are a puzzle when there is no reference: pressing either does
+        nothing, and nothing is the same thing a broken button does.
+        """
+        self._compare.setVisible(pinned)
+        self._compare_gap.setVisible(not pinned)
+        for button in self._compare_buttons:
+            button.setEnabled(pinned)
 
     def _build_menu(self) -> None:
         m = self.menuBar().addMenu("&File")
@@ -1621,6 +1650,13 @@ class MainWindow(QMainWindow):
             self.findings.addTopLevelItem(
                 QTreeWidgetItem(["", "", "", "", "No findings."]))
 
+        # Measured here rather than left to a `ResizeToContents` header mode,
+        # which would make the view demand a minimum width wide enough for its
+        # own columns and push that all the way out to the window.
+        for col in (0, 1):
+            self.findings.resizeColumnToContents(col)
+        self._fit_checks()
+
         for severity, label in ((Severity.ERROR, "Errors"),
                                 (Severity.WARNING, "Warnings"),
                                 (Severity.INFO, "Notes")):
@@ -1978,8 +2014,11 @@ class MainWindow(QMainWindow):
     def _clear_reference(self) -> None:
         self._pinned = None
         self._pinned_analysis = None
-        self._compare.clear()
-        self._compare_note.setText("Nothing pinned.")
+        # Through the same path the tab is built on rather than clearing it by
+        # hand here, which is how this came to have a second, shorter wording
+        # of the empty state that only appeared if you had pinned something
+        # first and then changed your mind.
+        self._fill_compare()
         self._draw_profile()
 
     def _restore_reference(self) -> None:
@@ -1989,7 +2028,10 @@ class MainWindow(QMainWindow):
     def _fill_compare(self) -> None:
         self._compare.clear()
         if self._pinned_analysis is None or self.analysis is None:
+            self._show_reference(False)
+            self._compare_note.setText(_NOTHING_PINNED)
             return
+        self._show_reference(True)
         ref, cur = self._pinned_analysis, self.analysis
         self._compare_note.setText(
             f"Reference: {self._pinned.ratio}:1, "

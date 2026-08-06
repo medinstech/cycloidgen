@@ -1040,3 +1040,92 @@ def test_the_explanation_panel_yields_to_the_list_on_a_narrow_window(app):
         assert w._explain.isVisible()
     finally:
         w.close()
+
+
+# ------------------------------------------------------------- empty states
+
+
+def test_a_spin_box_shows_the_whole_of_what_is_in_it(app):
+    """The steps box was capped at 70 px and held 21, so it displayed "2".
+
+    A control that shows half its value is worse than one that shows none:
+    two is a number you might believe, and a two-point sweep is a straight
+    line whatever the design does.
+    """
+    w = _window(app)
+    try:
+        from PySide6.QtWidgets import QDoubleSpinBox
+
+        box = w._trade._steps
+        assert box.value() == 21
+        metrics = box.fontMetrics()
+        assert box.maximumWidth() > metrics.horizontalAdvance(box.text()) + 4
+        for bound in (w._trade._lo, w._trade._hi):
+            assert bound.maximumWidth() > metrics.horizontalAdvance(bound.text()) + 4
+            # ...and the other half of it: a box that can only be wide sets the
+            # whole window's smallest usable size, which is what this row was
+            # already known for. It has to be able to give way as well.
+            assert bound.minimumWidth() < bound.maximumWidth()
+            assert bound.buttonSymbols() == QDoubleSpinBox.NoButtons
+        # The steps box is the other end of that: two digits is already narrow,
+        # so its floor must not be set above its own ceiling - Qt resolves that
+        # by raising the ceiling, which undoes both numbers.
+        assert box.minimumWidth() <= box.maximumWidth()
+        assert box.maximumWidth() > metrics.horizontalAdvance("81") + 4
+    finally:
+        w.close()
+
+
+def test_the_trade_study_says_what_the_empty_panel_is_for(app):
+    w = _window(app)
+    try:
+        axes = w._trade._figure.axes
+        assert len(axes) == 1, "the empty state should be one panel, not four"
+        assert axes[0].texts, "the empty panel says nothing"
+    finally:
+        w.close()
+
+
+def test_the_empty_panel_is_replaced_by_the_sweep_and_survives_a_theme_change(app):
+    """And goes back to being themed correctly, which a figure only does when
+    it is rebuilt - its colours were fixed when it was drawn."""
+    from cycloidgen.report import plots
+
+    w = _window(app)
+    try:
+        w._choose_appearance("dark")
+        _pump(app, 0.4)
+        w._trade.refresh_theme()
+        axes = w._trade._figure.axes
+        assert len(axes) == 1 and axes[0].texts
+        assert w._trade._figure.patch.get_facecolor()[:3] != (1.0, 1.0, 1.0)
+    finally:
+        w._choose_appearance("light")
+        w.close()
+        plots.set_theme("light")
+
+
+def test_compare_does_not_show_an_empty_table_with_nothing_to_compare(app):
+    """An empty table with its headings on reads as one whose contents failed
+    to arrive, and a button that acts on a reference is a puzzle when there is
+    none - pressing it does nothing, which is what a broken button does."""
+    w = _window(app)
+    try:
+        assert not w._compare.isVisible()
+        assert all(not b.isEnabled() for b in w._compare_buttons)
+        assert "Nothing pinned" in w._compare_note.text()
+
+        w._pin_reference()
+        _pump(app, 1.0)
+        assert w._compare.isVisible()
+        assert all(b.isEnabled() for b in w._compare_buttons)
+        assert w._compare.topLevelItemCount() > 0
+        assert "Nothing pinned" not in w._compare_note.text()
+
+        w._clear_reference()
+        _pump(app, 0.5)
+        assert not w._compare.isVisible()
+        assert all(not b.isEnabled() for b in w._compare_buttons)
+        assert "Nothing pinned" in w._compare_note.text()
+    finally:
+        w.close()

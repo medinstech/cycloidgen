@@ -222,3 +222,24 @@ def test_the_assembly_figure_draws_the_solid():
     # Screen coordinates: y grows downward, so the axis has to be inverted or
     # the whole assembly arrives upside down.
     assert ax.get_ylim()[0] > ax.get_ylim()[1]
+
+
+def test_an_empty_panel_says_why_it_is_empty():
+    """A blank white rectangle under a chart toolbar reads as a chart that
+    failed to draw, and a caption below it is read after that conclusion has
+    already been reached.  So the explanation goes where the chart would be."""
+    fig = plots.placeholder_figure("Pick a parameter and press Run.")
+    ax = fig.axes[0]
+    assert not ax.get_frame_on() or not ax.axison
+    texts = [t.get_text() for t in ax.texts]
+    assert texts == ["Pick a parameter and press Run."]
+
+
+def test_the_empty_panel_takes_the_surface_it_is_sitting_on():
+    """It is a figure like any other, and a white card left in a dark window is
+    the exact defect that following the desktop theme was meant to prevent."""
+    for mode in ("light", "dark"):
+        with plots.using_theme(mode):
+            fig = plots.placeholder_figure("nothing yet")
+            assert fig.patch.get_facecolor() == matplotlib.colors.to_rgba(
+                plots.theme()["surface"])
