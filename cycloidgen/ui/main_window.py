@@ -12,8 +12,8 @@ matplotlib.use("QtAgg")
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as Canvas
 from matplotlib.figure import Figure
-from PySide6.QtCore import Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QAction, QColor, QKeySequence, QPalette
+from PySide6.QtCore import QEvent, QSize, Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QAction, QColor, QFontMetrics, QKeySequence, QPalette
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -35,6 +36,8 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QSplitter,
     QStatusBar,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QTabWidget,
     QTextBrowser,
     QTreeWidget,
@@ -85,6 +88,82 @@ _CRANK_STEP_DEG = 3.0
 #: The checks list never gets smaller than this.  Four rows and the filter
 #: strip: enough to see that findings exist and what the worst one is.
 _MIN_CHECKS_PX = 130
+
+#: Padding either side of a wrapped cell, and under it.  One number for both:
+#: text that touches the column edge reads as clipped even when it is not.
+_WRAP_MARGIN_PX = 8
+
+#: The checks list's columns.  DETAIL is the one that carries a sentence.
+_DETAIL_COL = 4
+
+#: Narrower than this and the detail column cannot wrap a sentence into
+#: anything readable - about five words to a line - so something else has to
+#: give up its width instead.
+_MIN_DETAIL_PX = 260
+
+#: The at-a-glance strip, as ``(key, caption, tooltip)``.  Ordered the way a
+#: drive is read: what it is, how big it is, then what it does and what that
+#: costs.  Every one of them carries its own name, because a row of bare values
+#: is a summary only its author can read - and the tooltip carries the sentence
+#: that will not fit under a caption, since half of these are quantities with a
+#: qualification attached rather than plain readings.
+_HEADER_STATS: tuple[tuple[str, str, str], ...] = (
+    ("ratio", "RATIO", "Reduction: input turns per output turn"),
+    ("od", "OD", "Outside diameter, across the housing"),
+    ("length", "LENGTH", "Envelope length: the barrel plus both end plates"),
+    ("mass", "MASS", "Assembled mass of every made part"),
+    ("capacity", "CAPACITY",
+     "Torque capacity with clearance - derated for load concentrating on the "
+     "few pins that are actually in mesh. Amber when it is under the torque "
+     "this design is rated for."),
+    ("efficiency", "EFFICIENCY",
+     "Output power over input power at the duty point"),
+    ("backlash", "LOST MOTION",
+     "Play at the output before it moves, in arcminutes, with the torque "
+     "reversed"),
+    ("temperature", "TEMPERATURE",
+     "Steady-state running temperature at the housing. Amber past the limit "
+     "the materials in this design allow."),
+)
+
+
+class WrappingColumn(QStyledItemDelegate):
+    """Give one column of a tree the height its wrapped text actually needs.
+
+    ``QAbstractItemView.setWordWrap`` is half the job and the half that is easy
+    to mistake for all of it: it makes the *painter* wrap, so the text is laid
+    out correctly and then clipped to a row one line tall.  The row height comes
+    from the delegate's size hint, and the default one measures a single line
+    because the option it is handed during layout has no width in it yet.
+
+    So the width is taken from the column rather than from the option.  Nothing
+    else here changes: painting is still the base class's, which already wraps.
+    """
+
+    def __init__(self, view: QTreeWidget, column: int) -> None:
+        super().__init__(view)
+        self._view = view
+        self._column = column
+        # A stretched last section resizes with the window and with the
+        # splitter, and a row measured against the old width is a row that
+        # clips or a row with a band of empty under it.
+        view.header().sectionResized.connect(
+            lambda *_: view.scheduleDelayedItemsLayout())
+
+    def sizeHint(self, option, index) -> QSize:
+        hint = super().sizeHint(option, index)
+        if index.column() != self._column:
+            return hint
+        width = self._view.columnWidth(self._column) - _WRAP_MARGIN_PX
+        if width <= 0:
+            return hint
+        styled = QStyleOptionViewItem(option)
+        self.initStyleOption(styled, index)
+        if not styled.text:
+            return hint
+        needed = QFontMetrics(styled.font).boundingRect(
+            0, 0, width, 0, Qt.TextWordWrap, styled.text).height()
+        return QSize(hint.width(), max(hint.height(), needed + _WRAP_MARGIN_PX))
 
 
 def _severity_colours(mode: str) -> dict[Severity, QColor]:
@@ -408,7 +487,7 @@ class MainWindow(QMainWindow):
         self._view3d.save_state()
 
     def _build_header(self) -> QWidget:
-        """A slim brand strip: the mark, the product, and nothing else.
+        """A slim brand strip: the mark, the product, and the drive at a glance.
 
         Deliberately thin.  A tall banner on a tool whose whole job is showing a
         drawing and a table of numbers is space taken away from the work.
@@ -441,10 +520,99 @@ class MainWindow(QMainWindow):
         row.addWidget(tagline)
         row.addStretch(1)
 
-        self._header_status = QLabel()
-        self._header_status.setObjectName("BrandStatus")
-        row.addWidget(self._header_status)
+        row.addWidget(self._build_header_stats())
+
+        self._header_flag = QLabel()
+        self._header_flag.setObjectName("BrandFlag")
+        row.addWidget(self._header_flag)
         return header
+
+    def _build_header_stats(self) -> QWidget:
+        """The drive at a glance, each number under the name of what it is.
+
+        This row used to be eight bare values in one label - ``0.73 Nm  71%
+        98'  52 C`` - which is a summary only the person who wrote it can read.
+        Two of them are the same unit as nothing else on screen and one of them
+        is an arcminute mark that reads as a stray apostrophe.
+        """
+        strip = QWidget()
+        row = QHBoxLayout(strip)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(18)
+
+        self._stats: dict[str, QLabel] = {}
+        for key, caption, tip in _HEADER_STATS:
+            cell = QWidget()
+            column = QVBoxLayout(cell)
+            column.setContentsMargins(0, 0, 0, 0)
+            column.setSpacing(1)
+            label = QLabel(caption)
+            label.setObjectName("StatCaption")
+            value = QLabel("-")
+            value.setObjectName("StatValue")
+            for widget in (label, value):
+                widget.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                column.addWidget(widget)
+            cell.setToolTip(tip)
+            row.addWidget(cell)
+            self._stats[key] = value
+        return strip
+
+    def eventFilter(self, watched, event):
+        """Watch the checks splitter's own width rather than the window's.
+
+        Two reasons it cannot be done in ``resizeEvent``.  The window's resize
+        arrives *before* the layout has handed the new width down, so the pane
+        would be measured against the size it is about to stop being; and
+        dragging the splitter changes that width without resizing the window at
+        all, which ``resizeEvent`` never hears about.
+        """
+        if watched is self._explain_split and event.type() == QEvent.Resize:
+            self._fit_checks()
+        return super().eventFilter(watched, event)
+
+    def _fit_checks(self) -> None:
+        """On a narrow window the explanation panel yields to the list.
+
+        They are not equals.  The list answers "is anything wrong with this
+        design", which is the question the application exists for; the panel is
+        a detail view of one row of it, and everything in it is one drag of the
+        splitter or one wider window away.  Below about a thousand pixels there
+        is not room for both, and what the layout does with that on its own is
+        squeeze the detail column to nothing - leaving a list of codes with a
+        horizontal scrollbar, which is the one arrangement where neither of
+        them is any use.
+        """
+        if not hasattr(self, "_explain"):
+            return
+        fixed = sum(self.findings.columnWidth(col) for col in range(_DETAIL_COL))
+
+        floor = fixed + _MIN_DETAIL_PX
+        total = self._explain_split.width()
+        show = total >= floor + self._explain.minimumWidth()
+        if show != self._explain.isVisible():
+            self._explain.setVisible(show)
+            # Showing a collapsed pane makes the splitter redistribute, and it
+            # does that *after* this returns - so any width set below would be
+            # handed straight back. Come round again once it has settled.
+            QTimer.singleShot(0, self._fit_checks)
+            return
+
+        # A floor on the list, enforced by moving the divider rather than by a
+        # minimum width on the widget.  The distinction matters: a minimum
+        # propagates all the way up and would raise the whole window's smallest
+        # usable size by about two hundred pixels, which trades a narrow column
+        # for an application that no longer fits a 1366 px laptop.
+        #
+        # Without any floor the splitter honours its stored fraction, and the
+        # detail column came out *narrower* on a 1600 px window than on a
+        # 1200 px one - because the panel that appears at the wider size takes
+        # its width from the list rather than from the space that appeared
+        # alongside it.
+        if show:
+            sizes = self._explain_split.sizes()
+            if sizes and sizes[0] < floor <= total - self._explain.minimumWidth():
+                self._explain_split.setSizes([floor, total - floor])
 
     def _build_parameter_panel(self) -> QWidget:
         inner = QWidget()
@@ -657,11 +825,29 @@ class MainWindow(QMainWindow):
         self.findings.setRootIsDecorated(False)
         self.findings.currentItemChanged.connect(self._finding_selected)
         header = self.findings.header()
-        for col, width in ((0, 74), (1, 210), (2, 84), (3, 84)):
+        # Sized to what is in them rather than to a number chosen once.  A
+        # fixed 210 px for the code held 40 px that the detail needed on every
+        # window, and on a narrow one the four fixed columns added up to more
+        # than the list had - so the detail column was pushed off the side
+        # behind a horizontal scrollbar and the list became a column of codes.
+        for col in (0, 1):
+            header.setSectionResizeMode(col, QHeaderView.ResizeToContents)
+        for col, width in ((2, 78), (3, 78)):
             self.findings.setColumnWidth(col, width)
-        for col in (2, 3):
             self.findings.headerItem().setTextAlignment(col, Qt.AlignRight)
         header.setStretchLastSection(True)
+
+        # The detail is a sentence, not a field.  These messages run to a
+        # hundred characters - "Contact stress is lowest near a 6.17 mm pin
+        # radius for this pin circle, eccentricity and lobe count" - and no
+        # column that also leaves room for the code and two numbers will ever
+        # show one on a line.  So every row ended in an ellipsis and the list
+        # became a set of codes you had to click one at a time to read, which
+        # is the opposite of a list you can scan.  It wraps now, and rows take
+        # the height their own text needs.
+        self.findings.setWordWrap(True)
+        self.findings.setUniformRowHeights(False)
+        self.findings.setItemDelegate(WrappingColumn(self.findings, _DETAIL_COL))
 
         # Selecting a finding highlights the parameters it is about.  That says
         # *where* to look and nothing about why, which is the half of the answer
@@ -674,6 +860,7 @@ class MainWindow(QMainWindow):
         self._explain_split = QSplitter(Qt.Horizontal)
         self._explain_split.addWidget(self.findings)
         self._explain_split.addWidget(self._explain)
+        self._explain_split.installEventFilter(self)
         self._explain_split.setStretchFactor(0, 1)
         self._explain_split.setCollapsible(0, False)
         self._explain_split.setSizes([760, 340])
@@ -1342,20 +1529,46 @@ class MainWindow(QMainWindow):
                 "Export blocked: " + ", ".join(f.code for f in a.report.errors))
 
     def _set_header_status(self) -> None:
-        """The one-line summary in the brand strip."""
+        """The drive at a glance, in the brand strip.
+
+        Two of the eight are coloured, and only two, because only two of them
+        have a limit the analysis itself computes: whether the drive can carry
+        the torque it is rated for, and whether it stays under the temperature
+        its own materials allow.  Colouring the rest would mean inventing
+        thresholds here that nothing else in the app would agree with.
+        """
         s, a = self.spec, self.analysis
         if a is None:
             return
-        od = self._length(2 * s.housing_outer_radius, 0 if self._unit.key == "mm" else 1)
-        long = self._length(s.envelope_length, 0 if self._unit.key == "mm" else 1)
-        self._header_status.setText(
-            f"{s.ratio}:1   {od} OD   {long} LONG   "
-            f"{a.mass.total_mass_g:.0f} g   "
-            f"{a.torque_capacity_with_clearance_Nm:.2f} Nm   "
-            f"{100 * a.efficiency.efficiency:.0f}%   "
-            f"{a.stiffness.lost_motion_arcmin:.0f}'   "
-            f"{a.thermal.temperature_C:.0f} C"
-            + ("" if a.report.ok else "   EXPORT BLOCKED"))
+        decimals = 0 if self._unit.key == "mm" else 1
+        capacity = a.torque_capacity_with_clearance_Nm
+        self._set_stat("ratio", f"{s.ratio}:1")
+        self._set_stat("od", self._length(2 * s.housing_outer_radius, decimals))
+        self._set_stat("length", self._length(s.envelope_length, decimals))
+        self._set_stat("mass", f"{a.mass.total_mass_g:.0f} g")
+        self._set_stat("capacity", f"{capacity:.2f} Nm",
+                       warn=capacity < s.output_torque_Nm)
+        self._set_stat("efficiency", f"{100 * a.efficiency.efficiency:.0f}%")
+        self._set_stat("backlash", f"{a.stiffness.lost_motion_arcmin:.0f}'")
+        self._set_stat("temperature", f"{a.thermal.temperature_C:.0f} C",
+                       warn=a.thermal.temperature_C > a.thermal.temperature_limit_C)
+
+        self._header_flag.setText("" if a.report.ok else "EXPORT BLOCKED")
+
+    def _set_stat(self, key: str, text: str, *, warn: bool = False) -> None:
+        """One cell of the strip, restyled only when its state actually moves.
+
+        ``unpolish``/``polish`` is what makes a dynamic property take effect,
+        and it is not free - doing it on every cell on every keystroke of a spin
+        box is a full restyle of the strip eight times over.
+        """
+        label = self._stats[key]
+        label.setText(text)
+        state = "warning" if warn else ""
+        if label.property("state") != state:
+            label.setProperty("state", state)
+            label.style().unpolish(label)
+            label.style().polish(label)
 
     def _draw_profile(self) -> None:
         """Rebuild both simulations for a *new design*.
@@ -1387,8 +1600,13 @@ class MainWindow(QMainWindow):
                 self._finding_number(f, f.limit),
                 f.message])
             item.setForeground(0, self._severity[f.severity])
+            # Top, not centre.  A row is as tall as its wrapped detail, and a
+            # code floating in the middle of four lines of prose reads as
+            # belonging to the middle line rather than to the row.
+            for col in (0, 1):
+                item.setTextAlignment(col, Qt.AlignLeft | Qt.AlignTop)
             for col in (2, 3):
-                item.setTextAlignment(col, Qt.AlignRight | Qt.AlignVCenter)
+                item.setTextAlignment(col, Qt.AlignRight | Qt.AlignTop)
                 item.setFont(col, self._mono)
             item.setData(0, Qt.UserRole, f.code)
             # The value, not the enum member: Qt stores this in a QVariant and

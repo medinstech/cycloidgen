@@ -333,6 +333,18 @@ def stylesheet(mode: str = "light") -> str:
     #BrandTagline {{ color: {p.ink_dim}; font-size: 11px; }}
     #BrandStatus {{ color: {p.ink}; font-size: 12px; font-weight: 600; }}
 
+    /* The at-a-glance strip.  The caption is deliberately quiet and the value
+       is not: the caption is read once, to learn what the column is, and the
+       value is read every time the design changes.  Amber is spent only where
+       a number has crossed a limit the analysis itself computes. */
+    #StatCaption {{
+        color: {p.ink_dim}; font-size: 9px; font-weight: 700;
+        letter-spacing: 0.7px;
+    }}
+    #StatValue {{ color: {p.ink}; font-size: 13px; font-weight: 600; }}
+    #StatValue[state="warning"] {{ color: {p.warning}; }}
+    #BrandFlag {{ color: {p.error}; font-size: 11px; font-weight: 700; }}
+
     /* Grouping: a card with its heading in the margin above it, rather than a
        filled badge sitting on the border.  The heading is a label, and a label
        painted in the primary action's colour claims to be a button. */

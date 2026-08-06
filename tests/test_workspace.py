@@ -749,8 +749,8 @@ def test_the_readouts_follow_the_preference(app):
     try:
         w._choose_units("in")
         _pump(app, 0.4)
-        assert " in OD" in w._header_status.text()
-        assert "mm OD" not in w._header_status.text()
+        assert w._stats["od"].text().endswith(" in")
+        assert w._stats["length"].text().endswith(" in")
         for i in range(w.findings.topLevelItemCount()):
             item = w.findings.topLevelItem(i)
             if item.data(0, _USER_ROLE) == "LOST_MOTION":
@@ -902,3 +902,141 @@ def test_an_upgrade_between_sessions_is_reported_on_the_status_bar(app):
         settings.remove("last_design")
         settings.remove("last_design_version")
         settings.sync()
+
+
+# ------------------------------------------------------------- reading surface
+
+
+def test_every_number_in_the_header_says_what_it_is(app):
+    """The strip used to be eight bare values - ``0.73 Nm  71%  98'  52 C``.
+
+    A summary with no captions is one only the person who wrote it can read,
+    and two of those are units that appear nowhere else on screen.
+    """
+    from cycloidgen.ui.main_window import _HEADER_STATS
+
+    w = _window(app)
+    try:
+        assert len(w._stats) == len(_HEADER_STATS)
+        for key, caption, tip in _HEADER_STATS:
+            value = w._stats[key]
+            assert value.text() not in ("", "-"), key
+            cell = value.parent()
+            captions = [c.text() for c in cell.findChildren(type(value))]
+            assert caption in captions, key
+            assert cell.toolTip() == tip, key
+    finally:
+        w.close()
+
+
+def test_the_strip_follows_the_design(app):
+    from cycloidgen.core.spec import preset
+
+    w = _window(app)
+    try:
+        w._replace_spec(preset(29))
+        _pump(app, 1.5)
+        assert w._stats["ratio"].text() == "29:1"
+        assert w._stats["mass"].text().endswith(" g")
+        assert w._stats["efficiency"].text().endswith("%")
+    finally:
+        w.close()
+
+
+def test_only_the_two_numbers_with_a_limit_are_ever_coloured(app):
+    """Capacity against the torque this design is rated for, temperature
+    against what its own materials allow.  Colouring the rest would mean
+    inventing thresholds here that nothing else in the app agrees with."""
+    from cycloidgen.core.spec import preset
+
+    w = _window(app)
+    try:
+        # The 15:1 preset is rated for far more than it can carry, so capacity
+        # is the one that should be flagged out of the box.
+        w._replace_spec(preset(15))
+        _pump(app, 1.5)
+        assert w.analysis is not None
+        capacity = w.analysis.torque_capacity_with_clearance_Nm
+        assert capacity < w.spec.output_torque_Nm, "this test needs a short design"
+        assert w._stats["capacity"].property("state") == "warning"
+
+        # Ask it for a torque it can actually deliver and the flag clears.
+        spec = w.spec.model_copy(deep=True)
+        spec.output_torque_Nm = capacity / 2
+        w._replace_spec(spec)
+        _pump(app, 1.5)
+        assert w._stats["capacity"].property("state") in ("", None)
+
+        never = ("ratio", "od", "length", "mass", "efficiency", "backlash")
+        assert all(w._stats[k].property("state") in ("", None) for k in never)
+    finally:
+        w.close()
+
+
+def test_a_finding_is_readable_without_being_clicked(app):
+    """The detail is a sentence, and it used to be a sentence with its end cut
+    off - so the list was a set of codes you opened one at a time."""
+    from PySide6.QtGui import QFontMetrics
+
+    w = _window(app)
+    try:
+        _pump(app, 1.0)
+        tree = w.findings
+        assert tree.topLevelItemCount() > 0
+        line = QFontMetrics(tree.font()).height()
+
+        long_rows = [tree.topLevelItem(i) for i in range(tree.topLevelItemCount())
+                     if len(tree.topLevelItem(i).text(4)) > 90]
+        assert long_rows, "no finding long enough to need wrapping"
+        for item in long_rows:
+            if item.isHidden():
+                continue
+            height = tree.visualItemRect(item).height()
+            assert height > line * 1.5, (
+                f"{item.text(1)} is {height} px tall for "
+                f"{len(item.text(4))} characters - it is still on one line")
+    finally:
+        w.close()
+
+
+def _narrow_until(app, w, hidden) -> int:
+    """Shrink the window until ``hidden()`` goes true, and say where it did.
+
+    Written as a search rather than as two magic widths, because the width at
+    which either of these gives up is a *font* measurement - and the offscreen
+    platform this file runs on has no fonts, so its idea of how wide the strip
+    and the columns are is nothing like a real desktop's.  What is being tested
+    is the order things yield in, which is the same on both.
+    """
+    width = 1900
+    w.resize(width, 850)
+    _pump(app, 0.4)
+    while width > w.minimumWidth() + 40 and not hidden():
+        width -= 100
+        w.resize(width, 850)
+        _pump(app, 0.25)
+    return width
+
+
+def test_the_explanation_panel_yields_to_the_list_on_a_narrow_window(app):
+    """They are not equals: the list answers "is anything wrong with this",
+    and the panel is a detail view of one row of it.  The layout's own answer
+    to running out of width is to squeeze the detail column to nothing, which
+    is the one arrangement where neither of them is any use."""
+    from cycloidgen.ui.main_window import _DETAIL_COL, _MIN_DETAIL_PX
+
+    w = _window(app, width=1900)
+    try:
+        assert w._explain.isVisible()
+        _narrow_until(app, w, lambda: not w._explain.isVisible())
+        assert not w._explain.isVisible(), \
+            "the panel never yields, however narrow the window gets"
+        # and the list keeps a readable detail rather than pushing it off the
+        # side behind a horizontal scrollbar
+        assert w.findings.columnWidth(_DETAIL_COL) >= _MIN_DETAIL_PX
+
+        w.resize(1900, 950)
+        _pump(app, 0.6)
+        assert w._explain.isVisible()
+    finally:
+        w.close()
