@@ -117,13 +117,16 @@ MANIFEST: tuple[Output, ...] = (
            "The same drawing at 1 unit = 1 mm, for a browser, a document, or a "
            "laser cutter's front end."),
     Output("part_dxf", "dxf/", "drawings", "DXF",
-           "Cutting files, one per part",
+           "Cutting and drilling files, one per part",
            "One closed outline and its holes per file, which is what a laser, "
            "waterjet or CAM job wants. Each disc in a stack gets its own file "
            "because their hole patterns differ. The carrier template is drilled "
-           "for the press fit, not for the disc's running hole.",
+           "for the press fit, not for the disc's running hole, and the two end "
+           "plates carry the tie-bolt circle and the motor pattern on layers of "
+           "their own.",
            contents=lambda s: [f"{n}.dxf" for n in disc_names(s)]
-           + ["ring_plate.dxf", "output_carrier.dxf"]),
+           + ["ring_plate.dxf", "output_carrier.dxf",
+              "input_end_plate.dxf", "output_end_plate.dxf"]),
     Output("assembly_step", "assembly.step", "solids", "STEP",
            "Assembled gearbox",
            "Housing, ring pins, phased discs, eccentric shaft and output "

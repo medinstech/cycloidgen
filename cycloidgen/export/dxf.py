@@ -24,6 +24,11 @@ LAYERS = {
     "RING_PINS": 2,
     "HOUSING": 7,
     "PITCH": 8,
+    # The plates carry two hole patterns that answer to different drawings - the
+    # tie bolts are ours, the motor pattern is the motor maker's - and a shop
+    # drilling one wants to be able to switch the other off.
+    "BOLTS": 6,
+    "MOTOR": 4,
 }
 
 
@@ -39,6 +44,82 @@ def _title(msp, spec: GearSpec, text: str, radius: float) -> None:
     msp.add_text(text, height=max(radius / 30.0, 1.2),
                  dxfattribs={"layer": "HOUSING"}
                  ).set_placement((-radius, -radius - radius / 12.0))
+
+
+def _cross(msp, c: tuple[float, float], size: float = 2.0) -> None:
+    """Centre mark, which is what a hole is drilled from.
+
+    A circle says where the metal is not; the crosshair says where the point
+    goes.  Cheap to add and the difference between a file you can cut and a file
+    you can also set up by hand from.
+    """
+    msp.add_line((c[0] - size, c[1]), (c[0] + size, c[1]), dxfattribs={"layer": "PITCH"})
+    msp.add_line((c[0], c[1] - size), (c[0], c[1] + size), dxfattribs={"layer": "PITCH"})
+
+
+def _polar(radius: float, count: int) -> list[tuple[float, float]]:
+    """``count`` points on ``radius``, starting at zero - the way every array in
+    this app is built, so a DXF cannot land the pattern the solid does not."""
+    return [(radius * np.cos(2.0 * np.pi * k / count),
+             radius * np.sin(2.0 * np.pi * k / count)) for k in range(count)]
+
+
+def _end_plate(spec: GearSpec, directory: Path, name: str, bore: float,
+               motor_face: bool = False) -> Path:
+    """One of the two plates that close the housing, as a drilling drawing.
+
+    Both are the housing outside diameter on the same tie-bolt circle; what
+    differs is the hole in the middle - shaft support one end, the bearing the
+    whole drive turns on at the other - and whether a motor bolts to the face.
+    Everything here is read from the same properties
+    :func:`~cycloidgen.export.solid.housing_end_plate` extrudes, including the
+    rule that a register smaller than the bore is not a feature but a bore that
+    has already swallowed it.
+    """
+    doc, msp = _new_doc()
+    r = spec.housing_outer_radius
+    msp.add_circle((0, 0), r, dxfattribs={"layer": "HOUSING"})
+    msp.add_circle((0, 0), max(bore, 1e-3) / 2.0, dxfattribs={"layer": "DISC_BORE"})
+    _cross(msp, (0.0, 0.0), size=max(bore / 2.0, 1.0) + 3.0)
+
+    note = f"{name.replace('_', ' ')}  OD {2 * r:g}  bore {bore:g}"
+
+    if spec.housing_bolt_count:
+        msp.add_circle((0, 0), spec.housing_bolt_radius,
+                       dxfattribs={"layer": "PITCH", "linetype": "DASHED"})
+        for c in _polar(spec.housing_bolt_radius, spec.housing_bolt_count):
+            msp.add_circle(c, spec.housing_bolt_diameter / 2.0,
+                           dxfattribs={"layer": "BOLTS"})
+            _cross(msp, c)
+        note += (f"  |  {spec.housing_bolt_count} x {spec.housing_bolt_diameter:g} "
+                 f"tie on BC {2 * spec.housing_bolt_radius:g}")
+
+    if motor_face and spec.has_motor_face:
+        frame = spec.motor
+        if frame.pilot_diameter > bore:
+            msp.add_circle((0, 0), frame.pilot_diameter / 2.0,
+                           dxfattribs={"layer": "MOTOR"})
+            note += f"  |  register {frame.pilot_diameter:g} x {frame.pilot_depth:g} deep"
+        # A NEMA pattern is a *square*, so its bolts do not sit on the bolt
+        # circle a polar array would put them on - stating one as the other is
+        # the mistake this table exists to stop anybody making.
+        if frame.square:
+            h = frame.bolt_span / 2.0
+            holes = [(sx * h, sy * h) for sx in (-1, 1) for sy in (-1, 1)]
+            pattern = f"{frame.bolt_span:g} square"
+        else:
+            holes = _polar(frame.bolt_span / 2.0, frame.bolt_count)
+            pattern = f"BC {frame.bolt_span:g}"
+        for c in holes:
+            msp.add_circle(c, frame.bolt_diameter / 2.0, dxfattribs={"layer": "MOTOR"})
+            _cross(msp, c)
+        note += (f"  |  {frame.name}: {len(holes)} x {frame.bolt_diameter:g} "
+                 f"on {pattern}")
+
+    _title(msp, spec, note, r)
+    out = directory / f"{name}.dxf"
+    doc.saveas(out)
+    return out
 
 
 def write_dxf(spec: GearSpec, path: str | Path) -> Path:
@@ -150,19 +231,24 @@ def write_part_dxfs(spec: GearSpec, directory: str | Path) -> list[Path]:
                    dxfattribs={"layer": "DISC_BORE"})
     msp.add_circle((0, 0), spec.output_bolt_circle_radius,
                    dxfattribs={"layer": "PITCH", "linetype": "DASHED"})
-    for k in range(spec.output_pin_count):
-        a = 2.0 * np.pi * k / spec.output_pin_count
-        c = (spec.output_bolt_circle_radius * np.cos(a),
-             spec.output_bolt_circle_radius * np.sin(a))
+    for c in _polar(spec.output_bolt_circle_radius, spec.output_pin_count):
         # the pin is a press fit in the carrier, so this is the pin size, not
         # the running hole in the disc
         msp.add_circle(c, shank / 2.0, dxfattribs={"layer": "OUTPUT_HOLES"})
-        msp.add_line((c[0] - 2, c[1]), (c[0] + 2, c[1]), dxfattribs={"layer": "PITCH"})
-        msp.add_line((c[0], c[1] - 2), (c[0], c[1] + 2), dxfattribs={"layer": "PITCH"})
+        _cross(msp, c)
     _title(msp, spec, f"output carrier  {spec.output_pin_count} x "
                       f"{shank:g} press fit  "
                       f"BC {2 * spec.output_bolt_circle_radius:g}", plate_r)
     out = directory / "output_carrier.dxf"
     doc.saveas(out)
     written.append(out)
+
+    # ---- the two plates that close the housing ------------------------------
+    # New made parts as of the end plates, and the only ones whose whole job is
+    # a hole pattern: a bolt circle and a motor face are things you drill, and
+    # a STEP file is not something you can drill from.
+    written.append(_end_plate(spec, directory, "input_end_plate",
+                              spec.hub_bore, motor_face=True))
+    written.append(_end_plate(spec, directory, "output_end_plate",
+                              spec.output_bearing_seat_diameter))
     return written

@@ -122,7 +122,8 @@ def test_part_dxfs_hold_one_part_each(spec, tmp_path):
     a disc file must contain the disc and nothing else."""
     paths = dxf.write_part_dxfs(spec, tmp_path / "dxf")
     assert {p.stem for p in paths} == {"disc_1", "disc_2", "ring_plate",
-                                       "output_carrier"}
+                                       "output_carrier",
+                                       "input_end_plate", "output_end_plate"}
     for name in ("disc_1", "disc_2"):
         msp = ezdxf.readfile(tmp_path / "dxf" / f"{name}.dxf").modelspace()
         assert len(msp.query('LWPOLYLINE[layer=="DISC_PROFILE"]')) == 1
@@ -156,6 +157,97 @@ def test_the_carrier_template_drills_the_press_fit_not_the_running_hole(spec, tm
     for c in circles:
         assert c.dxf.radius == pytest.approx(spec.output_pin_diameter / 2)
         assert c.dxf.radius < spec.output_hole_diameter / 2
+
+
+def _plate(spec, tmp_path, name):
+    dxf.write_part_dxfs(spec, tmp_path / "dxf")
+    return ezdxf.readfile(tmp_path / "dxf" / f"{name}.dxf").modelspace()
+
+
+def test_each_end_plate_is_bored_for_what_actually_sits_in_it(spec, tmp_path):
+    """The plates are the same disc of metal with different holes: a shaft
+    support one end, the bearing the whole drive turns on at the other.  Boring
+    them alike would give the output bearing nowhere to go."""
+    for name, bore in (("input_end_plate", spec.hub_bore),
+                       ("output_end_plate", spec.output_bearing_seat_diameter)):
+        msp = _plate(spec, tmp_path, name)
+        outer = msp.query('CIRCLE[layer=="HOUSING"]')
+        assert len(outer) == 1
+        assert outer[0].dxf.radius == pytest.approx(spec.housing_outer_radius)
+        bores = msp.query('CIRCLE[layer=="DISC_BORE"]')
+        assert len(bores) == 1
+        assert bores[0].dxf.radius == pytest.approx(bore / 2.0)
+
+
+def test_the_tie_bolts_land_where_the_solid_puts_them(spec, tmp_path):
+    """Two plates and a barrel drilled off three different circles do not bolt
+    together, so the DXF has to read the same property the solid extrudes."""
+    for name in ("input_end_plate", "output_end_plate"):
+        msp = _plate(spec, tmp_path, name)
+        bolts = msp.query('CIRCLE[layer=="BOLTS"]')
+        assert len(bolts) == spec.housing_bolt_count
+        for b in bolts:
+            assert b.dxf.radius == pytest.approx(spec.housing_bolt_diameter / 2.0)
+            assert np.hypot(b.dxf.center.x, b.dxf.center.y) == pytest.approx(
+                spec.housing_bolt_radius)
+
+
+def test_the_motor_pattern_is_a_square_and_only_on_the_input_plate(tmp_path):
+    """A NEMA face is four bolts on a *square*.  Drilling them on a bolt circle
+    of the same number is the mistake the frame table exists to stop, and it
+    fits badly enough to look like it nearly worked."""
+    s = preset(15)
+    s.motor_frame = "NEMA 17"
+    frame = s.motor
+
+    msp = _plate(s, tmp_path, "input_end_plate")
+    motor = msp.query('CIRCLE[layer=="MOTOR"]')
+    holes = [c for c in motor
+             if c.dxf.radius == pytest.approx(frame.bolt_diameter / 2.0)]
+    assert len(holes) == 4
+    corners = sorted((round(h.dxf.center.x, 6), round(h.dxf.center.y, 6))
+                     for h in holes)
+    h = frame.bolt_span / 2.0
+    assert corners == sorted([(x * h, y * h) for x in (-1, 1) for y in (-1, 1)])
+    # the corners sit on span*sqrt(2), which is not where a polar array of the
+    # same span would have put them
+    for c in corners:
+        assert np.hypot(*c) == pytest.approx(frame.bolt_circle_diameter / 2.0)
+        assert np.hypot(*c) != pytest.approx(frame.bolt_span / 2.0)
+
+    # nothing bolts to the output end - that face is a boss for a coupling
+    assert len(_plate(s, tmp_path, "output_end_plate").query('*[layer=="MOTOR"]')) == 0
+
+
+def test_the_register_is_drawn_only_where_there_is_one_left_to_cut(tmp_path):
+    """The register is what actually centres a motor - four clearance holes on
+    their own leave it free to sit anywhere inside them.  But it is a recess in
+    a face, so a bore wider than the spigot has already taken it away, and
+    drawing the circle anyway would put a line on the plate with no metal under
+    it.  On the default 10 mm shaft a NEMA 17 is exactly that case: its 22 mm
+    spigot lands on the 22 mm hub bore to the millimetre."""
+    def register(frame_name):
+        s = preset(15)
+        s.motor_frame = frame_name
+        msp = _plate(s, tmp_path / frame_name.replace(" ", ""),
+                     "input_end_plate")
+        return s, [c for c in msp.query('CIRCLE[layer=="MOTOR"]')
+                   if c.dxf.radius == pytest.approx(s.motor.pilot_diameter / 2.0)]
+
+    s, swallowed = register("NEMA 17")
+    assert s.motor.pilot_diameter == s.hub_bore        # the exact-equality case
+    assert swallowed == []
+
+    s, cut = register("NEMA 23")
+    assert s.motor.pilot_diameter > s.hub_bore
+    assert len(cut) == 1
+
+
+def test_a_plate_with_no_motor_on_it_gets_no_motor_pattern(spec, tmp_path):
+    """The default is a plain plate driven through a coupling, and drilling the
+    'None' frame's placeholder 1 mm holes into it would be worse than useless."""
+    assert not spec.has_motor_face
+    assert len(_plate(spec, tmp_path, "input_end_plate").query('*[layer=="MOTOR"]')) == 0
 
 
 def test_part_steps_are_written_one_per_distinct_part(spec, tmp_path):

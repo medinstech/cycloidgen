@@ -124,7 +124,7 @@ the command line with `--only`, or with the two quick export buttons.
 |---|---|---|
 | `disc.dxf` | drawings | Drawing of the whole drive: disc profile as a closed LWPOLYLINE sampled to the chord tolerance, plus bore, output holes, ring pins and housing, on separate layers |
 | `disc.svg` | drawings | Same drawing, 1 unit = 1 mm |
-| `dxf/` | drawings | One cutting file per part — each disc on its own, the ring plate, and a carrier drilling template drilled for the *press fit*, not for the disc's running hole |
+| `dxf/` | drawings | One cutting file per part — each disc on its own, the ring plate, a carrier drilling template drilled for the *press fit* rather than for the disc's running hole, and the two end plates with their tie-bolt circle and motor pattern |
 | `assembly.step` | solids | Full gearbox: housing and its two end plates, ring pins, phased discs, eccentric shaft, output flange with its bearing boss, every bearing that fits, coloured |
 | `step/` | solids | Each part as its own solid, in its own frame |
 | `stl/` | solids | Each part separately — STL has no assembly structure. A multi-disc stack gets `disc_1.stl`, `disc_2.stl`, … because **the discs are not the same part** (see below) |
