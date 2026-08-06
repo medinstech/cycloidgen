@@ -41,6 +41,7 @@ from ..core import profile as prof
 from ..core.spec import CARRIER_DROP, GearSpec
 
 __all__ = [
+    "EDGE_SHADE",
     "PART_COLOURS",
     "PART_GROUPS",
     "Mesh",
@@ -65,6 +66,19 @@ PART_COLOURS: dict[str, tuple[int, int, int]] = {
     "bearings": (150, 128, 200),
     "end_plates": (140, 140, 156),
 }
+
+#: How dark a part's drawn edges are, as a fraction of the part's own colour.
+#:
+#: An edge belongs to the part, not to the window: it is the line a shaded
+#: drawing puts round a face, and drawing it in the *theme's* ink instead made
+#: the dark theme paint pure white haloes round every ring pin.  Taking it from
+#: the part means one rule that needs no theme, and it is the rule the software
+#: painter already followed - the two renderers were disagreeing about this,
+#: which is exactly the kind of drift a shared constant is for.
+#:
+#: Darker than the 0.62 a section cap uses, so an edge still reads where it
+#: crosses one.
+EDGE_SHADE = 0.45
 
 #: Human names for the visibility toggles, in assembly order.
 #:

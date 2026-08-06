@@ -235,3 +235,36 @@ def test_corners_are_eased_rather_than_square(mode):
     from cycloidgen.ui.branding import RADIUS, RADIUS_SMALL
     assert RADIUS != "0px" and RADIUS_SMALL != "0px"
     assert RADIUS in stylesheet(mode)
+
+
+def test_the_links_in_the_app_are_the_ones_the_package_publishes():
+    """Two copies of an address is one that will be left behind.
+
+    The application cannot read `pyproject.toml` - it is not in a wheel and it
+    is certainly not in the frozen build - so it carries its own copy, and this
+    is what stops that copy pointing at a repository that has moved.  Read as
+    text rather than parsed: `tomllib` arrived in 3.11 and this project still
+    supports 3.10.
+    """
+    import re
+    from pathlib import Path
+
+    from cycloidgen.ui import branding
+
+    text = (Path(__file__).resolve().parent.parent
+            / "pyproject.toml").read_text(encoding="utf-8")
+    published = dict(re.findall(r'^(\w+)\s*=\s*"(https://[^"]+)"', text,
+                                flags=re.MULTILINE))
+    assert published, "pyproject.toml no longer declares any project URLs"
+    assert published["Homepage"] == branding.PROJECT_URL
+    assert published["Issues"] == branding.ISSUES_URL
+    assert published["Releases"] == branding.RELEASES_URL
+
+
+def test_every_link_the_app_offers_is_a_link():
+    from cycloidgen.ui import branding
+
+    for url in (branding.COMPANY_URL, branding.PROJECT_URL,
+                branding.ISSUES_URL, branding.RELEASES_URL):
+        assert url.startswith("https://"), url
+        assert " " not in url

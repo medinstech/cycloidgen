@@ -25,7 +25,7 @@ from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 from vtkmodules.util.numpy_support import numpy_to_vtk, vtk_to_numpy
 
 from ..core.spec import GearSpec
-from ..viz.mesh import Mesh, mesh_for_spec
+from ..viz.mesh import EDGE_SHADE, Mesh, mesh_for_spec
 from ..viz.scene import Camera
 from . import branding
 from .logpanel import logger
@@ -448,11 +448,18 @@ class VtkAssemblyView(QWidget):
         across the face of every disc.  These are separate actors carrying only
         the edges above the feature angle - rims, hole lips, the join between a
         cylinder and its end - which is the set a drawing would have.
+
+        Each part's edges are its own colour, darkened.  They used to be the
+        theme's ink, which on the dark theme is pure white: every ring pin came
+        out ringed in a bright halo, and the model read as a wireframe lit from
+        inside rather than as shaded solids.  An edge belongs to the part
+        rather than to the window - and this is the rule the software painter
+        was already using, so the two renderers agree about it now.
         """
-        line = branding.palette(self._mode).ink
-        rgb = [int(line[i:i + 2], 16) / 255.0 for i in (1, 3, 5)]
         for record in self._actors.values():
-            record["edges"].GetProperty().SetColor(*rgb)
+            colour = record["part"].colour
+            record["edges"].GetProperty().SetColor(
+                *[c / 255.0 * EDGE_SHADE for c in colour])
 
     def set_section(self, fraction: float) -> None:
         """Cut the assembly on a plane through the axis, and cap the cut."""

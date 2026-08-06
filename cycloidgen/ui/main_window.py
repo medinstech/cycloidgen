@@ -12,8 +12,8 @@ matplotlib.use("QtAgg")
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as Canvas
 from matplotlib.figure import Figure
-from PySide6.QtCore import QEvent, Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QAction, QColor, QKeySequence, QPalette
+from PySide6.QtCore import QEvent, Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QKeySequence, QPalette
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -465,9 +465,16 @@ class MainWindow(QMainWindow):
         row.setContentsMargins(14, 6, 14, 6)
         row.setSpacing(12)
 
+        # The mark is a link, which is what a wordmark in the corner of an
+        # application is everywhere else - and it was the one piece of chrome
+        # that looked clickable and was not.
         self._logo = QLabel()
         self._logo.setPixmap(branding.logo_pixmap("wordmark", self.mode, height=34))
-        self._logo.setToolTip(f"{branding.COMPANY} - {branding.TAGLINE}")
+        self._logo.setToolTip(f"{branding.COMPANY} - {branding.TAGLINE}\n"
+                              f"{branding.COMPANY_URL}")
+        self._logo.setCursor(Qt.PointingHandCursor)
+        self._logo.mousePressEvent = (
+            lambda _event: self._open_url(branding.COMPANY_URL))
         row.addWidget(self._logo)
 
         self._header_rule = QFrame()
@@ -1139,9 +1146,37 @@ class MainWindow(QMainWindow):
             self._unit_actions[key] = action
 
         h = self.menuBar().addMenu("&Help")
+        # Where the project lives, from inside the application.  It is an
+        # installed desktop tool as often as a checkout, and from there the
+        # repository, the issue tracker and the release notes were reachable
+        # only by knowing the address already.
+        for label, url in (
+            ("&Project on GitHub", branding.PROJECT_URL),
+            ("&Report an issue", branding.ISSUES_URL),
+            ("Release &notes", branding.RELEASES_URL),
+            (f"&{branding.COMPANY} on the web", branding.COMPANY_URL),
+        ):
+            action = QAction(label, self)
+            action.setStatusTip(url)
+            action.triggered.connect(lambda _checked=False, u=url: self._open_url(u))
+            h.addAction(action)
+        h.addSeparator()
+
         about = QAction("&About cycloidgen", self)
         about.triggered.connect(self._about)
         h.addAction(about)
+
+    def _open_url(self, url: str) -> None:
+        """Hand a link to the desktop, and say so where it can be read back.
+
+        Through the log as well as the browser: a link that silently does
+        nothing - no browser configured, a locked-down machine - is otherwise
+        indistinguishable from a menu entry that is not wired up.
+        """
+        if QDesktopServices.openUrl(QUrl(url)):
+            self._say(f"opened {url}", seconds=4)
+        else:
+            self._say(f"could not open {url}", level=logging.WARNING, seconds=8)
 
     def _about(self) -> None:
         p = branding.palette(self.mode)
@@ -1156,10 +1191,19 @@ class MainWindow(QMainWindow):
         box.setInformativeText(
             f"<p>A <a href='{branding.COMPANY_URL}' style='color:{p.accent}'>"
             f"{branding.COMPANY}</a> tool. <i>{branding.TAGLINE}</i></p>"
+            f"<p><a href='{branding.PROJECT_URL}' style='color:{p.accent}'>"
+            f"Source and documentation</a> &middot; "
+            f"<a href='{branding.ISSUES_URL}' style='color:{p.accent}'>"
+            f"Report an issue</a> &middot; "
+            f"<a href='{branding.RELEASES_URL}' style='color:{p.accent}'>"
+            f"Release notes</a></p>"
             f"<p style='color:{p.ink_dim}'>The numbers it produces are "
             f"preliminary sizing estimates, not a certification. Validate "
             f"against a physical prototype before anything load-bearing depends "
             f"on them.</p>")
+        # Without this the links are blue text that does nothing when clicked,
+        # which is worse than plain text: it looks like the dialog is broken.
+        box.setTextInteractionFlags(Qt.TextBrowserInteraction)
         box.exec()
 
     # --------------------------------------------------------------- theme

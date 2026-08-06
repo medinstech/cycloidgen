@@ -35,7 +35,10 @@ __all__ = [
     "BRAND_BLUE",
     "COMPANY",
     "COMPANY_URL",
+    "ISSUES_URL",
     "MONO_FAMILIES",
+    "PROJECT_URL",
+    "RELEASES_URL",
     "TAGLINE",
     "Palette",
     "asset",
@@ -50,6 +53,15 @@ __all__ = [
 COMPANY = "Medinstech"
 COMPANY_URL = "https://medinstech.com"
 TAGLINE = "Build the Future, Link by Link"
+
+#: Where the project lives.  Declared here because the application needs them at
+#: runtime and `pyproject.toml` is not readable from an installed wheel, let
+#: alone from the frozen build - but they are the *same* addresses the package
+#: metadata publishes, and `tests/test_branding.py` holds the two together so a
+#: repository that moves cannot leave the Help menu pointing at the old one.
+PROJECT_URL = "https://github.com/medinstech/cycloidgen"
+ISSUES_URL = f"{PROJECT_URL}/issues"
+RELEASES_URL = f"{PROJECT_URL}/releases"
 
 #: Sampled from the brand masters, not eyeballed from a screenshot.
 BRAND_BLUE = "#0d00ff"

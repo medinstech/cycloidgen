@@ -1172,3 +1172,35 @@ def test_what_each_output_is_for_is_readable_without_hovering(app):
                    for item in long_rows)
     finally:
         w.close()
+
+
+def test_the_help_menu_offers_the_project_and_the_company(app, monkeypatch):
+    """An installed desktop tool is where most people meet this, and from
+    there the repository was reachable only by knowing the address."""
+    from PySide6.QtGui import QDesktopServices
+
+    from cycloidgen.ui import branding
+
+    opened: list[str] = []
+    monkeypatch.setattr(QDesktopServices, "openUrl",
+                        staticmethod(lambda url: opened.append(url.toString()) or True))
+
+    w = _window(app)
+    try:
+        menus = {m.title().replace("&", ""): m
+                 for m in w.menuBar().findChildren(type(w.menuBar().addMenu("x")))}
+        actions = [a for a in menus["Help"].actions() if not a.isSeparator()]
+        for action in actions:
+            if "About" in action.text():
+                continue
+            action.trigger()
+        assert set(opened) == {branding.PROJECT_URL, branding.ISSUES_URL,
+                               branding.RELEASES_URL, branding.COMPANY_URL}
+
+        # ...and the wordmark, which was the one piece of chrome that looked
+        # clickable and was not.
+        opened.clear()
+        w._logo.mousePressEvent(None)
+        assert opened == [branding.COMPANY_URL]
+    finally:
+        w.close()

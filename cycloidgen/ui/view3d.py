@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.spec import GearSpec
-from ..viz.mesh import PART_GROUPS, Mesh, mesh_for_spec
+from ..viz.mesh import EDGE_SHADE, PART_GROUPS, Mesh, mesh_for_spec
 from ..viz.scene import Camera, render
 from . import branding
 from .logpanel import logger
@@ -291,7 +291,12 @@ class AssemblyView(QWidget):
         for loops, rgb in zip(draw.loops, draw.colours, strict=True):
             fill = QColor(int(rgb[0]), int(rgb[1]), int(rgb[2]))
             painter.setBrush(fill)
-            painter.setPen(fill.darker(150) if self._edges else fill)
+            # The same rule the hardware path uses - `EDGE_SHADE` is shared
+            # so the two renderers cannot drift about what an edge looks
+            # like, which is how one of them ended up drawing them in the
+            # theme's ink and the other in the part's.
+            painter.setPen(QColor(*[int(c * EDGE_SHADE) for c in rgb])
+                           if self._edges else fill)
             if len(loops) == 1:
                 painter.drawPolygon(_polygon(loops[0]))
                 continue
