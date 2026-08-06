@@ -8,4 +8,4 @@
 #: assignment on one line: setuptools reads it statically, without importing the
 #: package, and NSIS reads it with a text match.  Anything cleverer - a computed
 #: string, a tuple, an import - breaks both.
-__version__ = "5.0.0"
+__version__ = "6.0.0"

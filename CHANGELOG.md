@@ -5,6 +5,172 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 6.0.0
+
+**Added**
+
+- **Lubrication is calculated now, not declared.** One number — a friction
+  coefficient you typed in — was carrying efficiency, PV and running
+  temperature between them, and it knew nothing about how fast the surfaces
+  were moving, how hard they were pressed together, what was between them, or
+  how hot it had got.
+
+  There is a Dowson-Hamrock film at each of the three sliding contacts now,
+  measured against the roughness it has to clear, and the coefficient the
+  resulting regime earns — boundary and full-film blended by how much load the
+  asperities still carry. Lubricants are a table like the materials and the
+  bearing catalogue, and surface roughness defaults from the process, because
+  unlike a position tolerance every process has one whether it is stated or
+  not. **Dry is the default and its numbers are untouched**, which is the same
+  rule the position tolerance follows: a design that says nothing about
+  lubrication gets the answer it always got.
+
+  Two things fell out of it that are worth more than the coefficient. The first
+  is *why* fixed pins wear: a fixed pin does not move, so the entrainment
+  velocity is half the sliding velocity — the contact is dragged rather than
+  rolled — and at cycloidal mesh loads the film lands at tens of nanometres
+  against hundreds of nanometres of roughness. That holds for ground steel and
+  is not close for anything printed. It is the quantitative form of a choice
+  the app used to offer as two different constants.
+
+  The second is that the surface is the lever and the grade is not. Sweeping
+  roughness on a machined steel drive gives a cliff rather than a slope: 86% at
+  a lapped 0.02 µm, flat at 79% from about 3 µm up, because past there the
+  coefficient has saturated at the lubricant's boundary value. So where the
+  film is out of reach — which is most builds here — the lubricant worth buying
+  is the one with the additives, and moly against dry is a factor of two on
+  every sliding loss in the drive.
+
+  Temperature made it a fixed point rather than a formula: friction heats the
+  oil, the hot oil stops holding the surfaces apart, and that is more friction.
+  Damped substitution, converging because the feedback is bounded by the
+  boundary coefficient, and the test that matters re-runs the losses at the
+  answer and checks the answer comes back. Two limits are stated rather than
+  buried — the line-contact formula is being applied to two conforming contacts
+  it was not derived for, so their film is capped at the radial clearance, a
+  real bound that says the shaft is floating in the middle of its hole rather
+  than that the formula was right; and the full-film traction coefficient stays
+  a constant, which it earns, because oil in a loaded contact shears at a
+  limiting stress and measured traction barely moves with speed or load.
+
+  New finding: `LUBRICATION_REGIME`, reported on every design.
+
+- **The parameters explain themselves, instead of only complaining.** Forty-eight
+  fields, and the only prose attached to any of them appeared after something
+  had already gone wrong. A panel that speaks up only when it is unhappy
+  teaches you the machine by punishing you.
+
+  `core/guide.py` declares, for every parameter, what it physically is, how to
+  choose it in terms of the rest of the design, and what choosing it that way
+  costs — three parts kept apart for the same reason the check explanations
+  keep theirs apart. Almost none of these are preferences; they are trades, and
+  the trade is the half that is hard to find out.
+
+  It shows up in two places for two different moments. Hovering gives what it
+  is and how to pick it, where the eye already is. Clicking into it fills the
+  explanation panel with the trade as well, and with which checks the field
+  moves and how each of them currently stands — that last part cannot be
+  declared, because it belongs to the design on screen, so a parameter about to
+  break something says so before it is moved rather than after. The
+  field-to-check list is `CODE_FIELDS` read backwards, derived rather than
+  restated so it cannot drift from the direction that is maintained.
+
+- **Dimensioned drawings for the two end plates.** 5.0.0 made them parts and
+  gave them a solid, which is the one thing you cannot drill from — and they
+  are the two parts here whose whole job is a hole pattern. Both are in the
+  cutting folder now, tie bolts and motor pattern on layers of their own so a
+  shop drilling one can switch the other off, every hole with a centre mark
+  rather than only a circle, and the numbers a driller asks for on the title
+  line, including the motor pattern stated as the *square* it is.
+
+  What decides the features is read from the same spec properties the solid
+  extrudes rather than restated: the register is drawn only where the bore has
+  not already swallowed it, and nothing motor-shaped reaches the output plate.
+  The first turned out not to be hypothetical — on the default 10 mm shaft a
+  NEMA 17's 22 mm spigot lands on the 22 mm hub bore exactly, so that plate has
+  no register left to cut.
+
+**Changed**
+
+- **macOS gets the hardware 3D path by default.** `view3d_qtgl.py` had never
+  been run on the platform it was written for — every measurement behind it was
+  a Windows one — and it has now been opened on a Mac and draws. `available()`
+  no longer refuses darwin outright; `CYCLOIDGEN_VTK_QTGL` forces either way
+  and `CYCLOIDGEN_VTK=0` still drops any machine back to the software painter.
+
+**Fixed**
+
+- **The housing did not reach the plates it bolts to.** There was a slot cut
+  round the gearbox: the ring housing ran the height of the disc stack and
+  stopped, but the output carrier hangs below the discs — a drop, then its own
+  thickness — and the output end plate bolts on underneath that. Between the
+  barrel and the plate it is fastened to there was nothing at all, seven
+  millimetres of daylight with the carrier standing in it. The barrel was sized
+  to the disc stack when the disc stack was all there was to enclose, and 5.0.0
+  gave it two plates to reach without lengthening it.
+
+  `envelope_length` was already counting the carrier's share, so the app has
+  been reporting 40 mm for a design whose geometry only filled 33 — which is
+  what two separate sums of the same stack-up do to each other. It is stated as
+  the barrel plus its two plates now, so the length and the parts cannot
+  disagree again, and the three places that each held their own copy of the
+  barrel's extent — the mesh, the STEP solid and the mass model — read it off
+  the spec instead.
+
+- **The guts showed through a closed gearbox.** The software viewport painted
+  the ring pins, the discs and the shaft over the top of the end plate that
+  encloses them. The note in `scene.py` argued that no two parts share space,
+  so nothing could be occluded out of order — but not sharing space is not the
+  same as not being *inside* something, and a centroid is one number for a face
+  that spans the whole depth of the scene.
+
+  Measured against a real per-pixel z-buffer rather than by eye, which turned
+  up that the premise was half right: within one part the centroid order is
+  exact, and a single part on its own disagrees with the z-buffer on 0.00% of
+  pixels. Every bit of the error was *between* parts. So the sort is two-level
+  now — faces within a part by centroid, parts against each other by their
+  nearest point, because back-face culling leaves a surface lying entirely in
+  front of whatever that part encloses. Assembled, that takes the
+  wrong-surface rate from about 9% of pixels to under 2%, and the sealed-part
+  leak from 7915 pixels to 29, at 2.11 ms a frame against 2.08 before. Exploded
+  it is a wash — parts pulled apart are not nested and there is no correct part
+  order to find — and the docstring says so rather than implying it was fixed.
+
+- **Orbiting the 3D view did nothing while the animation ran**, on macOS, with
+  the accumulated rotation appearing the moment the animation stopped.
+  `vtkGenericRenderWindowInteractor.Render` does not draw: it raises
+  `RenderEvent` and waits for the toolkit that owns the context to schedule a
+  frame, which is the entire reason it is the interactor for an embedded case.
+  Nothing was listening, so every frame an interaction asked for was dropped.
+  Windows hid it because something else always repaints; macOS runs a mouse
+  drag in the window server's own event-tracking loop where ordinary timers do
+  not fire, so with the animation running there is genuinely nothing else.
+
+- **The 3D visibility row squeezed its own labels.** A `QHBoxLayout` short of
+  width takes it from its children anyway, and a squeezed `QCheckBox` elides
+  its own text — Housing became Housin and Carrier became Carrie on any window
+  narrower than the one it was built on, which reads as a rendering fault
+  rather than as a layout out of room. It wraps instead.
+
+**Numbers**
+
+- **Efficiency and running temperature now follow the lubricant.** On the 21:1
+  preset: dry 71.3% and 39.6 °C, unchanged from 5.0.0; lithium grease 73.0%,
+  ISO VG 220 gear oil 78.6%, moly EP grease 82.9% and 30.1 °C. Nothing moves
+  for a design that does not name a lubricant, and `friction_coefficient` keeps
+  its old meaning in that case — with one in, it becomes the boundary value the
+  film is compared against rather than the answer.
+- **Assembled mass is up about 4%**, the housing being longer by the carrier
+  drop plus the flange thickness: 17 mm of barrel becoming 24, about 28 g, and
+  on the 21:1 preset 702 g → 730 g.
+- **The bundle gains two drawings**, `dxf/input_end_plate.dxf` and
+  `dxf/output_end_plate.dxf`.
+
+Unchanged: envelope length and cooling area, both of which were already
+measured off the full length; contact stress, torque capacity, lost motion,
+transmission error, fatigue, bearing selection, and every dimension of the
+disc, ring and carrier. A saved design reopens as the drive it was, dry.
+
 ## 5.0.0
 
 **Added**
