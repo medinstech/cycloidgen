@@ -122,3 +122,31 @@ def test_the_version_is_checked_against_the_build_that_can_answer():
     assert re.search(r"\$reported = \(& \$exe --version\)", ps1)
     workflow = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
     assert "cycloidgen-cli.exe --version" in workflow
+
+
+# ------------------------------------------------------- the README on PyPI
+
+
+def test_the_readme_carries_no_relative_link_or_image():
+    """It is the project page on PyPI as well as the front of the repository.
+
+    `pyproject.toml` names it as the long description, and PyPI serves it from
+    its own host: every path relative to the repository root resolves against
+    `pypi.org` there and 404s.  The header is mostly pictures, so a README that
+    is right on GitHub and relative everywhere lands on PyPI as a column of
+    broken-image icons - which is the first thing anyone sees of the project.
+
+    Anchors are left alone deliberately.  PyPI renders the whole document on one
+    page, so `#run-it` goes where it says on both.
+    """
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    relative = set()
+    # Markdown links and images, then the HTML the header is built from.
+    for target in re.findall(r"!?\[[^\]]*\]\(([^)]+)\)", readme):
+        relative.add(target)
+    for target in re.findall(r'(?:src|srcset|href)="([^"]+)"', readme):
+        relative.add(target)
+    offenders = sorted(t for t in relative
+                       if not t.startswith(("http://", "https://", "#", "mailto:")))
+    assert not offenders, (
+        f"relative in a README that PyPI also serves: {offenders}")

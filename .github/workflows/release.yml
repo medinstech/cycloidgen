@@ -132,3 +132,59 @@ jobs:
           EOF
           gh release create "$GITHUB_REF_NAME" releases/*.exe \
             --title "cycloidgen $GITHUB_REF_NAME" --notes-file notes.md
+
+  # The other half of "how do I run this": the installer is Windows-only and
+  # always will be - NSIS is a Windows tool - but the application is not, and it
+  # is tested on Linux and macOS on every push.  A wheel is the one artefact
+  # that covers all three, and `cadquery-ocp` ships wheels for every platform
+  # and architecture this runs on, so `pip install cycloidgen` needs no
+  # compiler anywhere.
+  #
+  # Behind the Windows job on purpose. That job is the gate - it runs ruff and
+  # the full suite, and checks the tag against the source and the changelog -
+  # and a version on PyPI cannot be replaced, only yanked. Waiting half an hour
+  # to publish something permanent is the right trade.
+  pypi:
+    name: PyPI
+    needs: windows
+    if: startsWith(github.ref, 'refs/tags/') && !inputs.dry_run
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      # Trusted Publishing: PyPI verifies this workflow's OIDC token against a
+      # publisher it has on file, so there is no API token in the repository to
+      # leak, rotate or forget.  Configured once at
+      # pypi.org/manage/project/cycloidgen/settings/publishing - see RELEASING.md.
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Build the wheel and the sdist
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+
+      # `twine check` renders the long description the way PyPI will, which is
+      # the one failure that cannot be undone: a broken README on a version that
+      # is already published stays broken until the next release.
+      - name: Check what is about to be published
+        run: |
+          python -m twine check --strict dist/*
+          ls -l dist/
+          test -n "$(ls dist/*.whl)"
+          test -n "$(ls dist/*.tar.gz)"
+
+      # The name has to carry the tag, or the wheel is a different version from
+      # the installer published two steps up.
+      - name: Check the wheel against the tag
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          test -f "dist/cycloidgen-${version}-py3-none-any.whl" \
+            || { echo "::error::no wheel for $version in dist/"; ls dist/; exit 1; }
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

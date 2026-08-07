@@ -1,8 +1,8 @@
 <p align="center">
   <a href="https://medinstech.com">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="cycloidgen/ui/assets/wordmark-white.png">
-      <img alt="Medinstech" src="cycloidgen/ui/assets/wordmark-blue.png" height="96">
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/medinstech/cycloidgen/main/cycloidgen/ui/assets/wordmark-white.png">
+      <img alt="Medinstech" src="https://raw.githubusercontent.com/medinstech/cycloidgen/main/cycloidgen/ui/assets/wordmark-blue.png" height="96">
     </picture>
   </a>
 </p>
@@ -20,19 +20,19 @@
 <p align="center">
   <a href="https://github.com/medinstech/cycloidgen/actions/workflows/tests.yml"><img alt="tests" src="https://img.shields.io/github/actions/workflow/status/medinstech/cycloidgen/tests.yml?branch=main&style=flat-square&label=tests"></a>
   <a href="https://github.com/medinstech/cycloidgen/releases/latest"><img alt="latest release" src="https://img.shields.io/github/v/release/medinstech/cycloidgen?style=flat-square&color=0d00ff&label=release"></a>
-  <a href="pyproject.toml"><img alt="Python 3.10 – 3.12" src="https://img.shields.io/badge/python-3.10%20%E2%80%93%203.12-0d00ff?style=flat-square"></a>
-  <a href="LICENSE"><img alt="Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-0d00ff?style=flat-square"></a>
+  <a href="https://github.com/medinstech/cycloidgen/blob/main/pyproject.toml"><img alt="Python 3.10 – 3.12" src="https://img.shields.io/badge/python-3.10%20%E2%80%93%203.12-0d00ff?style=flat-square"></a>
+  <a href="https://github.com/medinstech/cycloidgen/blob/main/LICENSE"><img alt="Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-0d00ff?style=flat-square"></a>
 </p>
 
 <p align="center">
   <a href="https://github.com/medinstech/cycloidgen/releases/latest"><b>Download for Windows</b></a>
-  &nbsp;·&nbsp; <a href="#run-it">Run from source</a>
-  &nbsp;·&nbsp; <a href="docs/api.md">Python API</a>
+  &nbsp;·&nbsp; <a href="#run-it"><b>pip install cycloidgen</b></a>
+  &nbsp;·&nbsp; <a href="https://github.com/medinstech/cycloidgen/blob/main/docs/api.md">Python API</a>
   &nbsp;·&nbsp; <a href="#checks">The checks</a>
-  &nbsp;·&nbsp; <a href="CHANGELOG.md">Changelog</a>
+  &nbsp;·&nbsp; <a href="https://github.com/medinstech/cycloidgen/blob/main/CHANGELOG.md">Changelog</a>
 </p>
 
-![the application](docs/app-drawing.png)
+![the application](https://raw.githubusercontent.com/medinstech/cycloidgen/main/docs/app-drawing.png)
 
 <p align="center">
   Selecting a check tells you what it tests, why it matters and what to change;<br>
@@ -51,7 +51,7 @@
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
   a shortlist that passes every check, with the trade-offs side by side.
-- **Nothing is asserted that is not verified.** 766 tests, and where two parts
+- **Nothing is asserted that is not verified.** 767 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -65,7 +65,7 @@
 [In the app](#in-the-app) · [Tests](#tests) · [Performance](#performance) ·
 [Contributing](#contributing)
 
-![overview](docs/drawing.png)
+![overview](https://raw.githubusercontent.com/medinstech/cycloidgen/main/docs/drawing.png)
 
 The drawing is a simulation, not an outline. The dots are where the disc touches
 each ring pin and the arrows are the load it carries there, both off the same
@@ -73,9 +73,9 @@ kinematics the checks and the datasheet use; the faint wavy ring is the path one
 point on the disc rim travels over a full output revolution. Twenty-one turns of
 the input, one of the output.
 
-![the 3D tab](docs/app-3d.png)
+![the 3D tab](https://raw.githubusercontent.com/medinstech/cycloidgen/main/docs/app-3d.png)
 
-![assembly](docs/assembly.png)
+![assembly](https://raw.githubusercontent.com/medinstech/cycloidgen/main/docs/assembly.png)
 
 The 3D view turns on the same crank as the drawing, so the mechanism is the same
 mechanism in both. It is built from the same closed-form profile — not
@@ -90,6 +90,21 @@ software painter instead, which is what the PDF report embeds.
 
 Python 3.10 – 3.12, on Windows, Linux or macOS.
 
+```bash
+pip install cycloidgen
+cycloidgen
+```
+
+That is the whole thing, window and all, on all three platforms. It is a large
+install — most of a gigabyte, nearly all of it Qt and the OCCT CAD kernel — so a
+virtual environment is worth the two extra lines.
+
+Windows also has a [standalone installer](#standalone-build-and-installer) that
+needs no Python at all. It is unsigned, so SmartScreen will want a *More info ▸
+Run anyway* — see [RELEASING.md](https://github.com/medinstech/cycloidgen/blob/main/RELEASING.md).
+
+To work on it rather than with it, install the checkout in place:
+
 ```powershell
 py -3.12 -m venv .venv                          # Windows
 .venv\Scripts\python -m pip install -e ".[dev]"
@@ -101,10 +116,6 @@ python3 -m venv .venv                           # Linux, macOS
 .venv/bin/python -m pip install -e ".[dev]"
 .venv/bin/python -m cycloidgen
 ```
-
-Windows also has a [standalone installer](#standalone-build-and-installer) that
-needs no Python at all. It is unsigned, so SmartScreen will want a *More info ▸
-Run anyway* — see [RELEASING.md](RELEASING.md).
 
 Headless, without opening the window:
 
@@ -154,7 +165,7 @@ every check, with the trade-offs side by side. `Ctrl+R` in the app, or
 **Give it a grid, or call it from Python.** `--vary` puts a design through
 every combination of whatever you name and returns a table. The analysis
 underneath is an ordinary importable library — no display, no Qt, no
-matplotlib — and [docs/api.md](docs/api.md) is what it looks like from the
+matplotlib — and [docs/api.md](https://github.com/medinstech/cycloidgen/blob/main/docs/api.md) is what it looks like from the
 outside: the spec, the analysis, the exporters, the sweep, the grid and the
 search, with every example in it executed by the test suite so it cannot go
 stale.
@@ -207,7 +218,7 @@ measurements: they are a model's answers, and the model gets better between
 releases. So a design saved by an earlier build says so when you open it —
 which quantities may have moved, and that the inputs still mean what they
 meant — instead of quietly reporting a different mass than the one you wrote
-down. [RELEASING.md](RELEASING.md) says which version digits are allowed to
+down. [RELEASING.md](https://github.com/medinstech/cycloidgen/blob/main/RELEASING.md) says which version digits are allowed to
 move a number and which one is defined as the digit that cannot.
 
 **Why the animation loops without a jump.** A GIF restarts whether or not the
@@ -414,7 +425,7 @@ suggests it.
   than something you are told. A pinned reference design shows underneath as a
   ghost outline.
 
-  ![the drive turning](docs/motion.gif)
+  ![the drive turning](https://raw.githubusercontent.com/medinstech/cycloidgen/main/docs/motion.gif)
 
   Everything drawn comes off `core.kinematics`, the module that was verified
   against a full-revolution meshing simulation — the picture cannot tell a
@@ -475,7 +486,7 @@ suggests it.
   either way, saying what is carrying it instead — a motor's own bearings do not
   stop the crank reaction existing.
 
-  ![exploded](docs/exploded.png)
+  ![exploded](https://raw.githubusercontent.com/medinstech/cycloidgen/main/docs/exploded.png)
 
   It renders on the GPU through VTK — which costs no new dependency, because
   the CAD kernel that writes your STEP files already brings it. Depth buffer,
@@ -522,7 +533,7 @@ suggests it.
   efficiency, lost motion and mass move together, on their own real units, with
   the infeasible band shaded rather than silently dropped.
 
-  ![trade study](docs/tradestudy.png)
+  ![trade study](https://raw.githubusercontent.com/medinstech/cycloidgen/main/docs/tradestudy.png)
 
   Read off that chart: pin radius buys torque capacity up to a genuine optimum
   and then gives it back — the `PIN_RADIUS_SUGGESTION` check in closed form —
@@ -632,7 +643,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          766 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          767 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -741,6 +752,14 @@ loops without a jump** above.
 
 ## Standalone build and installer
 
+Two artefacts come out of a release, and they are not alternatives. The
+**installer** is for somebody who wants to run the app and does not have Python;
+it is Windows-only and will stay that way, because NSIS is a Windows tool and
+there is no cross-platform installer format to move to. The **wheel** on PyPI is
+what covers the other two platforms — the application is pure Python on wheels
+that exist for every platform and architecture it runs on, `cadquery-ocp`
+included, so `pip install cycloidgen` needs a compiler nowhere.
+
 ```powershell
 .\packaging\release.ps1                        # lint, tests, bundle, installer
 .\packaging\release.ps1 -FastPack -SkipTests    # quick internal build
@@ -775,7 +794,7 @@ Versions come from one line in `cycloidgen/__init__.py`: the wheel, the About
 box, the executable's file properties, the installer's filename and the release
 workflow all read that one, and `tests/test_version.py` fails if a second copy
 appears or if the changelog has no section for it. See
-[RELEASING.md](RELEASING.md).
+[RELEASING.md](https://github.com/medinstech/cycloidgen/blob/main/RELEASING.md).
 
 Verified working, GUI and CLI, including STEP/STL export. Two things about the
 PyInstaller spec are load-bearing and easy to break:
@@ -802,18 +821,18 @@ becomes a calibrated instrument.
 
 The half of that which was not waiting on a lathe is in: fitting the model's
 free constants against measurements is a script over a grid, and the grid, the
-importable analysis and the [documented API](docs/api.md) are all here now.
+importable analysis and the [documented API](https://github.com/medinstech/cycloidgen/blob/main/docs/api.md) are all here now.
 
 After that, in rough order: bearing life under combined load
 and misalignment; and more kinds of drive — compound and multi-stage, RV-type,
 a pinwheel output. On the output side, dimensioned drawing sheets with
 tolerances and a title block, which is what a shop actually wants; 3MF with
-per-part colour; STEP AP242 with PMI. [Open an issue](../../issues) if one of
+per-part colour; STEP AP242 with PMI. [Open an issue](https://github.com/medinstech/cycloidgen/issues) if one of
 those is what stands between you and using it — that moves it up the list.
 
 ## Contributing
 
-[CONTRIBUTING.md](CONTRIBUTING.md) covers setup, the house style, the settled
+[CONTRIBUTING.md](https://github.com/medinstech/cycloidgen/blob/main/CONTRIBUTING.md) covers setup, the house style, the settled
 questions, and what a change looks like here. The short version: numbers are
 verified rather than asserted, comments say *why*, and `ruff format` is
 deliberately not part of the build.
@@ -821,15 +840,15 @@ deliberately not part of the build.
 The most valuable contribution needs no code at all — **build one of these and
 measure it**.
 
-Also: [CHANGELOG.md](CHANGELOG.md) · [RELEASING.md](RELEASING.md) ·
-[SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+Also: [CHANGELOG.md](https://github.com/medinstech/cycloidgen/blob/main/CHANGELOG.md) · [RELEASING.md](https://github.com/medinstech/cycloidgen/blob/main/RELEASING.md) ·
+[SECURITY.md](https://github.com/medinstech/cycloidgen/blob/main/SECURITY.md) · [CODE_OF_CONDUCT.md](https://github.com/medinstech/cycloidgen/blob/main/CODE_OF_CONDUCT.md)
 
 ## License
 
-Apache-2.0. Copyright 2026 Medinstech. See [LICENSE](LICENSE).
+Apache-2.0. Copyright 2026 Medinstech. See [LICENSE](https://github.com/medinstech/cycloidgen/blob/main/LICENSE).
 
 The Medinstech name and logos under `cycloidgen/ui/assets/` are trademarks and
-are **not** covered by that licence — see [NOTICE](NOTICE). They load through a
+are **not** covered by that licence — see [NOTICE](https://github.com/medinstech/cycloidgen/blob/main/NOTICE). They load through a
 single module (`cycloidgen/ui/branding.py`) so that replacing them in a fork is
 one obvious change.
 

@@ -88,7 +88,53 @@ pull request template asks the same question for the same reason.
 6. **The tag does the rest.** `.github/workflows/release.yml` checks the tag
    against the source, runs lint and the suite, builds the bundle, asks the
    built executable what version it thinks it is, builds the installer, and
-   publishes a GitHub release with the changelog section as its notes.
+   publishes a GitHub release with the changelog section as its notes. Then it
+   builds the wheel and pushes it to PyPI.
+
+## Where a release goes
+
+Two artefacts, and they are not alternatives — they are for different people.
+
+| | who it is for | platforms |
+|---|---|---|
+| **Installer** on the GitHub release | somebody who wants to run the app and does not have Python | Windows |
+| **Wheel** on PyPI | anybody with Python 3.10–3.12; also the only way to `import cycloidgen` | Windows, Linux, macOS, x86-64 and arm64 |
+
+The installer is Windows-only and will stay that way: NSIS is a Windows tool,
+and there is no cross-platform installer format to move to. What covers the
+other two is the wheel — the application is pure Python on wheels that exist for
+every platform it runs on, `cadquery-ocp` included, so `pip install cycloidgen`
+needs a compiler nowhere.
+
+### PyPI, and the one thing that is set up by hand
+
+Publishing uses **Trusted Publishing**: PyPI verifies an OpenID Connect token
+minted by the workflow itself against a publisher it has on file, so there is no
+API token in this repository to leak, rotate or forget. It is configured once,
+at `pypi.org/manage/project/cycloidgen/settings/publishing` — or, before the
+first release, as a *pending* publisher under **Your projects → Publishing**:
+
+| field | value |
+|---|---|
+| PyPI project name | `cycloidgen` |
+| Owner | `medinstech` |
+| Repository name | `cycloidgen` |
+| Workflow name | `release.yml` |
+| Environment name | `pypi` |
+
+The environment name has to match the `environment:` on the `pypi` job. Leave it
+blank on PyPI's side and any workflow in the repository can publish; naming it
+is what keeps that to this one.
+
+A version on PyPI **cannot be replaced**, only yanked. That is why the job waits
+on the Windows one rather than running beside it: that job is the gate — lint,
+the whole suite, the tag against the source, the changelog section — and half an
+hour is a cheap price for not publishing something permanent that failed it.
+
+`twine check` runs before the upload because `README.md` is the project page
+there. PyPI serves it from its own host, so every path relative to the
+repository root would 404; the check that keeps them absolute is
+`test_the_readme_carries_no_relative_link_or_image`.
 
 ## Building the installer locally
 

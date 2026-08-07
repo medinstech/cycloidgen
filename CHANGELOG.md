@@ -7,6 +7,23 @@ design somebody already built.
 
 ## 7.1.0
 
+**Added**
+
+- **`pip install cycloidgen`.** The installer is Windows-only and always will be
+  — NSIS is a Windows tool — but the application never was: it is tested on
+  Linux and macOS on every push, and `cadquery-ocp` ships wheels for every
+  platform and architecture it runs on. So the honest answer for a Linux or Mac
+  user was "clone it and install from source", which is an answer for a
+  developer and not for anybody else. Now a release publishes a wheel to PyPI as
+  well as an installer to GitHub, and `cycloidgen` opens the window on all
+  three. Publishing goes through PyPI's Trusted Publishing, so there is no API
+  token in the repository to leak or rotate.
+
+  `README.md` is the project page there as well as the front of the repository,
+  and PyPI serves it from its own host — so every path in it is absolute now,
+  and a test keeps it that way. Relative ones would have landed on PyPI as a
+  column of broken-image icons.
+
 **Fixed**
 
 - **Three more parts were quoted off the disc stack.** 7.0.0 found the tie bolt
