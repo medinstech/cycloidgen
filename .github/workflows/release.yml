@@ -307,6 +307,16 @@ jobs:
         run: |
           image=$(ls releases/*.dmg)
           hdiutil attach "$image" -mountpoint /Volumes/cycloidgen -nobrowse -quiet
+
+          # The signature of the *copy*, which is the only place it can have
+          # been lost.  `packaging/macos.sh` verifies the bundle it was handed;
+          # this verifies the one that came out the other end of `ditto` and
+          # `hdiutil`.  Running the binary would not catch it - on arm64 the
+          # kernel checks the signature embedded in the Mach-O, and the
+          # signatures that a copy actually drops are the ones stored in
+          # extended attributes for everything that is not one.
+          codesign --verify --verbose=1 /Volumes/cycloidgen/cycloidgen.app
+
           app=/Volumes/cycloidgen/cycloidgen.app/Contents/MacOS/cycloidgen
           reported=$("$app" --version)
           echo "$reported"

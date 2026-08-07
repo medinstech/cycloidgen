@@ -119,3 +119,58 @@ def test_the_release_notes_are_built_on_an_unhelpful_stdout():
         assert "\n## " not in notes
     finally:
         written.unlink(missing_ok=True)
+
+
+# ------------------------------------------------------- artifacts between jobs
+
+
+def _artifact_steps(definition: dict) -> tuple[dict, list]:
+    """(artifact name -> producing job), and every (job, needs, wanted name)."""
+    produced: dict[str, str] = {}
+    wanted: list[tuple[str, list, str]] = []
+    for job_name, job in definition["jobs"].items():
+        needs = job.get("needs") or []
+        if isinstance(needs, str):
+            needs = [needs]
+        for step in job["steps"]:
+            uses = step.get("uses", "")
+            name = (step.get("with") or {}).get("name")
+            if not name:
+                continue
+            if uses.startswith("actions/upload-artifact"):
+                produced[name] = job_name
+            elif uses.startswith("actions/download-artifact"):
+                wanted.append((job_name, needs, name))
+    return produced, wanted
+
+
+def test_every_artifact_downloaded_is_one_that_was_uploaded():
+    """The release fans out into three build jobs and one that collects them,
+    and nothing joins the two ends.
+
+    `download-artifact` names a string.  If no job produced it the step fails
+    with "unable to find any artifacts" - after all three bundles have been
+    built, which on this workflow is most of an hour.  A dry run cannot catch it
+    either: the collecting job is gated on a real tag, so the first time it runs
+    is the release.
+    """
+    definition = _load(ROOT / ".github" / "workflows" / "release.yml")
+    produced, wanted = _artifact_steps(definition)
+    assert wanted, "nothing downloads an artifact - this test is asserting nothing"
+    missing = sorted({name for _, _, name in wanted} - set(produced))
+    assert not missing, f"downloaded but never uploaded: {missing}"
+
+
+def test_a_job_that_collects_an_artifact_waits_for_the_job_that_makes_it():
+    """The same failure with the names spelled right.
+
+    Without the dependency the collector is scheduled at once, races three
+    builds it cannot outrun, and fails looking for something nobody has uploaded
+    yet.  It reads exactly like the typo above and is not one.
+    """
+    definition = _load(ROOT / ".github" / "workflows" / "release.yml")
+    produced, wanted = _artifact_steps(definition)
+    for job_name, needs, name in wanted:
+        assert produced[name] in needs, (
+            f"job {job_name} downloads {name!r}, which job "
+            f"{produced[name]!r} produces, but does not wait for it")
