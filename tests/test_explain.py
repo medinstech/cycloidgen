@@ -90,6 +90,47 @@ def test_the_readme_lists_every_check_the_app_can_raise():
         f"the README names checks that do not exist: {sorted(listed - codes)}"
 
 
+_UNITS = ["zero", "one", "two", "three", "four", "five", "six", "seven",
+          "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen",
+          "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"]
+_TENS = {name: (i + 2) * 10 for i, name in enumerate(
+    ["twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty",
+     "ninety"])}
+
+
+def _spelled(word: str) -> int:
+    """"forty-two" -> 42.  Raises rather than guessing, which is the point."""
+    word = word.lower()
+    if word in _UNITS:
+        return _UNITS.index(word)
+    tens, _, unit = word.partition("-")
+    return _TENS[tens] + (_UNITS.index(unit) if unit else 0)
+
+
+def test_the_readme_says_how_many_checks_there_are_and_is_right():
+    """The list above is held to the code; the *count* beside it was not.
+
+    So the README claimed fifty-five checks at the top of the page and
+    fifty-three at the head of the section listing them - two numbers, in one
+    document, about one thing, and neither of them anybody's job.  A number in
+    prose is a claim like any other; this is the one that makes it checkable.
+    """
+    readme = (ROOT.parent / "README.md").read_text(encoding="utf-8")
+    section = re.search(r"^## Checks$\s*(.*?)^## ", readme, re.M | re.S)
+    assert section, "the README no longer has a Checks section"
+
+    claims = {
+        "the summary at the top":
+            re.search(r"\*\*([A-Za-z-]+) checks that explain themselves\.\*\*",
+                      readme),
+        "the head of the Checks section":
+            re.match(r"([A-Za-z-]+) of them\.", section.group(1)),
+    }
+    for where, found in claims.items():
+        assert found, f"{where} no longer states a count"
+        assert _spelled(found.group(1)) == len(EXPLANATIONS), where
+
+
 def test_every_explained_check_can_also_point_at_its_parameters():
     """The two declarations are separate on purpose - one names engineering, the
     other names widgets - but a check that tells you what to change and then
