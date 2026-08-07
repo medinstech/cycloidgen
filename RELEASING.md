@@ -238,7 +238,7 @@ is signed.
   characters unless it is built with a larger string length, and silently
   corrupting a user's `PATH` is a far worse outcome than making them type a full
   path. Use the pip install for command-line work.
-- **A per-user install.** The bundle is 1.2 GB; putting that in a roaming
+- **A per-user install.** The bundle is about 790 MB; putting that in a roaming
   profile is not a kindness.
 - **Auto-update.** An engineering tool changing its own answers overnight, on a
   machine where somebody is mid-project, is not a feature.

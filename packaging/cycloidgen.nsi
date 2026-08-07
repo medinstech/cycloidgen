@@ -34,7 +34,7 @@
 
 !define SETUP_NAME "cycloidgen_v${APP_VERSION}_Setup.exe"
 
-; The bundle is around 1.2 GB, essentially all OCCT, and LZMA on that takes a
+; The bundle is around 790 MB - mostly VTK and OCCT - and LZMA on that takes a
 ; while.  FASTPACK (release.ps1 -FastPack) swaps in zlib for internal test
 ; builds only: roughly four times faster to pack and a much larger installer.
 !ifdef FASTPACK
@@ -152,8 +152,8 @@ LangString S_AbortWarn ${LANG_TURKISH} "Kurulumdan çıkmak istediğinize emin m
 LangString S_WelcomeTitle ${LANG_ENGLISH} "Welcome to the ${APP_NAME} ${APP_VERSION} setup"
 LangString S_WelcomeTitle ${LANG_TURKISH} "${APP_NAME} ${APP_VERSION} kurulumuna hoş geldiniz"
 
-LangString S_WelcomeText ${LANG_ENGLISH} "This will install ${APP_NAME} ${APP_VERSION} - a parametric cycloidal drive generator with engineering analysis and CAD export.$\r$\n$\r$\nIt needs about 1.5 GB of disk space, most of which is the CAD kernel that writes STEP and STL.$\r$\n$\r$\nClick Next to continue."
-LangString S_WelcomeText ${LANG_TURKISH} "Bu sihirbaz ${APP_NAME} ${APP_VERSION} sürümünü kuracaktır: mühendislik analizi ve CAD çıktısı üreten parametrik sikloidal redüktör tasarım aracı.$\r$\n$\r$\nYaklaşık 1,5 GB disk alanı gerekir; bunun büyük bölümü STEP ve STL yazan CAD çekirdeğidir.$\r$\n$\r$\nDevam etmek için İleri'ye tıklayın."
+LangString S_WelcomeText ${LANG_ENGLISH} "This will install ${APP_NAME} ${APP_VERSION} - a parametric cycloidal drive generator with engineering analysis and CAD export.$\r$\n$\r$\nIt needs about 850 MB of disk space, most of which is the 3D viewer and the CAD kernel that writes STEP and STL.$\r$\n$\r$\nClick Next to continue."
+LangString S_WelcomeText ${LANG_TURKISH} "Bu sihirbaz ${APP_NAME} ${APP_VERSION} sürümünü kuracaktır: mühendislik analizi ve CAD çıktısı üreten parametrik sikloidal redüktör tasarım aracı.$\r$\n$\r$\nYaklaşık 850 MB disk alanı gerekir; bunun büyük bölümü 3B görüntüleyici ile STEP ve STL yazan CAD çekirdeğidir.$\r$\n$\r$\nDevam etmek için İleri'ye tıklayın."
 
 LangString S_LicHeader ${LANG_ENGLISH} "Licence"
 LangString S_LicHeader ${LANG_TURKISH} "Lisans"

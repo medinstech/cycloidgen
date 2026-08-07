@@ -16,6 +16,8 @@ from __future__ import annotations
 import pathlib
 import re
 
+import pytest
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 NSI = ROOT / "packaging" / "cycloidgen.nsi"
 RELEASE_PS1 = ROOT / "packaging" / "release.ps1"
@@ -305,3 +307,104 @@ def test_the_mac_and_linux_bundles_are_built_on_pinned_runners():
     jobs = yaml.safe_load(RELEASE_YML.read_text(encoding="utf-8"))["jobs"]
     assert jobs["linux"]["runs-on"] == "ubuntu-22.04"
     assert jobs["macos"]["runs-on"] == "macos-15"
+
+
+# ------------------------------------------------- what the bundle leaves out
+
+RTHOOK = ROOT / "packaging" / "rthook_casadi.py"
+
+#: Declared by cadquery, imported by nothing here, and a third of the bundle
+#: between them.  Each one is checked below against the import graph rather than
+#: trusted, because "we do not use it" is exactly the claim that rots.
+DEAD_WEIGHT = ["numba", "llvmlite", "trame", "trame_vuetify", "trame_client",
+               "trame_server", "trame_vtk", "pyvista"]
+
+
+def test_the_spec_excludes_everything_it_declares_dead():
+    """The list in the spec is the one thing the build reads.
+
+    Splitting it - a comment naming one set and `excludes` carrying another - is
+    how a 116 MB package comes back without anybody deciding it should.
+    """
+    spec = SPEC.read_text(encoding="utf-8")
+    declared = re.search(r"DEAD_WEIGHT = \[(.*?)\]", spec, re.S)
+    assert declared, "the spec no longer declares what it drops"
+    assert sorted(re.findall(r'"([^"]+)"', declared.group(1))) == sorted(DEAD_WEIGHT)
+    assert '"casadi", *DEAD_WEIGHT' in spec, "all of it has to reach excludes"
+
+
+def test_nothing_in_the_application_imports_what_the_bundle_drops():
+    """The check that makes the exclusions safe rather than hopeful.
+
+    Every name below is a hard dependency of cadquery, so it is installed in
+    this environment and importing it would succeed - which is why absence has
+    to be asserted against the source rather than discovered at run time, where
+    the first person to find out is holding a frozen build that will not start.
+    """
+    offenders = []
+    for path in (ROOT / "cycloidgen").rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        for module in [*DEAD_WEIGHT, "casadi"]:
+            if re.search(rf"^\s*(?:from|import)\s+{module}\b", text, re.M):
+                offenders.append(f"{path.relative_to(ROOT)} imports {module}")
+    assert not offenders, offenders
+
+
+def test_the_casadi_stand_in_survives_being_read_the_way_cadquery_reads_it():
+    """cadquery imports casadi whatever you ask it for, so the stub is on the
+    only path into the CAD kernel.
+
+    What runs at import time is two annotations - `ca.Opti` on a class attribute
+    and `ca.MX` on some signatures - and an annotation needs an object, not an
+    optimiser.  Attribute access therefore has to work and calling has to fail,
+    which is the whole design and is checked here in both directions.
+    """
+    import runpy
+
+    namespace = runpy.run_path(str(RTHOOK))
+    stub = namespace["_Casadi"]("casadi")
+
+    assert stub.Opti is not None                     # the annotation that runs
+    assert stub.MX is not None
+    with pytest.raises(RuntimeError, match="not bundled"):
+        stub.Opti()                                  # ...and using it does not
+
+    # Dunders go to the import machinery and to inspect; answering those with a
+    # placeholder makes the module lie about its own shape.
+    with pytest.raises(AttributeError):
+        _ = stub.__wrapped__
+
+
+def test_the_spec_installs_the_stand_in_before_anything_can_import_cadquery():
+    """A runtime hook runs before the application's first line, which is the
+    only window there is: by the time `launcher.py` runs, an ordinary import of
+    cadquery would already have failed."""
+    spec = SPEC.read_text(encoding="utf-8")
+    assert 'runtime_hooks=["packaging/rthook_casadi.py"]' in spec
+    assert RTHOOK.exists()
+
+
+#: The old figures, in both decimal separators - the installer's Turkish page
+#: writes "1,5 GB".  The README states the old number deliberately, as the
+#: history of a wrong guess, so what is forbidden is the *claim* rather than the
+#: number: anything not reached through "was".
+_CLAIM = re.compile(r"(?<!was )1[.,][25]\s?GB")
+
+
+def test_nothing_still_claims_the_bundle_is_a_gigabyte_of_occt():
+    """It was 1.2 GB and the reason given was OCCT, and both halves were wrong:
+    the kernel is 152 MB and the constraint optimiser beside it was larger.
+
+    The number reaches a user through the installer's welcome page, in two
+    languages, so a stale one is not an internal note - it is the first sentence
+    of the product.
+    """
+    for path in (ROOT / "README.md", ROOT / "RELEASING.md", NSI):
+        text = path.read_text(encoding="utf-8-sig")
+        stale = _CLAIM.search(text)
+        assert not stale, f"{path.name} still states the old size: {stale.group(0)!r}"
+
+    # ...and the installer says it in both languages, because only one of them
+    # was ever going to be updated by hand.
+    nsi = NSI.read_text(encoding="utf-8-sig")
+    assert nsi.count("850 MB") == 2, "both welcome pages quote the footprint"

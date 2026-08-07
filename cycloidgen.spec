@@ -6,12 +6,10 @@
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 datas, binaries, hiddenimports = [], [], []
-# casadi backs cadquery's assembly solver and ships loose DLLs beside its .pyd,
-# which PyInstaller's dependency walker does not follow on its own.
 # PIL comes in behind matplotlib, but the animation export reaches the GIF
 # writer by name at run time; collect_all is what guarantees the image plugins
 # travel with it rather than only the ones matplotlib happens to touch.
-for package in ("cadquery", "OCP", "casadi", "vtkmodules", "ezdxf", "matplotlib",
+for package in ("cadquery", "OCP", "vtkmodules", "ezdxf", "matplotlib",
                 "reportlab", "pydantic", "PIL"):
     try:
         d, b, h = collect_all(package)
@@ -21,17 +19,31 @@ for package in ("cadquery", "OCP", "casadi", "vtkmodules", "ezdxf", "matplotlib"
     except Exception as exc:                      # optional at build time
         print(f"[spec] skipping {package}: {exc}")
 
-# PyInstaller relocates _casadi.pyd to the bundle root but leaves the DLLs it
-# links against inside casadi/, so the import fails with "DLL load failed".
-# Put a copy of those DLLs beside the .pyd.
+# PyInstaller relocates the extension modules to the bundle root but leaves the
+# DLLs they link against inside the package directory, so the import fails with
+# "DLL load failed".  Put a copy of those DLLs beside the .pyd.
 from importlib.util import find_spec
 from pathlib import Path
 
-for package in ("casadi", "OCP"):
-    found = find_spec(package)
-    if found and found.origin:
-        for dll in Path(found.origin).parent.glob("*.dll"):
-            binaries.append((str(dll), "."))
+found = find_spec("OCP")
+if found and found.origin:
+    for dll in Path(found.origin).parent.glob("*.dll"):
+        binaries.append((str(dll), "."))
+
+#: Pulled in by cadquery as hard dependencies and never imported by this
+#: application - measured, not assumed: with all of them blocked at import time
+#: the whole export path still writes an identical STEP file.
+#:
+#: They are not small.  Together they are about a third of the bundle, and the
+#: reason is that cadquery declares what *cadquery* can do rather than what any
+#: one caller uses: numba (with LLVM behind it) accelerates a tessellation path
+#: this application does not take, and trame is the Jupyter and browser viewer
+#: for a program that ships its own window.
+#:
+#: casadi is the fourth and is handled differently, because unlike these it is
+#: imported whether or not it is used - see `packaging/rthook_casadi.py`.
+DEAD_WEIGHT = ["numba", "llvmlite", "trame", "trame_vuetify", "trame_client",
+               "trame_server", "trame_vtk", "pyvista"]
 
 hiddenimports += collect_submodules("cycloidgen")
 hiddenimports += ["matplotlib.backends.backend_qtagg", "PySide6.QtSvg"]
@@ -107,7 +119,11 @@ a = Analysis(
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
-    excludes=["tkinter", "PyQt5", "PyQt6", "IPython", "jupyter", "pytest"],
+    excludes=["tkinter", "PyQt5", "PyQt6", "IPython", "jupyter", "pytest",
+              "casadi", *DEAD_WEIGHT],
+    # Runs before the application's first line, which is the only place the
+    # casadi substitution can be made: cadquery imports it on the way in.
+    runtime_hooks=["packaging/rthook_casadi.py"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

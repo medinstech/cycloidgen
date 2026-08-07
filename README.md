@@ -844,15 +844,26 @@ PyInstaller spec are load-bearing and easy to break:
 
 - The entry point is `launcher.py`, not `cycloidgen/__main__.py`. PyInstaller
   runs its entry script as a top-level module, which breaks relative imports.
-- `_casadi.pyd` (pulled in by CadQuery's assembly solver) gets relocated to the
-  bundle root while the DLLs it links against stay in `casadi/`, so the spec
-  copies those DLLs to the root as well. Without it the exe dies with
-  `DLL load failed while importing _casadi`.
+- The DLLs that `OCP`'s extension links against stay in the package directory
+  when PyInstaller relocates the `.pyd` to the bundle root, so the spec copies
+  them to the root as well. Without it the exe dies with `DLL load failed`.
+- `casadi` is not bundled, and `packaging/rthook_casadi.py` stands in for it.
+  CadQuery imports its constraint solver on the way in whatever you use it for,
+  and this application places every part by an explicit transform — so the
+  import is satisfied and the optimiser is left out. Reading a name off the
+  stand-in works, which is all the two annotations that run at import time need;
+  calling one raises and says why.
 
-The bundle is about 1.2 GB, essentially all OCCT. If that matters, build with
-`--no-solids` in mind: the drawings-and-report path does not need CadQuery, and
-dropping `cadquery`, `OCP`, `casadi` and `vtkmodules` from the spec cuts the
-bundle to a fraction of the size.
+The bundle is about 790 MB. It was 1.2 GB until the dependencies CadQuery
+declares but this application never imports were measured rather than assumed —
+`numba` with LLVM behind it, `trame`, and `casadi` — which came to 444 MB, or
+36% of it. That the CAD kernel was the weight was the obvious guess and it was
+wrong: OCCT is 152 MB, and the optimiser that arrived beside it was larger.
+
+About 123 MB of VTK is also never loaded, which is measurable but not yet
+removed: unlike the above it cannot be checked from the test suite, because
+excluding a VTK module is a missing DLL in the frozen build rather than a failed
+import in a virtual environment.
 
 ## Where it is going
 

@@ -5,6 +5,46 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 7.2.0
+
+**Changed**
+
+- **The bundle is 790 MB, down from 1.2 GB.** 444 MB of it, 36%, was three
+  packages that CadQuery declares as dependencies and this application never
+  imports: `casadi`, an interior-point optimiser, at about 220 MB; `numba` with
+  LLVM behind it at 142 MB; and `trame`, a browser viewer, at 20 MB. CadQuery
+  declares what CadQuery can do, not what one caller uses.
+
+  The note this replaces said the bundle was "essentially all OCCT" and
+  suggested a build without the CAD kernel for anybody who cared. Both halves
+  were wrong. OCCT is 152 MB — 12% — and the optimiser that arrives beside it is
+  larger than it is, so the prescribed remedy would have given up STEP and STL
+  export, which is half the point of the tool, to save a third of what came off
+  by shipping the same features with less beside them. The size was a plausible
+  guess nobody had weighed; measuring it took one pass and reversed the answer.
+
+  Nothing is dropped on the strength of not finding an `import`. Each package is
+  made unimportable and the whole suite is run against that — 778 tests — and the
+  export is compared file by file against one from an environment with every
+  dependency present: 29 files, identical sizes, kernel path included.
+
+  `casadi` needed more than an exclusion, because it is imported whether it is
+  used or not: `cadquery/__init__.py` reaches `occ_impl.solver`, which imports it
+  at the top. So `packaging/rthook_casadi.py` stands in for it, and what makes
+  the substitution safe is *where* the module uses it — all thirty-seven
+  references are inside function bodies, and the only names that run at import
+  are two annotations. Reading a name off the stand-in works, which is all an
+  annotation needs; calling one raises with a sentence saying the solver was left
+  out. This application constrains no assemblies — every part is placed by an
+  explicit transform off the kinematics — so the limit is real but unreachable
+  from the application, and `pip install cycloidgen` brings the genuine article.
+
+  Not done, and measured rather than left vague: about 123 MB of VTK is never
+  loaded either. It is left in because it cannot be checked the way the rest
+  was. Excluding a VTK module is a missing DLL in a frozen build, not a failed
+  import in a virtual environment, so the test suite would go green on a bundle
+  that had lost the 3D view.
+
 ## 7.1.0
 
 **Added**
