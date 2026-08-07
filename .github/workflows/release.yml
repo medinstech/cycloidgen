@@ -133,10 +133,19 @@ jobs:
           `--appimage-extract-and-run`, which unpacks it instead of mounting it.
 
           **macOS** - `cycloidgen-...-arm64.dmg`, Apple silicon. Drag it to
-          Applications. It is signed ad-hoc but not notarized, so Gatekeeper
-          blocks the first launch: **System Settings -> Privacy & Security ->
-          Open Anyway**, or `xattr -dr com.apple.quarantine
-          /Applications/cycloidgen.app` once. On an Intel Mac, use pip.
+          Applications, then run this **before opening it**:
+
+          ```
+          xattr -dr com.apple.quarantine /Applications/cycloidgen.app
+          ```
+
+          It is signed ad-hoc but not notarized, so Gatekeeper blocks the first
+          launch. On macOS 15 and later the dialog it raises defaults to
+          **Move to Trash**, which deletes the install - there is no *Open
+          Anyway* in that dialog, it appears in System Settings only after a
+          launch has been blocked, and right-click -> Open no longer bypasses
+          it. Clearing the flag first avoids the dialog entirely. On an Intel
+          Mac, use pip.
 
           **Anywhere with Python 3.10-3.12**: `pip install cycloidgen`, then
           `cycloidgen`.

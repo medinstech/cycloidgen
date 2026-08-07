@@ -7,6 +7,42 @@ design somebody already built.
 
 ## 7.2.0
 
+**Fixed**
+
+- **The macOS instructions deleted the application.** They offered *System
+  Settings ▸ Privacy & Security ▸ Open Anyway* first and `xattr -dr
+  com.apple.quarantine` as an alternative, which reads as "open it, then deal
+  with the warning". On macOS 15 and later that warning's default button is
+  *Move to Trash*. A tester on macOS 26 followed the README exactly and watched
+  the 1.3 GB install go to the Trash without the application ever running —
+  Gatekeeper blocked the launch, then `syspolicyd` moved the bundle. *Open
+  Anyway* is not in that dialog at all; it appears in System Settings only
+  after a launch has already been blocked, and right-click ▸ *Open* stopped
+  bypassing Gatekeeper in macOS 15.
+
+  So the order is reversed everywhere it appears — the README, the generated
+  release notes and RELEASING.md — and the clearing step now comes *before* the
+  first launch, where it produces no dialog at all. A test holds the order,
+  because it is prose in two files, one of them a heredoc inside a workflow,
+  and reflowing it back the wrong way is a plausible tidy-up.
+
+  Being unsigned was known and stated. What was not stated is that the easiest
+  click destroys the install, which is the difference between a warning and a
+  trap.
+
+- **`--version` from the `.app` does not print while the bundle is
+  quarantined.** The README explained why a windowed macOS build still answers
+  on the command line and offered the command as proof. True for the bundle the
+  release workflow builds, which never carries the flag, and false for the one
+  a user downloads: Gatekeeper blocks the `exec` as well as the double-click,
+  so the command hangs for about ten seconds and prints nothing. It answers
+  normally once the quarantine flag is cleared, and the claim now says so.
+
+  Both of these came from a tester on real hardware. Neither could have been
+  caught here: the release workflow runs the binary out of the mounted image
+  and it passes, because a file the workflow built itself was never quarantined
+  in the first place.
+
 **Changed**
 
 - **The bundle is 790 MB, down from 1.2 GB.** 444 MB of it, 36%, was three

@@ -158,8 +158,20 @@ Two things not to change:
 
 **Ad-hoc is not signed.** Gatekeeper stops the first launch and the user has to
 allow it by hand, which is worse than SmartScreen and is stated plainly in the
-release notes and the README. Fixing it needs the Apple Developer Program
-($99/yr) and then three steps in the macOS job, in this order:
+release notes and the README.
+
+It is worse than "allow it by hand" suggests, which a tester on macOS 26 found
+the hard way: the dialog raised by opening an unnotarized app has *Move to
+Trash* as its default button, and the 1.3 GB install went to the Trash without
+ever running. *Open Anyway* is not in that dialog — it appears in System
+Settings after a launch has been blocked — and right-click ▸ *Open* stopped
+bypassing Gatekeeper in macOS 15. So both the README and the release notes put
+`xattr -dr com.apple.quarantine` **before** the first launch rather than beside
+the Settings route as an alternative. Anything that reads as "try opening it and
+then deal with the warning" is advice to delete the application.
+
+Fixing it properly needs the Apple Developer Program ($99/yr) and then three
+steps in the macOS job, in this order:
 
 ```bash
 codesign --sign "Developer ID Application: ..." --options runtime \

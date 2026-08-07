@@ -309,6 +309,33 @@ def test_the_mac_and_linux_bundles_are_built_on_pinned_runners():
     assert jobs["macos"]["runs-on"] == "macos-15"
 
 
+def test_the_quarantine_flag_is_cleared_before_the_first_launch_is_suggested():
+    """Order, not content - and getting it wrong deletes the installation.
+
+    Both documents used to offer *System Settings ▸ Privacy & Security ▸ Open
+    Anyway* first and `xattr` as an alternative.  That reads as "open it, then
+    deal with the warning", and on macOS 15 and later the warning's default
+    button is *Move to Trash*: a tester on macOS 26 followed it exactly and
+    watched 1.3 GB go to the Trash without the application ever running.
+
+    So wherever both remedies appear, the one that avoids the dialog has to come
+    first.  Nothing enforces that but this - it is prose in two files, one of
+    them a heredoc inside a workflow, and it is precisely the sort of thing a
+    tidy-up reflows back into the wrong order.
+    """
+    for path in (ROOT / "README.md", RELEASE_YML):
+        text = path.read_text(encoding="utf-8")
+        clear = text.find("xattr -dr com.apple.quarantine")
+        settings = text.find("Open Anyway")
+        assert clear != -1, f"{path.name} no longer tells anyone how to clear it"
+        if settings != -1:
+            assert clear < settings, (
+                f"{path.name} offers the Settings route before clearing the flag")
+        # ...and says what the dialog's default button does, because the whole
+        # failure is that the easiest click is the destructive one.
+        assert "Move to Trash" in text, f"{path.name} does not warn what it costs"
+
+
 # ------------------------------------------------- what the bundle leaves out
 
 RTHOOK = ROOT / "packaging" / "rthook_casadi.py"

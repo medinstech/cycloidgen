@@ -105,10 +105,14 @@ None of them are signed, so each operating system stops the first launch and
 each one wants something different:
 
 - **Windows** — installer. SmartScreen wants *More info ▸ Run anyway*.
-- **macOS** — disk image, Apple silicon. Drag it to Applications; Gatekeeper
-  wants *System Settings ▸ Privacy & Security ▸ Open Anyway*, or
-  `xattr -dr com.apple.quarantine /Applications/cycloidgen.app` once. On an
-  Intel Mac, use pip.
+- **macOS** — disk image, Apple silicon. Drag it to Applications, then run
+  `xattr -dr com.apple.quarantine /Applications/cycloidgen.app` **before you
+  open it**. That order matters: on macOS 15 and later, opening it first raises
+  a dialog whose default button is *Move to Trash*, and taking it deletes the
+  install. There is no *Open Anyway* in that dialog — it appears in *System
+  Settings ▸ Privacy & Security* only after a launch has been blocked — and
+  right-click ▸ *Open* no longer bypasses it either. With the flag cleared
+  first there is no dialog at all. On an Intel Mac, use pip.
 - **Linux** — AppImage. One file, `chmod +x`, double-click. If it will not
   start the machine is missing FUSE 2: install it (`libfuse2` on Debian and
   Ubuntu) or run the file with `--appimage-extract-and-run`, which unpacks it
@@ -825,6 +829,12 @@ or a terminal program — and it costs nothing, because a process started from a
 shell has stdio whatever its bundle says. That is why
 `cycloidgen.app/Contents/MacOS/cycloidgen --version` still prints, and why the
 release workflow can ask the bundle it just built what it is.
+
+That last sentence holds for the bundle the workflow builds and not for the one
+a user downloads. Gatekeeper blocks the `exec` as well as the double-click, so
+on a quarantined install the same command hangs for about ten seconds and
+prints nothing — it is not a broken build, and it answers normally once the
+quarantine flag is cleared.
 
 The installer upgrades in place — it clears the previous version first, because
 unpacking a PyInstaller bundle *over* another one leaves modules and DLLs from
