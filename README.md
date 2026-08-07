@@ -1,13 +1,45 @@
-# cycloidgen
+<p align="center">
+  <a href="https://medinstech.com">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="cycloidgen/ui/assets/wordmark-white.png">
+      <img alt="Medinstech" src="cycloidgen/ui/assets/wordmark-blue.png" height="96">
+    </picture>
+  </a>
+</p>
 
-[![tests](https://github.com/medinstech/cycloidgen/actions/workflows/tests.yml/badge.svg)](https://github.com/medinstech/cycloidgen/actions/workflows/tests.yml)
-[![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![python](https://img.shields.io/badge/python-3.10%20%E2%80%93%203.12-blue.svg)](pyproject.toml)
+<h1 align="center">cycloidgen</h1>
 
-Parametric cycloidal drive (cycloidal gearbox) generator: a desktop app that
-takes a handful of parameters — or a set of requirements — runs the drive live in
-2D and 3D, checks it, sizes it, and writes DXF, SVG, STEP, STL, a looping
-animation, a bill of materials and a PDF dossier.
+<p align="center"><b>Parametric cycloidal drive design</b></p>
+
+<p align="center">
+  A desktop app that takes a handful of parameters — or a set of requirements —<br>
+  runs the drive live in 2D and 3D, checks it, sizes it, and writes DXF, SVG, STEP,<br>
+  STL, a looping animation, a bill of materials and a PDF dossier.
+</p>
+
+<p align="center">
+  <a href="https://github.com/medinstech/cycloidgen/actions/workflows/tests.yml"><img alt="tests" src="https://img.shields.io/github/actions/workflow/status/medinstech/cycloidgen/tests.yml?branch=main&style=flat-square&label=tests"></a>
+  <a href="https://github.com/medinstech/cycloidgen/releases/latest"><img alt="latest release" src="https://img.shields.io/github/v/release/medinstech/cycloidgen?style=flat-square&color=0d00ff&label=release"></a>
+  <a href="pyproject.toml"><img alt="Python 3.10 – 3.12" src="https://img.shields.io/badge/python-3.10%20%E2%80%93%203.12-0d00ff?style=flat-square"></a>
+  <a href="LICENSE"><img alt="Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-0d00ff?style=flat-square"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/medinstech/cycloidgen/releases/latest"><b>Download for Windows</b></a>
+  &nbsp;·&nbsp; <a href="#run-it">Run from source</a>
+  &nbsp;·&nbsp; <a href="docs/api.md">Python API</a>
+  &nbsp;·&nbsp; <a href="#checks">The checks</a>
+  &nbsp;·&nbsp; <a href="CHANGELOG.md">Changelog</a>
+</p>
+
+![the application](docs/app-drawing.png)
+
+<p align="center">
+  Selecting a check tells you what it tests, why it matters and what to change;<br>
+  the parameters it names light up in the panel on the left.
+</p>
+
+---
 
 - **Exact geometry.** The conjugate profile in closed form, verified to sit at
   exactly the pin radius from the pin-centre locus — envelope deviation 0.0 µm.
@@ -32,11 +64,6 @@ animation, a bill of materials and a PDF dossier.
 [What it tells you](#what-it-tells-you) · [Checks](#checks) ·
 [In the app](#in-the-app) · [Tests](#tests) · [Performance](#performance) ·
 [Contributing](#contributing)
-
-![the application](docs/app-drawing.png)
-
-Selecting a check tells you what it tests, why it matters and what to change;
-the parameters it names light up in the panel on the left.
 
 ![overview](docs/drawing.png)
 
