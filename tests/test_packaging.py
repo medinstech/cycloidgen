@@ -426,7 +426,8 @@ def test_nothing_still_claims_the_bundle_is_a_gigabyte_of_occt():
     languages, so a stale one is not an internal note - it is the first sentence
     of the product.
     """
-    for path in (ROOT / "README.md", ROOT / "RELEASING.md", NSI):
+    for path in (ROOT / "README.md", ROOT / "RELEASING.md", NSI, RELEASE_YML,
+                 WORKFLOWS / "tests.yml"):
         text = path.read_text(encoding="utf-8-sig")
         stale = _CLAIM.search(text)
         assert not stale, f"{path.name} still states the old size: {stale.group(0)!r}"

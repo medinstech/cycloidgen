@@ -5,7 +5,14 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
-## 7.2.0
+## 7.1.1
+
+**Numbers**
+
+- **Nothing computed moved.** Every quantity this reports is what 7.1.0
+  reported, to the digit — the export from the trimmed bundle was compared file
+  by file against one built with every dependency present, and all 29 came out
+  the same size. This release is packaging, documentation and one dialog.
 
 **Fixed**
 

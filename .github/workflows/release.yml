@@ -21,7 +21,7 @@ jobs:
   windows:
     name: Windows installer
     runs-on: windows-latest
-    # The bundle is about 1.2 GB, essentially all OCCT, and LZMA over that is
+    # The bundle is about 790 MB - mostly VTK and OCCT - and LZMA over that is
     # most of the wall clock here.
     timeout-minutes: 90
 
@@ -229,7 +229,7 @@ jobs:
       #
       # Extracted once rather than run twice under APPIMAGE_EXTRACT_AND_RUN: the
       # runner has no FUSE to mount the image with, and that variable unpacks
-      # the whole 1.2 GB again on every invocation.  `--appimage-extract` is a
+      # the whole bundle again on every invocation.  `--appimage-extract` is a
       # flag of the runtime itself and needs no FUSE either.
       - name: Run the AppImage
         env:
