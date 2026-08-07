@@ -9,6 +9,21 @@ design somebody already built.
 
 **Added**
 
+- **A macOS disk image.** Drag it to Applications, which is what a Mac user
+  expects installing to be. Apple silicon only: every x86-64 macOS runner GitHub
+  offers is now a paid larger runner and the free Intel image was retired, so an
+  Intel Mac gets the wheel — the same application by a different route.
+
+  It is signed ad-hoc, which is the minimum Apple silicon will execute at all,
+  and not notarized — so Gatekeeper stops the first launch and the user has to
+  allow it by hand. That is worse than SmartScreen, it is said plainly in the
+  release notes and the README rather than discovered, and it is a certificate
+  away rather than a rewrite: [RELEASING.md](https://github.com/medinstech/cycloidgen/blob/main/RELEASING.md)
+  has the three commands the job would gain.
+
+  The workflow mounts the finished image and runs the binary out of the mounted
+  volume, which is the last state the thing is in before a user sees it.
+
 - **A Linux AppImage.** One file, `chmod +x`, double-click — the Linux answer to
   the Windows installer, arrived at from the opposite direction: NSIS unpacks
   the bundle into Program Files and registers it, an AppImage installs nothing
@@ -33,12 +48,10 @@ design somebody already built.
   platform and architecture it runs on. So the honest answer for a Linux or Mac
   user was "clone it and install from source", which is an answer for a
   developer and not for anybody else. Now a release publishes a wheel to PyPI as
-  well, and `cycloidgen` opens the window on all three — including macOS, which
-  has no bundle of its own and will not until there is a Developer ID to sign
-  with. Gatekeeper treats an unsigned application far more harshly than
-  SmartScreen does, so an unsigned `.dmg` would be worse than the wheel rather
-  than better. Publishing goes through PyPI's Trusted Publishing, so there is no API
-  token in the repository to leak or rotate.
+  well, and `cycloidgen` opens the window on all three. It is also the only
+  route on an Intel Mac, and the only way to `import cycloidgen`. Publishing
+  goes through PyPI's Trusted Publishing, so there is no API token in the
+  repository to leak or rotate.
 
   `README.md` is the project page there as well as the front of the repository,
   and PyPI serves it from its own host — so every path in it is absolute now,

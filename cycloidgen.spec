@@ -147,11 +147,17 @@ def _exe(name: str, *, console: bool):
 # Linux, where every process has whatever streams it was handed.  A second
 # binary there would not be a second behaviour, only a second copy of the same
 # one, and a name (`cycloidgen-cli`) implying a difference that does not exist.
+#
+# The flag does mean something on macOS, but something else again: it decides
+# whether Launch Services sees a windowed application or a terminal program, and
+# a `.app` has to be the first.  It costs nothing there - unlike Windows, a
+# process started from a shell has stdio whatever its bundle says, so
+# `cycloidgen.app/Contents/MacOS/cycloidgen --version` still prints.
 if sys.platform == "win32":
     executables = [_exe("cycloidgen", console=False),
                    _exe("cycloidgen-cli", console=True)]
 else:
-    executables = [_exe("cycloidgen", console=True)]
+    executables = [_exe("cycloidgen", console=sys.platform != "darwin")]
 
 coll = COLLECT(
     *executables, a.binaries, a.datas,
@@ -159,3 +165,77 @@ coll = COLLECT(
     upx=False,            # UPX corrupts some OCCT DLLs
     name="cycloidgen",
 )
+
+# ---------------------------------------------------------------- macOS .app
+#
+# A folder with a name and a plist in it, which is what a Mac calls an
+# application: Finder shows one icon, Launch Services reads the identifier, and
+# `packaging/macos.sh` puts it in a disk image.  Built here rather than in that
+# script so that a plain `pyinstaller cycloidgen.spec` produces the same thing
+# on a Mac that it does everywhere else - the whole application, ready to run.
+if sys.platform == "darwin":
+    import subprocess
+
+    # The icon has to be an .icns, and .icns is a container of sizes rather than
+    # an image.  `iconutil` builds one from a folder of exact squares; the mark
+    # is committed at 256, so what goes in is every size at or below it and
+    # nothing above.  Upscaling would fill the two largest slots with a blurred
+    # 256 and Finder would show exactly that.  256 is what the Dock asks for on
+    # a Retina display, which is where an application icon is actually looked
+    # at - the missing 512 and 1024 are Finder's largest icon view alone.
+    _icns = None
+    _mark = Path("cycloidgen/ui/assets/mark-blue.png")
+    if _mark.exists():
+        from PIL import Image
+
+        _master = Image.open(_mark).convert("RGBA")
+        # Emptied rather than topped up: `iconutil` refuses an iconset with a
+        # name in it that it does not recognise, so one file left behind by a
+        # build against a different master fails every build after it.
+        import shutil
+
+        _iconset = Path("build/cycloidgen.iconset")
+        shutil.rmtree(_iconset, ignore_errors=True)
+        _iconset.mkdir(parents=True)
+        #: (point size, scale) -> pixels, keeping only what the master can fill.
+        for _points, _scale in ((16, 1), (16, 2), (32, 1), (32, 2),
+                                (128, 1), (128, 2), (256, 1)):
+            _pixels = _points * _scale
+            if _pixels > _master.width:
+                continue
+            _suffix = "" if _scale == 1 else "@2x"
+            _master.resize((_pixels, _pixels), Image.LANCZOS).save(
+                _iconset / f"icon_{_points}x{_points}{_suffix}.png")
+        _icns = "build/cycloidgen.icns"
+        subprocess.run(["iconutil", "-c", "icns", str(_iconset), "-o", _icns],
+                       check=True)
+
+    app = BUNDLE(
+        coll,
+        name="cycloidgen.app",
+        icon=_icns,
+        # Never change this.  macOS keys preferences, window state, permissions
+        # and the "open with" association to the identifier, not the path or the
+        # name, so a new one is a new application to every part of the system and
+        # everybody's settings are gone.
+        bundle_identifier="com.medinstech.cycloidgen",
+        version=_version,
+        info_plist={
+            "CFBundleName": "cycloidgen",
+            "CFBundleDisplayName": "cycloidgen",
+            "CFBundleShortVersionString": _version,
+            "CFBundleVersion": _version,
+            "NSHumanReadableCopyright": "Copyright 2026 Medinstech. Apache-2.0.",
+            # Without it the window is drawn at 1x and scaled up, which on a
+            # Retina display looks like a screenshot of the application rather
+            # than the application.
+            "NSHighResolutionCapable": True,
+            # The app has a dark theme of its own and follows the system; this
+            # is what stops AppKit forcing every window light.
+            "NSRequiresAquaSystemAppearance": False,
+            # Not a guess: every wheel this is built from is tagged
+            # `macosx_11_0_arm64`, so 11 is what the dependencies themselves
+            # claim.  It is the floor they state, not one measured here.
+            "LSMinimumSystemVersion": "11.0",
+        },
+    )

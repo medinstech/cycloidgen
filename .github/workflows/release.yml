@@ -132,8 +132,14 @@ jobs:
           FUSE 2: install `libfuse2`, or run the file with
           `--appimage-extract-and-run`, which unpacks it instead of mounting it.
 
-          **Anywhere with Python 3.10-3.12**, macOS included:
-          `pip install cycloidgen`, then `cycloidgen`.
+          **macOS** - `cycloidgen-...-arm64.dmg`, Apple silicon. Drag it to
+          Applications. It is signed ad-hoc but not notarized, so Gatekeeper
+          blocks the first launch: **System Settings -> Privacy & Security ->
+          Open Anyway**, or `xattr -dr com.apple.quarantine
+          /Applications/cycloidgen.app` once. On an Intel Mac, use pip.
+
+          **Anywhere with Python 3.10-3.12**: `pip install cycloidgen`, then
+          `cycloidgen`.
 
           The numbers this produces are preliminary sizing estimates, not a
           certification. Validate against a physical prototype before anything
@@ -236,29 +242,117 @@ jobs:
           path: releases/*.AppImage
           retention-days: 14
 
-  # The AppImage goes onto the release the Windows job creates, so this waits
-  # for both - two jobs racing to `gh release create` is how a release ends up
-  # with half its assets and the wrong notes.  It is a job of its own rather
-  # than a step on the end of the Linux one so that the two bundles still build
-  # side by side: half an hour each, and if the Windows job is going to fail it
-  # should not also cost us the answer to whether the AppImage builds.
-  attach-linux:
-    name: Attach the AppImage
-    needs: [windows, linux]
+  macos:
+    name: macOS disk image
+    runs-on: macos-15
+    # Apple silicon, and only Apple silicon.  Every x86-64 macOS label GitHub
+    # offers is a *larger runner* - `macos-15-intel`, `macos-15-large` - which is
+    # a paid tier, and the free Intel image was retired.  An Intel Mac gets `pip
+    # install cycloidgen`, which is the same application.
+    #
+    # Pinned to 15 rather than `macos-latest` for the reason the Linux job is
+    # pinned to 22.04: `-latest` moves under you, and an SDK is a compatibility
+    # floor you do not want raised by somebody else's release schedule.
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Check the tag against the source
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          source_version=$(python -c "import cycloidgen; print(cycloidgen.__version__)")
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [ "$source_version" != "$tag_version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match cycloidgen.__version__ ($source_version)"
+            exit 1
+          fi
+
+      - name: Build the bundle
+        run: python -m PyInstaller cycloidgen.spec --noconfirm
+
+      # A .app is a folder, so "did it build" is not the question - "does the
+      # binary inside it run" is.  Unlike Windows, a windowed macOS build still
+      # has stdio when it is started from a shell, so it can simply be asked.
+      - name: Check the bundle
+        env:
+          MPLBACKEND: Agg
+        run: |
+          test -d ./dist/cycloidgen.app
+          test -f ./dist/cycloidgen.app/Contents/Info.plist
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
+            ./dist/cycloidgen.app/Contents/Info.plist
+          ./dist/cycloidgen.app/Contents/MacOS/cycloidgen --version
+          ./dist/cycloidgen.app/Contents/MacOS/cycloidgen --ratio 21 --list-outputs > /dev/null
+
+      - name: Build the disk image
+        run: bash packaging/macos.sh
+
+      # Mounted and run out of the mounted volume, which is the last state
+      # anything is in before a user sees it.  A disk image that builds and
+      # carries a bundle that will not start is the whole failure mode here.
+      - name: Mount it and run what is inside
+        env:
+          MPLBACKEND: Agg
+        run: |
+          image=$(ls releases/*.dmg)
+          hdiutil attach "$image" -mountpoint /Volumes/cycloidgen -nobrowse -quiet
+          app=/Volumes/cycloidgen/cycloidgen.app/Contents/MacOS/cycloidgen
+          reported=$("$app" --version)
+          echo "$reported"
+          test "$reported" = "cycloidgen $(python -c 'import cycloidgen; print(cycloidgen.__version__)')"
+          "$app" --ratio 21 --only drawings,data --out "$RUNNER_TEMP/_dmg_out"
+          test -f "$RUNNER_TEMP/_dmg_out/report.pdf"
+          test -L /Volumes/cycloidgen/Applications
+          hdiutil detach /Volumes/cycloidgen -quiet
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cycloidgen-macos-dmg
+          path: releases/*.dmg
+          retention-days: 14
+
+  # The AppImage and the disk image go onto the release the Windows job creates,
+  # so this waits for all three - two jobs racing to `gh release create` is how a
+  # release ends up with half its assets and the wrong notes.  It is a job of its
+  # own rather than a step on the end of each build so that the three bundles
+  # still build side by side: half an hour each, and if the Windows job is going
+  # to fail it should not also cost us the answer to whether the others do.
+  attach-bundles:
+    name: Attach the other bundles
+    needs: [windows, linux, macos]
     if: startsWith(github.ref, 'refs/tags/') && !inputs.dry_run
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      # Named one at a time rather than by pattern: `cycloidgen-*` would also
+      # pull down the Windows installer, which is 230 MB and already on the
+      # release.
       - uses: actions/download-artifact@v4
         with:
           name: cycloidgen-linux-appimage
+          path: releases
+      - uses: actions/download-artifact@v4
+        with:
+          name: cycloidgen-macos-dmg
           path: releases
       - env:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls -l releases/
-          gh release upload "$GITHUB_REF_NAME" releases/*.AppImage --clobber \
+          gh release upload "$GITHUB_REF_NAME" \
+            releases/*.AppImage releases/*.dmg --clobber \
             --repo "$GITHUB_REPOSITORY"
 
   # The other half of "how do I run this": the installer is Windows-only and

@@ -222,3 +222,86 @@ def test_the_appimage_is_built_on_the_oldest_supported_glibc():
     import yaml
     jobs = yaml.safe_load(RELEASE_YML.read_text(encoding="utf-8"))["jobs"]
     assert jobs["linux"]["runs-on"] == "ubuntu-22.04"
+
+
+# ------------------------------------------------------- the macOS disk image
+
+MACOS_SH = ROOT / "packaging" / "macos.sh"
+
+#: Keyed to by macOS for preferences, permissions, window state and the "open
+#: with" association - not by path and not by name.  A different one is a
+#: different application to every part of the system, and everybody's settings
+#: are gone with it.
+BUNDLE_ID = "com.medinstech.cycloidgen"
+
+
+def test_the_bundle_identifier_is_the_one_macos_already_knows():
+    """This is a test about *not* changing something.
+
+    There is no error when it changes; the application simply opens with default
+    settings on a machine that had it configured, and nothing says why.
+    """
+    assert f'bundle_identifier="{BUNDLE_ID}"' in SPEC.read_text(encoding="utf-8")
+
+
+def test_the_app_is_built_windowed_and_the_dmg_carries_it():
+    """`console` means a third thing again on macOS: whether Launch Services
+    sees a windowed application or a terminal program, and a `.app` has to be
+    the first.  It costs nothing - a process started from a shell has stdio
+    whatever its bundle says, which is why the workflow can ask the binary
+    inside the bundle for its version.
+    """
+    spec = SPEC.read_text(encoding="utf-8")
+    assert 'console=sys.platform != "darwin"' in spec
+    assert 'name="cycloidgen.app"' in spec
+
+    workflow = RELEASE_YML.read_text(encoding="utf-8")
+    assert "./dist/cycloidgen.app/Contents/MacOS/cycloidgen --version" in workflow
+
+
+def test_the_signed_bundle_is_copied_with_ditto():
+    """A signature is not only bytes inside the Mach-O.
+
+    For everything in the bundle that is not one it lives in an extended
+    attribute, and a copy that drops those leaves something that still looks
+    complete and no longer verifies - on the user's Mac, not here.  `ditto` is
+    what Apple ships for copying a bundle intact; `cp` is not it.
+    """
+    script = MACOS_SH.read_text(encoding="utf-8")
+    assert 'ditto "$APP" "$staging/$(basename "$APP")"' in script
+    assert "cp -R" not in script and "cp -a" not in script
+
+
+def test_the_disk_image_offers_somewhere_to_drag_it_to():
+    """Half of what a .dmg is for.  Without the symlink the window opens with a
+    bundle in it and no hint that installing means moving it, and the user runs
+    the application off the mounted image - which works until they eject it."""
+    script = MACOS_SH.read_text(encoding="utf-8")
+    assert 'ln -s /Applications "$staging/Applications"' in script
+    assert "test -L /Volumes/cycloidgen/Applications" in RELEASE_YML.read_text(
+        encoding="utf-8")
+
+
+def test_nothing_re_signs_the_bundle_over_pyinstaller():
+    """PyInstaller signs every Mach-O it collects and then the bundle, ad-hoc,
+    because arm64 will not load unsigned code at all.
+
+    Re-signing on top of that with `--deep` is the documented way to break the
+    nested signatures - and the failure is not at build time, it is a bundle
+    that will not launch on somebody else's Mac.  The script reports what is
+    there instead of imposing something.
+    """
+    script = MACOS_SH.read_text(encoding="utf-8")
+    assert "codesign --display" in script
+    assert "codesign --verify" in script
+    assert "--deep --sign" not in script
+    assert "--force" not in script
+
+
+def test_the_mac_and_linux_bundles_are_built_on_pinned_runners():
+    """`-latest` moves under you, and on both of these the runner *is* the
+    compatibility floor: glibc on Linux, the SDK on macOS."""
+    import yaml
+    jobs = yaml.safe_load(RELEASE_YML.read_text(encoding="utf-8"))["jobs"]
+    assert jobs["linux"]["runs-on"] == "ubuntu-22.04"
+    assert jobs["macos"]["runs-on"] == "macos-15"

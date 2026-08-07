@@ -89,26 +89,30 @@ pull request template asks the same question for the same reason.
    against the source, runs lint and the suite, builds the bundle, asks the
    built executable what version it thinks it is, builds the installer, and
    publishes a GitHub release with the changelog section as its notes. Beside
-   it, a Linux job builds the AppImage and runs it; behind both, one job
-   attaches the AppImage to that release and another pushes the wheel to PyPI.
+   it, a Linux job builds the AppImage and a macOS job builds the disk image,
+   and both run what they built; behind all three, one job attaches those two to
+   the release and another pushes the wheel to PyPI.
 
 ## Where a release goes
 
-Three artefacts, and they are not alternatives — they are for different people.
+Four artefacts, and they are not alternatives — they are for different people.
 
 | | who it is for | platforms |
 |---|---|---|
 | **Installer** (`.exe`) on the GitHub release | somebody who wants to run the app and does not have Python | Windows |
+| **Disk image** (`.dmg`) on the GitHub release | the same person, on a Mac | macOS 11+, Apple silicon |
 | **AppImage** on the GitHub release | the same person, on Linux | x86-64, glibc 2.35 and up |
-| **Wheel** on PyPI | anybody with Python 3.10–3.12; also the only way to `import cycloidgen` | Windows, Linux, macOS, x86-64 and arm64 |
+| **Wheel** on PyPI | anybody with Python 3.10–3.12 — the only route on an Intel Mac, and the only way to `import cycloidgen` | Windows, Linux, macOS, x86-64 and arm64 |
 
-There is no cross-platform installer format, which is why the first two are
-separate programs: NSIS writes an installer that unpacks the bundle into Program
-Files and registers it, and an AppImage installs nothing — it *is* the bundle,
-in a squashfs image behind a runtime that mounts it. macOS has neither. `pip
-install` is the answer there until there is a Developer ID to sign with;
-Gatekeeper treats an unsigned application far more harshly than SmartScreen
-does, so shipping one would be a worse experience than the wheel, not a better.
+There is no cross-platform installer format, which is why the first three are
+separate programs. NSIS writes an installer that unpacks the bundle into Program
+Files and registers it; an AppImage installs nothing and *is* the bundle, in a
+squashfs image behind a runtime that mounts it; a `.dmg` is a disk image that
+opens to the application beside a shortcut to `/Applications`.
+
+Apple silicon only, because every x86-64 macOS runner GitHub offers is now a
+paid *larger runner* — `macos-15-intel`, `macos-15-large` — and the free Intel
+image was retired. An Intel Mac gets the wheel, which is the same application.
 
 ### The AppImage, and the two pins in it
 
@@ -129,6 +133,45 @@ Two things in that job are load-bearing and look like tidying:
 
 A user whose machine has no FUSE 2 cannot mount the image; `libfuse2` or
 `--appimage-extract-and-run` are the two ways round it, and the README says so.
+
+### The disk image, and the thing it cannot fix
+
+`packaging/macos.sh` wraps `dist/cycloidgen.app` — which the spec builds, so a
+plain `pyinstaller cycloidgen.spec` on a Mac already produces the application —
+in a `.dmg` with a symlink to `/Applications` beside it. The workflow mounts the
+result and runs the binary out of the mounted volume before anything is
+published, which is the last state the thing is in before a user sees it.
+
+Two things not to change:
+
+- **`bundle_identifier="com.medinstech.cycloidgen"`.** macOS keys preferences,
+  permissions, window state and the *open with* association to the identifier —
+  not the path, not the name. A new one is a new application to every part of
+  the system, and there is no error: it simply opens with default settings on a
+  machine that had it configured, and nothing says why.
+- **Nothing re-signs over PyInstaller.** It signs every Mach-O it collects and
+  then the bundle, ad-hoc, because arm64 will not load unsigned code at all.
+  `codesign --deep --force` on top of that is the documented way to break the
+  nested signatures, and the failure is not at build time — it is a bundle that
+  will not launch on somebody else's Mac. The script reports the signature
+  rather than imposing one.
+
+**Ad-hoc is not signed.** Gatekeeper stops the first launch and the user has to
+allow it by hand, which is worse than SmartScreen and is stated plainly in the
+release notes and the README. Fixing it needs the Apple Developer Program
+($99/yr) and then three steps in the macOS job, in this order:
+
+```bash
+codesign --sign "Developer ID Application: ..." --options runtime \
+         --timestamp --force dist/cycloidgen.app
+xcrun notarytool submit releases/*.dmg --apple-id ... --team-id ... --wait
+xcrun stapler staple releases/*.dmg
+```
+
+The certificate and the app-specific password would be repository secrets; the
+signing identity has to be imported into a temporary keychain in the job. That
+is a configuration change to a job that already exists, not a rewrite, which is
+why the unsigned image ships in the meantime rather than nothing.
 
 ### PyPI, and the one thing that is set up by hand
 

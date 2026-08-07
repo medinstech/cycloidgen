@@ -51,7 +51,7 @@
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
   a shortlist that passes every check, with the trade-offs side by side.
-- **Nothing is asserted that is not verified.** 771 tests, and where two parts
+- **Nothing is asserted that is not verified.** 776 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -99,14 +99,23 @@ That is the whole thing, window and all, on all three platforms. It is a large
 install — most of a gigabyte, nearly all of it Qt and the OCCT CAD kernel — so a
 virtual environment is worth the two extra lines.
 
-There is also a [build that needs no Python at all](#standalone-build-and-installer),
-on the [releases page](https://github.com/medinstech/cycloidgen/releases/latest):
-a **Windows installer**, and a **Linux AppImage** — one file, `chmod +x`,
-double-click. The installer is unsigned, so SmartScreen will want a *More info ▸
-Run anyway*; see [RELEASING.md](https://github.com/medinstech/cycloidgen/blob/main/RELEASING.md).
-If the AppImage will not start, the machine is missing FUSE 2 — either install
-it (`libfuse2` on Debian and Ubuntu) or run the file with
-`--appimage-extract-and-run`, which unpacks it and needs nothing.
+There are also [builds that need no Python at all](#standalone-build-and-installer),
+on the [releases page](https://github.com/medinstech/cycloidgen/releases/latest).
+None of them are signed, so each operating system stops the first launch and
+each one wants something different:
+
+- **Windows** — installer. SmartScreen wants *More info ▸ Run anyway*.
+- **macOS** — disk image, Apple silicon. Drag it to Applications; Gatekeeper
+  wants *System Settings ▸ Privacy & Security ▸ Open Anyway*, or
+  `xattr -dr com.apple.quarantine /Applications/cycloidgen.app` once. On an
+  Intel Mac, use pip.
+- **Linux** — AppImage. One file, `chmod +x`, double-click. If it will not
+  start the machine is missing FUSE 2: install it (`libfuse2` on Debian and
+  Ubuntu) or run the file with `--appimage-extract-and-run`, which unpacks it
+  instead and needs nothing.
+
+Signing is a certificate away rather than a rewrite —
+see [RELEASING.md](https://github.com/medinstech/cycloidgen/blob/main/RELEASING.md).
 
 To work on it rather than with it, install the checkout in place:
 
@@ -648,7 +657,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          771 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          776 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -757,20 +766,25 @@ loops without a jump** above.
 
 ## Standalone build and installer
 
-Three artefacts come out of a release, and they are not alternatives:
+Four artefacts come out of a release, and they are not alternatives:
 
 | | who it is for | platforms |
 |---|---|---|
 | **Installer** (`.exe`) | somebody who wants to run the app and does not have Python | Windows |
+| **Disk image** (`.dmg`) | the same person, on a Mac | macOS 11+, Apple silicon |
 | **AppImage** | the same person, on Linux | x86-64, glibc 2.35 and up |
-| **Wheel** on PyPI | anybody with Python 3.10 – 3.12; also the only way to `import cycloidgen` | Windows, Linux, macOS, x86-64 and arm64 |
+| **Wheel** on PyPI | anybody with Python 3.10 – 3.12 — the only route on an Intel Mac, and the only way to `import cycloidgen` | Windows, Linux, macOS, x86-64 and arm64 |
 
-There is no cross-platform installer format, so the first two are separate
-programs doing the same job by opposite means. NSIS writes an installer that
-unpacks the bundle into Program Files and registers it; an AppImage installs
-nothing — it *is* the bundle, in a squashfs image behind a small runtime that
-mounts it. macOS has neither yet: `pip install` is the answer there, and an
-unsigned `.dmg` would be a worse experience than that rather than a better one.
+There is no cross-platform installer format, so the first three are separate
+programs doing one job three ways. NSIS writes an installer that unpacks the
+bundle into Program Files and registers it. An AppImage installs nothing — it
+*is* the bundle, in a squashfs image behind a small runtime that mounts it. A
+`.dmg` splits the difference: a disk image that opens to the application beside
+a shortcut to `/Applications`, and installing is dragging one onto the other.
+
+Apple silicon only on the Mac, because every x86-64 macOS runner GitHub offers
+is now a paid *larger runner* and the free Intel image was retired. An Intel Mac
+gets `pip install cycloidgen`, which is the same application.
 
 ```powershell
 .\packaging\release.ps1                        # lint, tests, bundle, installer
@@ -778,8 +792,9 @@ unsigned `.dmg` would be a worse experience than that rather than a better one.
 ```
 
 ```bash
-python -m PyInstaller cycloidgen.spec --noconfirm   # Linux
+python -m PyInstaller cycloidgen.spec --noconfirm   # Linux and macOS
 bash packaging/appimage.sh                          # -> releases/*.AppImage
+bash packaging/macos.sh                             # -> releases/*.dmg
 ```
 
 Or the two steps by hand:
@@ -800,11 +815,16 @@ runs. A single windowed build would have taken the command line away and taken
 it away badly: a frozen windowed process has no stdout at all, so `--version`
 would not print nothing, it would raise.
 
-The AppImage carries **one**. `console` is a Windows subsystem flag — a field in
-the PE header saying whether the loader allocates a console — and Linux has no
-equivalent; every process gets whatever streams it was handed. A second binary
-there would not be a second behaviour, only a second copy of the same one under
-a name implying a difference that does not exist.
+The AppImage and the `.app` carry **one**. `console` is a Windows subsystem flag
+— a field in the PE header saying whether the loader allocates a console — and
+Linux has no equivalent; every process gets whatever streams it was handed. A
+second binary there would not be a second behaviour, only a second copy of the
+same one under a name implying a difference that does not exist. On macOS the
+flag means a third thing — whether Launch Services sees a windowed application
+or a terminal program — and it costs nothing, because a process started from a
+shell has stdio whatever its bundle says. That is why
+`cycloidgen.app/Contents/MacOS/cycloidgen --version` still prints, and why the
+release workflow can ask the bundle it just built what it is.
 
 The installer upgrades in place — it clears the previous version first, because
 unpacking a PyInstaller bundle *over* another one leaves modules and DLLs from
