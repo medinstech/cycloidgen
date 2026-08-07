@@ -9,6 +9,29 @@ design somebody already built.
 
 **Fixed**
 
+- **"Design for requirements" could not be made to fit a short screen**, which
+  put the buttons that end it out of reach. Four group boxes and the Search
+  button came to 832 px of minimum height; a dialog inherits the minimum of what
+  is inside it, so the window could not be sized below 885 px with its frame on
+  — `resize(1080, 660)` asked for 660 and silently got 854. On anything shorter
+  than that, the *Use this design* and *Cancel* box at the bottom of the results
+  column sat off the bottom of the screen, and dragging the edge did nothing,
+  because the window was already as small as it was allowed to be. A 1366x768
+  laptop is short enough. So is a 1080p panel at 150% scaling, where the
+  *logical* height is 720.
+
+  The requirements form now scrolls, which is what breaks the inheritance: the
+  dialog's minimum height goes from 854 px to 156 px and it is bounded by the
+  results column, which stretches, rather than by the tallest thing in it.
+
+  Search stays outside the scrolled part, pinned under it. Putting it in with
+  the fields would have fixed the reaching problem by handing it to the button
+  the dialog exists to have pressed — on a short screen it would have been below
+  the fold, which is where the button box was to begin with.
+
+  The failure was not that it looked cramped. Both buttons that close the dialog
+  were unreachable, so the feature could be opened and not used.
+
 - **The macOS instructions deleted the application.** They offered *System
   Settings ▸ Privacy & Security ▸ Open Anyway* first and `xattr -dr
   com.apple.quarantine` as an alternative, which reads as "open it, then deal

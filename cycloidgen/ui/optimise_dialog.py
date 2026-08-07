@@ -19,11 +19,13 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QTreeWidget,
     QTreeWidgetItem,
@@ -103,18 +105,74 @@ class OptimiseDialog(QDialog):
     def __init__(self, spec: GearSpec, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Design for requirements")
-        self.resize(1080, 660)
         self.chosen: GearSpec | None = None
         self._worker: _Worker | None = None
         self._result: OptimisationResult | None = None
 
         self._req = requirements_from_spec(spec)
         outer = QHBoxLayout(self)
-        outer.addWidget(self._build_form(), 0)
+        outer.addWidget(self._scrolling_form(), 0)
         outer.addLayout(self._build_results(), 1)
         self._load()
 
+        # After the layout exists, so the clamp is against something real.  What
+        # the dialog wants and what the screen has are different questions and
+        # the screen wins.
+        available = self.screen().availableGeometry()
+        self.resize(min(1080, available.width() - 80),
+                    min(660, available.height() - 80))
+
     # ------------------------------------------------------------------ build
+    def _scrolling_form(self) -> QWidget:
+        """The requirements form, in something allowed to be shorter than it is.
+
+        Four group boxes and a Search button came to 832 px of minimum height,
+        and a dialog inherits the minimum of what is in it: this one could not
+        be made shorter than 885 px with its frame on, whatever screen it opened
+        on.  Anywhere shorter than that - a 1366x768 laptop, or a 1080p panel at
+        150% scaling, where the *logical* height is 720 - the button box at the
+        bottom of the other column sat off the screen, and dragging the edge did
+        not help because the dialog was already as small as it could be.
+
+        A window that cannot be made to fit has no Cancel button, which is worse
+        than it looks: the accept button beside it is the one that hands the
+        design back, so the feature was unreachable rather than merely awkward.
+
+        The scroll area is what breaks the inheritance.  It reports a small
+        minimum of its own and scrolls the form inside it, so the dialog is now
+        bounded by the results column - which stretches - rather than by the
+        tallest thing in it.
+
+        Search stays *outside* the scrolled part, pinned under it.  It is the
+        button the dialog exists to have pressed, and putting it in with the
+        fields would have fixed the reaching problem by giving it to the primary
+        action instead: on a short screen it would sit below the fold, which is
+        where the button box was in the first place.
+        """
+        area = QScrollArea()
+        area.setWidget(self._build_form())
+        area.setWidgetResizable(True)
+        # It is a panel in a dialog, not a document: a sunken frame around it
+        # would draw a box that means nothing.
+        area.setFrameShape(QFrame.NoFrame)
+        # The form is a column of labelled rows and reflows to nothing useful,
+        # so it keeps its width and gives up height instead.
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        area.setMinimumWidth(area.widget().minimumSizeHint().width()
+                             + area.verticalScrollBar().sizeHint().width())
+
+        self._run_btn = QPushButton("Search")
+        self._run_btn.setProperty("primary", "true")
+        self._run_btn.setDefault(True)
+        self._run_btn.clicked.connect(self._run)
+
+        column = QWidget()
+        stack = QVBoxLayout(column)
+        stack.setContentsMargins(0, 0, 0, 0)
+        stack.addWidget(area, 1)
+        stack.addWidget(self._run_btn, 0)
+        return column
+
     def _build_form(self) -> QWidget:
         panel = QWidget()
         panel.setMinimumWidth(330)
@@ -220,11 +278,6 @@ class OptimiseDialog(QDialog):
         layout.addWidget(goal)
 
         layout.addStretch(1)
-        self._run_btn = QPushButton("Search")
-        self._run_btn.setProperty("primary", "true")
-        self._run_btn.setDefault(True)
-        self._run_btn.clicked.connect(self._run)
-        layout.addWidget(self._run_btn)
         return panel
 
     def _build_results(self) -> QVBoxLayout:
