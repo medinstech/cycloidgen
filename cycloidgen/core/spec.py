@@ -743,6 +743,36 @@ class GearSpec(BaseModel):
         return self.barrel_height + 2.0 * self.plate_thickness
 
     @property
+    def ring_pin_length(self) -> float:
+        """A ring pin: the whole barrel, trapped between the two end plates.
+
+        The same oversight as the tie bolt above, one part along.  A pocket is
+        broached down the bore in one pass, so it runs the barrel's whole length
+        - and a pin cut to the disc stack instead leaves seven millimetres of
+        empty groove under it with nothing at the bottom but the end plate.
+        Nothing holds it up there.  It slides down, and what it slides out of is
+        the mesh: a third of its engagement gone, and an open pocket left at the
+        top for a lobe to drop into.
+
+        Axial location is the whole reason for the length.  Only the disc stack
+        loads a pin, so this is not carrying capacity - it is the pin still being
+        where the load is after an hour of running.
+        """
+        return self.barrel_height
+
+    @property
+    def output_pin_length(self) -> float:
+        """An output pin: the carrier drop it crosses, then the discs it drives.
+
+        It starts on the carrier face, which sits a drop below the first disc, so
+        a pin cut to the disc stack alone arrives one drop short of the top of
+        it.  On a two-disc drive that is the last disc driven over seven of its
+        eight millimetres - and the bearing stress this app reports for that hole
+        is computed over all eight.
+        """
+        return self.stack_height + CARRIER_DROP
+
+    @property
     def output_bearing_seat_diameter(self) -> float:
         """Bore in the output end plate: what the main output bearing sits *in*.
 

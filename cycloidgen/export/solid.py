@@ -115,12 +115,16 @@ def ring_pins(spec: GearSpec, placements: Sequence[BearingPlacement] = ()) -> cq
 
     A pin carrying a roller shrinks to that roller's bore: the sleeve's OD is the
     surface the profile was cut against, so the pin cannot also have it.
+
+    Barrel length, from the output plate's face to the input plate's, because
+    that is what holds them in - see :attr:`GearSpec.ring_pin_length`.
     """
     shank = pin_shank_diameter(placements, "bearing_ring_pins", 2.0 * spec.pin_radius)
     return (cq.Workplane("XY")
+            .workplane(offset=spec.barrel_bottom)
             .polarArray(spec.pin_circle_radius, 0, 360, spec.pin_count)
             .circle(shank / 2.0)
-            .extrude(spec.stack_height))
+            .extrude(spec.ring_pin_length))
 
 
 def eccentric_shaft(spec: GearSpec) -> cq.Workplane:
@@ -163,7 +167,7 @@ def output_flange(spec: GearSpec,
     pins = (cq.Workplane("XY")
             .polarArray(spec.output_bolt_circle_radius, 0, 360, spec.output_pin_count)
             .circle(shank / 2.0)
-            .extrude(spec.stack_height))
+            .extrude(spec.output_pin_length))
     body = plate.union(hub).union(pins)
     # Bored through the lot in one go, from the far face of the boss: the shaft
     # passes through both and a two-diameter bore here would be a fit this app

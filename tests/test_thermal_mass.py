@@ -130,8 +130,8 @@ def test_mass_scales_with_density_and_thickness():
 def test_the_parts_add_up_to_the_assembly():
     spec = preset(15)
     m = analyse_mass(spec)
-    parts = (spec.disc_count * m.disc_mass_g + m.housing_mass_g + m.pins_mass_g
-             + m.shaft_mass_g + m.flange_mass_g)
+    parts = (spec.disc_count * m.disc_mass_g + m.housing_mass_g + m.plates_mass_g
+             + m.pins_mass_g + m.shaft_mass_g + m.flange_mass_g)
     assert m.total_mass_g == pytest.approx(parts, rel=1e-9)
 
 

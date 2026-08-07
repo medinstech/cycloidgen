@@ -47,6 +47,13 @@ from cycloidgen.ui.main_window import MainWindow  # noqa: E402
 #: Matches the committed screenshots, so the README's images stay one size.
 WINDOW = (1560, 940)
 
+#: Crank angle to photograph at.  Anything, as long as it is the same every run:
+#: the window restores the angle it was last left on, so without this the two
+#: figures move whenever the operator has been dragging the slider - and a diff
+#: that is entirely "the gearbox turned a bit" hides the one that is not.
+#: Off a lobe boundary, so the mesh reads as a mesh rather than a symmetry.
+CRANK_DEG = 140
+
 
 def hero() -> GearSpec:
     """A machined steel drive - a design worth photographing, not the default.
@@ -182,13 +189,25 @@ def capture(window: MainWindow, path: Path, widget=None) -> None:
         # PrintWindow photographs the frame as well, so the widget's position
         # inside the client area has to be shifted by however much of that frame
         # sits above and to the left of it.
-        scale = width / max(window.frameGeometry().width(), 1)
-        inset = window.geometry().topLeft() - window.frameGeometry().topLeft()
+        #
+        # Asked of Win32 rather than worked out from Qt's frame geometry. What
+        # `GetWindowRect` returns on Windows 10 and later - and therefore what
+        # this bitmap is - includes the invisible resize border, about seven
+        # pixels a side, which `frameGeometry` does not know about. Dividing one
+        # by the other produced a "scale" of 1.009 on a display at 100%, and a
+        # crop stretched by nine parts in a thousand overshoots by six pixels
+        # six hundred down: the last rows of the picture were the window behind
+        # the viewport. `ClientToScreen` gives the offset directly, and the
+        # device pixel ratio comes from the one place that actually knows it.
+        dpr = window.devicePixelRatioF()
+        client = wintypes.POINT(0, 0)
+        user32.ClientToScreen(hwnd, ctypes.byref(client))
         origin = widget.mapTo(window, QPoint(0, 0))
-        left, top = origin.x() + inset.x(), origin.y() + inset.y()
-        image = image.crop((round(left * scale), round(top * scale),
-                            round((left + widget.width()) * scale),
-                            round((top + widget.height()) * scale)))
+        left = (client.x - rect.left) + round(origin.x() * dpr)
+        top = (client.y - rect.top) + round(origin.y() * dpr)
+        image = image.crop((left, top,
+                            left + round(widget.width() * dpr),
+                            top + round(widget.height() * dpr)))
 
     image.save(path)
     print(f"  {path.name}  {image.width}x{image.height}  "
@@ -227,6 +246,13 @@ def main() -> int:
 
     window._replace_spec(hero(), record=False)
     wait_for_analysis(app, window)
+
+    # ...and the section plane and the crank, both restored the same way. The
+    # section is the one setting that changes what the gearbox *is* rather than
+    # how it is lit: left where an operator had been sectioning, the 3D figure is
+    # half a gearbox. After the design lands, so that neither is undone by it.
+    window._view3d._section.setValue(0)
+    window._crank_slider.setValue(CRANK_DEG)
     settle(app, 600)
 
     print("writing screenshots:")

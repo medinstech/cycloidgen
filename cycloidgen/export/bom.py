@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..analysis import DesignAnalysis
+from ..analysis.bearings import pin_diameters
 
 __all__ = ["BomItem", "bom_items", "write_bom_csv"]
 
@@ -70,14 +71,14 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
     # ---- made parts ---------------------------------------------------------
     items.append(BomItem(
         part="Ring housing", quantity=1, material=s.housing_material,
-        size=f"{2 * s.housing_outer_radius:.1f} dia x {s.stack_height:g} mm",
+        size=f"{2 * s.housing_outer_radius:.1f} dia x {s.barrel_height:g} mm",
         mass_each_g=m.housing_mass_g, source="make",
         note=f"{s.pin_count} pin pockets on a {2 * s.pin_circle_radius:g} mm circle"))
 
     items.append(BomItem(
         part="Housing end plate", quantity=2, material=s.housing_material,
         size=f"{2 * s.housing_outer_radius:.1f} dia x {s.plate_thickness:g} mm",
-        mass_each_g=0.0, source="make",
+        mass_each_g=m.plates_mass_g / 2.0, source="make",
         note=f"input side bored {s.hub_bore:.1f} for the shaft support, output "
              f"side {s.output_bearing_seat_diameter:.1f} for the output bearing "
              f"- they are not interchangeable"))
@@ -99,22 +100,33 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
              + ", ".join(f"{math.degrees(p):.0f}" for p in s.disc_phases) + " deg"))
 
     # ---- bought pins --------------------------------------------------------
-    ring_pin_mass = _pin_mass(2 * s.pin_radius, s.stack_height,
+    # Both at their own length and their own diameter, neither of which is what
+    # this used to quote.  A dowel ordered wrong is not a fit that can be
+    # adjusted at assembly, it is the wrong part - and the diameter was the
+    # worse of the two: under a roller the pin *is* the roller's bore, so a
+    # rollered 15:1 was ordering 14 mm dowels for an 8 mm hole.
+    ring_pin_d, output_pin_d = pin_diameters(s)
+
+    ring_pin_mass = _pin_mass(ring_pin_d, s.ring_pin_length,
                               s.pin_mat.density_g_cm3)
     items.append(BomItem(
         part="Ring pin (dowel)", quantity=s.pin_count, material=s.pin_material,
-        size=f"{2 * s.pin_radius:g} mm dia x {s.stack_height:g} mm",
+        size=f"{ring_pin_d:g} mm dia x {s.ring_pin_length:g} mm",
         mass_each_g=ring_pin_mass, source="buy",
-        note="free to rotate" if s.ring_pins_are_rollers else "fixed"))
+        note=("carries a roller" if ring_pin_d < 2 * s.pin_radius else
+              "free to rotate" if s.ring_pins_are_rollers else "fixed")
+             + ", captive between the two end plates"))
 
-    output_pin_mass = _pin_mass(s.output_pin_diameter, s.stack_height,
+    output_pin_mass = _pin_mass(output_pin_d, s.output_pin_length,
                                 s.pin_mat.density_g_cm3)
     items.append(BomItem(
         part="Output pin (dowel)", quantity=s.output_pin_count,
         material=s.pin_material,
-        size=f"{s.output_pin_diameter:g} mm dia x {s.stack_height:g} mm",
+        size=f"{output_pin_d:g} mm dia x {s.output_pin_length:g} mm",
         mass_each_g=output_pin_mass, source="buy",
-        note=f"runs in {s.output_hole_diameter:.3f} mm holes"))
+        note=(f"carries a roller running in {s.output_hole_diameter:.3f} mm holes"
+              if output_pin_d < s.output_pin_diameter else
+              f"runs in {s.output_hole_diameter:.3f} mm holes")))
 
     # ---- fasteners ----------------------------------------------------------
     if s.housing_bolt_count:

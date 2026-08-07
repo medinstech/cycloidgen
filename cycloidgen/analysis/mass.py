@@ -26,6 +26,7 @@ import numpy as np
 
 from ..core import profile as prof
 from ..core.spec import GearSpec
+from .bearings import pin_diameters
 
 __all__ = ["MassResult", "analyse_mass"]
 
@@ -39,7 +40,8 @@ class MassResult:
     disc_mass_g: float                 # one disc
     disc_volume_cm3: float
     total_mass_g: float
-    housing_mass_g: float
+    housing_mass_g: float               # the barrel alone
+    plates_mass_g: float                # both end plates together
     pins_mass_g: float
     shaft_mass_g: float
     flange_mass_g: float
@@ -117,9 +119,16 @@ def analyse_mass(spec: GearSpec) -> MassResult:
     housing_mass = (max(ring_area - pocket_area - bolt_area, 0.0)
                     * spec.barrel_height * _MM3_TO_CM3 * rho_house)
 
-    pins_volume = spec.pin_count * math.pi * spec.pin_radius ** 2 * h
-    pins_volume += (spec.output_pin_count * math.pi
-                    * (spec.output_pin_diameter / 2.0) ** 2 * h)
+    # Each pin at its own length and its own diameter, and neither length is the
+    # disc stack: a ring pin spans the barrel it is trapped in, an output pin the
+    # drop it crosses plus the discs it drives.  Weighing both off
+    # ``stack_height`` was the same assumption the bill of materials was making,
+    # and it is 41% light on the ring pins of a 21:1.
+    ring_pin_d, output_pin_d = pin_diameters(spec)
+    pins_volume = (spec.pin_count * math.pi * (ring_pin_d / 2.0) ** 2
+                   * spec.ring_pin_length)
+    pins_volume += (spec.output_pin_count * math.pi * (output_pin_d / 2.0) ** 2
+                    * spec.output_pin_length)
     pins_mass = pins_volume * _MM3_TO_CM3 * rho_pin
 
     shaft_volume = math.pi * (spec.input_shaft_diameter / 2.0) ** 2 * (h + 2 * spec.shaft_overhang)
@@ -138,6 +147,10 @@ def analyse_mass(spec: GearSpec) -> MassResult:
 
     # The two plates that close the housing.  They are part of the gearbox and
     # were simply not weighed: on the 21:1 preset they are a third of it.
+    #
+    # Reported beside the barrel rather than folded into it.  They are a separate
+    # part with its own line on the bill of materials, and while the two were one
+    # number that line had to quote zero - a made part that weighs nothing.
     outer_area = math.pi * spec.housing_outer_radius ** 2
     plates_volume = (2.0 * outer_area
                      - math.pi * (spec.hub_bore / 2.0) ** 2
@@ -145,9 +158,9 @@ def analyse_mass(spec: GearSpec) -> MassResult:
                      - 2.0 * bolt_area          # the tie bolts go through both
                      ) * spec.plate_thickness
     plates_mass = max(plates_volume, 0.0) * _MM3_TO_CM3 * rho_house
-    housing_mass += plates_mass
 
-    total = n * disc_mass + housing_mass + pins_mass + shaft_mass + flange_mass
+    total = (n * disc_mass + housing_mass + plates_mass + pins_mass
+             + shaft_mass + flange_mass)
 
     # ---- inertia ------------------------------------------------------------
     # kg*mm^2:  g/cm^3 * mm^4 * 1e-3 (cm^3/mm^3) / 1e3 (kg/g) = 1e-6
@@ -197,6 +210,7 @@ def analyse_mass(spec: GearSpec) -> MassResult:
         disc_volume_cm3=disc_volume * _MM3_TO_CM3,
         total_mass_g=total,
         housing_mass_g=housing_mass,
+        plates_mass_g=plates_mass,
         pins_mass_g=pins_mass,
         shaft_mass_g=shaft_mass,
         flange_mass_g=flange_mass,

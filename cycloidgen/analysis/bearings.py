@@ -524,6 +524,27 @@ def pin_shank_diameter(placements: Sequence[BearingPlacement], name: str,
     return sleeve.bore if sleeve is not None else nominal
 
 
+def pin_diameters(spec: GearSpec) -> tuple[float, float]:
+    """Ring and output pin diameters *as drawn*, for callers with no placements.
+
+    The renderers and the exporter already have the placements in hand when they
+    draw a pin.  The bill of materials and the mass model do not, and both were
+    quoting the nominal size: a rollered 15:1 was ordering 14 mm dowels for an
+    8 mm bore, and weighing four hundred grams of steel that is not in the
+    gearbox.
+
+    Placed only when a roller is actually fitted.  Working out where the bearings
+    go costs ten times what the whole mass model does, and with no sleeve on a
+    pin the answer is the nominal size by definition.
+    """
+    nominal = (2.0 * spec.pin_radius, spec.output_pin_diameter)
+    if not (spec.ring_pins_are_rollers or spec.output_pins_are_rollers):
+        return nominal
+    placements = placements_for_spec(spec)
+    return (pin_shank_diameter(placements, "bearing_ring_pins", nominal[0]),
+            pin_shank_diameter(placements, "bearing_output_pins", nominal[1]))
+
+
 def _span(z0: float, z1: float, width: float) -> tuple[float, float]:
     """Centre a bearing ``width`` long in the seat between ``z0`` and ``z1``."""
     if width >= z1 - z0:
@@ -605,10 +626,10 @@ def bearing_placements(spec: GearSpec,
     # the hole is cut to the diameter the disc runs on.
     roller = by_role.get("Output pin roller")
     if roller is not None and roller.bearing is not None:
-        # The carrier's pins start at the plate and run one stack height, which
-        # leaves them a carrier drop short of the top disc; a roller may not
-        # stand off the end of the pin it is on.
-        pin_z0, pin_z1 = -CARRIER_DROP, spec.stack_height - CARRIER_DROP
+        # The carrier's pins start at its face, a drop below the first disc, and
+        # reach the top of the last one; a roller may not stand off the end of
+        # the pin it is on, so the courses below are clipped to that span.
+        pin_z0, pin_z1 = -CARRIER_DROP, -CARRIER_DROP + spec.output_pin_length
         rings: list[BearingRing] = []
         for i in range(spec.disc_count):
             low = max(i * pitch, pin_z0)

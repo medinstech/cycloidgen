@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from cycloidgen.analysis import analyse
-from cycloidgen.core.spec import GearSpec, preset
+from cycloidgen.core.spec import CARRIER_DROP, GearSpec, preset
 from cycloidgen.core.validate import Severity
 
 RATIOS = [10, 15, 21, 29, 59]
@@ -223,17 +223,121 @@ def test_the_bolts_are_drawn_where_the_holes_are(ratio):
 def test_the_mass_model_knows_about_every_hole_in_the_barrel(ratio):
     """It already subtracted the ring-pin pockets.  The tie-bolt holes went in
     later, and a mass model that knows about one set of holes and not the other
-    is describing a different part from the one the exporter writes."""
+    is describing a different part from the one the exporter writes.
+
+    Barrel and plates are weighed apart, and that is the point of doing it here
+    rather than on their sum: while they were one number the two could be wrong
+    in opposite directions and still add up.  They were - the barrel's line on
+    the bill of materials carried the plates' mass and the plates' line carried
+    nothing.
+    """
     from cycloidgen.export.solid import housing_end_plate, ring_housing
 
     spec = preset(ratio)
-    a = analyse(spec)
-    # `housing_mass_g` is the barrel and both plates, so it is measured against
-    # the three solids that carry that name and no others.
-    drawn = (ring_housing(spec).val().Volume()
-             + housing_end_plate(spec, spec.hub_bore,
-                                 motor_face=True).val().Volume()
-             + housing_end_plate(
-                 spec, spec.output_bearing_seat_diameter).val().Volume())
-    modelled = a.mass.housing_mass_g / spec.housing_mat.density_g_cm3 * 1000.0
-    assert modelled == pytest.approx(drawn, rel=0.02)
+    ms = analyse(spec).mass
+    rho = spec.housing_mat.density_g_cm3
+
+    barrel = ring_housing(spec).val().Volume()
+    plates = (housing_end_plate(spec, spec.hub_bore, motor_face=True).val().Volume()
+              + housing_end_plate(
+                  spec, spec.output_bearing_seat_diameter).val().Volume())
+
+    assert ms.housing_mass_g / rho * 1000.0 == pytest.approx(barrel, rel=0.02)
+    assert ms.plates_mass_g / rho * 1000.0 == pytest.approx(plates, rel=0.02)
+
+
+@pytest.mark.parametrize("ratio", [15, 21, 33])
+@pytest.mark.parametrize("discs", STACKS)
+def test_a_pin_is_as_long_as_the_space_it_has_to_fill(ratio, discs):
+    """Both pin lengths were quoted off the disc stack, and neither of them is
+    the disc stack.
+
+    The barrel was lengthened to reach the end plates it bolts to, and three
+    things that measure themselves against it were never told.  The tie bolt was
+    one and got fixed; these are the other two.
+
+    * A ring pin sits in a pocket broached the barrel's whole length.  Cut to the
+      disc stack it has seven millimetres of empty groove beneath it and nothing
+      holding it up, so it slides down out of the mesh - and leaves an open
+      pocket at the top for a lobe to drop into.
+    * An output pin leaves the carrier face a *drop* below the first disc, so a
+      stack-high pin arrives a drop short of the last one.  It was: seven of the
+      top disc's eight millimetres, while the bearing stress this app reports
+      for that hole is computed over all eight.
+    """
+    from cycloidgen.export.solid import output_flange, ring_housing, ring_pins
+
+    spec = preset(ratio)
+    spec.disc_count = discs
+
+    barrel = ring_housing(spec).val().BoundingBox()
+    pins = ring_pins(spec).val().BoundingBox()
+    assert pins.zlen == pytest.approx(spec.ring_pin_length)
+    # Trapped: it starts where the barrel starts and ends where it ends, which
+    # is where the two end plates are.
+    assert pins.zmin == pytest.approx(barrel.zmin)
+    assert pins.zmax == pytest.approx(barrel.zmax)
+
+    # The flange is built in its own frame with the plate below zero and the
+    # pins above it, so the top of the box *is* the pin.
+    flange = output_flange(spec).val().BoundingBox()
+    assert flange.zmax == pytest.approx(spec.output_pin_length)
+    # And in the assembly that has to land on the far face of the last disc.
+    assert spec.output_pin_length - CARRIER_DROP == pytest.approx(spec.stack_height)
+
+
+@pytest.mark.parametrize("ratio", [15, 21, 33])
+def test_the_bill_of_materials_orders_the_part_that_gets_exported(ratio):
+    """Every length on the bill measured against the solid it names.
+
+    This is the general form of the tie-bolt check above, and it exists because
+    that bug was not one bug: the barrel, both pins and the bolt all quoted the
+    disc stack, and each was found separately by reading the code rather than by
+    anything failing.  A dowel ordered short is not a fit you adjust at assembly,
+    it is the wrong part - so the number on the bill and the number in the STEP
+    file are held together here instead.
+    """
+    import re
+
+    from cycloidgen.export.bom import bom_items
+    from cycloidgen.export.solid import (
+        housing_end_plate,
+        output_flange,
+        ring_housing,
+        ring_pins,
+    )
+
+    spec = preset(ratio)
+    drawn = {
+        "Ring housing": ring_housing(spec),
+        "Housing end plate": housing_end_plate(spec, spec.hub_bore,
+                                               motor_face=True),
+        "Ring pin (dowel)": ring_pins(spec),
+        # The output pins are cut into the carrier, so the part that carries
+        # them is where their length is measured.
+        "Output pin (dowel)": output_flange(spec),
+    }
+    stated = {i.part: i.size for i in bom_items(analyse(spec))}
+
+    for part, solid in drawn.items():
+        match = re.fullmatch(r"([\d.]+)(?: mm)? dia x ([\d.]+) mm", stated[part])
+        assert match, f"{part}: cannot read a length out of {stated[part]!r}"
+        box = solid.val().BoundingBox()
+        length = box.zmax if part == "Output pin (dowel)" else box.zlen
+        assert float(match.group(2)) == pytest.approx(length, rel=1e-3), part
+
+
+@pytest.mark.parametrize("ratio", [15, 21, 33])
+def test_nothing_you_have_to_make_weighs_nothing(ratio):
+    """A made part quoting zero grams is a part the mass model has not been told
+    about, and the bill of materials is the one place that shows.
+
+    The end plates did exactly this: their mass was real and computed, but it was
+    being added to the barrel's line, so the plates - a third of the gearbox -
+    went out as a blank cell next to the words "make".
+    """
+    from cycloidgen.export.bom import bom_items
+
+    made = [i for i in bom_items(analyse(preset(ratio))) if i.source == "make"]
+    assert made
+    assert not [i.part for i in made if i.mass_each_g <= 0.0]

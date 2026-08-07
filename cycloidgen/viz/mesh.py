@@ -487,12 +487,15 @@ def build_mesh(spec: GearSpec,
     pin_r = pin_shank_diameter(placements, "bearing_ring_pins",
                                2.0 * spec.pin_radius) / 2.0
 
+    # The pockets run the barrel's whole length, so the pins do too: they are
+    # held up by the input end plate and stopped by the output one, and a pin
+    # cut to the disc stack has seven millimetres of empty groove to fall into.
     with b.part("ring_pins", "Ring pins", "ring_pins", PART_COLOURS["ring_pins"]):
         for k in range(spec.pin_count):
             a = 2.0 * np.pi * k / spec.pin_count
             b.cylinder(spec.pin_circle_radius * math.cos(a),
                        spec.pin_circle_radius * math.sin(a),
-                       pin_r, 0.0, stack, pin_segments)
+                       pin_r, spec.barrel_bottom, stack, pin_segments)
 
     outline = prof.profile_from_spec(spec, n=_profile_segments(spec)).points
     bore_r = (spec.center_bore_diameter + spec.hole_clearance) / 2.0
@@ -566,11 +569,14 @@ def build_mesh(spec: GearSpec,
                 plate_bottom)
         shank = pin_shank_diameter(placements, "bearing_output_pins",
                                    spec.output_pin_diameter)
+        # Up to the top of the stack, not up by the height of it: the pin leaves
+        # the carrier face a drop below the first disc, so a stack-high pin stops
+        # a drop short of the last one.
         for k in range(spec.output_pin_count):
             a = 2.0 * np.pi * k / spec.output_pin_count
             b.cylinder(spec.output_bolt_circle_radius * math.cos(a),
                        spec.output_bolt_circle_radius * math.sin(a),
-                       shank / 2.0, -drop, stack - drop, 20)
+                       shank / 2.0, -drop, -drop + spec.output_pin_length, 20)
 
     # The two plates that close the housing.  They do not move, they are the
     # same colour as the barrel they bolt to, and they are why the shaft

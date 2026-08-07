@@ -166,6 +166,7 @@ def report_dict(a: DesignAnalysis) -> dict:
             "disc_volume_cm3": a.mass.disc_volume_cm3,
             "total_mass_g": a.mass.total_mass_g,
             "housing_mass_g": a.mass.housing_mass_g,
+            "plates_mass_g": a.mass.plates_mass_g,
             "pins_mass_g": a.mass.pins_mass_g,
             "shaft_mass_g": a.mass.shaft_mass_g,
             "flange_mass_g": a.mass.flange_mass_g,
@@ -603,7 +604,8 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
             ["Assembled mass", f"{ms.total_mass_g:.0f} g",
              "Power density", f"{a.power_density_Nm_per_kg:.2f} Nm/kg"],
             ["Disc", f"{ms.disc_mass_g:.1f} g x{s.disc_count}",
-             "Housing", f"{ms.housing_mass_g:.0f} g"],
+             "Barrel / end plates",
+             f"{ms.housing_mass_g:.0f} / {ms.plates_mass_g:.0f} g"],
             ["Pins", f"{ms.pins_mass_g:.0f} g",
              "Shaft / flange",
              f"{ms.shaft_mass_g:.0f} / {ms.flange_mass_g:.0f} g"],
@@ -689,8 +691,9 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
 
     steps = [
         f"Press the {s.pin_count} ring pins into the housing pockets on the "
-        f"{2 * s.pin_circle_radius:g} mm circle. They stand "
-        f"{s.stack_height:g} mm proud, spanning the whole disc stack."
+        f"{2 * s.pin_circle_radius:g} mm circle. They are "
+        f"{s.ring_pin_length:g} mm long - the barrel's whole length, so the two "
+        f"end plates trap them and nothing can walk out of mesh."
         + ("" if not s.ring_pins_are_rollers else
            " These are meant to turn, so the pins must be a running fit in the "
            "pockets or carry rollers - a press fit here throws away the "

@@ -235,8 +235,55 @@ def test_a_pin_under_a_roller_shrinks_to_the_roller_bore():
     # ...and the exported solid has to be the same part, not the nominal one.
     volume = solid.ring_pins(spec, placements_for_spec(spec)).val().Volume()
     expected = (spec.pin_count * np.pi
-                * (placed["bearing_ring_pins"].bore / 2.0) ** 2 * spec.stack_height)
+                * (placed["bearing_ring_pins"].bore / 2.0) ** 2
+                * spec.ring_pin_length)
     assert volume == pytest.approx(expected, rel=1e-6)
+
+
+def test_a_rollered_pin_is_ordered_and_weighed_at_the_size_it_is_drawn():
+    """Two places knew nothing about the shank: the bill of materials and the
+    mass model.
+
+    Everything that *draws* a pin already asks `pin_shank_diameter`.  The bill
+    did not - so a 15:1 with rollers on was telling you to buy 14 mm dowels for
+    the 8 mm bore of the sleeves it lists three lines further down, and the mass
+    model was weighing the same imaginary steel: four hundred grams of it over
+    sixteen pins, on a gearbox that comes to under a kilogram.
+    """
+    from cycloidgen.analysis.bearings import pin_diameters
+    from cycloidgen.export.bom import bom_items
+
+    spec = _big_pins()
+    placed = _placed(spec)
+    ring_d, output_d = pin_diameters(spec)
+
+    assert ring_d == placed["bearing_ring_pins"].bore < 2.0 * spec.pin_radius
+    assert output_d == placed["bearing_output_pins"].bore < spec.output_pin_diameter
+
+    by_part = {i.part: i for i in bom_items(analyse(spec))}
+    assert by_part["Ring pin (dowel)"].size.startswith(f"{ring_d:g} mm dia")
+    assert by_part["Output pin (dowel)"].size.startswith(f"{output_d:g} mm dia")
+
+    # And the mass follows the diameter, which is the half of it a size string
+    # cannot show.  Nominal would be (14/8)^2 = 3.06 times this.
+    expected = (np.pi * (ring_d / 2.0) ** 2 * spec.ring_pin_length
+                * 1e-3 * spec.pin_mat.density_g_cm3)
+    assert by_part["Ring pin (dowel)"].mass_each_g == pytest.approx(expected)
+
+
+def test_a_pin_with_no_roller_is_not_worth_placing_bearings_to_size():
+    """`pin_diameters` skips the placement pass when nothing can shrink a pin.
+
+    It is called from the mass model, which runs on every point of a sweep, and
+    placing the bearings costs an order of magnitude more than the whole of it.
+    Without a sleeve the answer is the nominal size by definition, so the guard
+    is free - but only while it is the *same* answer, which is what this checks.
+    """
+    from cycloidgen.analysis.bearings import pin_diameters
+
+    spec = preset(21)
+    assert not spec.ring_pins_are_rollers and not spec.output_pins_are_rollers
+    assert pin_diameters(spec) == (2.0 * spec.pin_radius, spec.output_pin_diameter)
 
 
 def test_the_output_roller_is_a_ring_with_a_wall():

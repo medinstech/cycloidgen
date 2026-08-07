@@ -5,6 +5,71 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 7.1.0
+
+**Fixed**
+
+- **Three more parts were quoted off the disc stack.** 7.0.0 found the tie bolt
+  doing this and fixed it alone. It was never one bug: when the barrel was
+  lengthened in 5.0.0 to reach the end plates, *four* things that measure
+  themselves against it were never told, and reading the code for the other
+  three is what this release is.
+
+  - **The ring pins were seven millimetres short of the pockets they sit in.**
+    A pocket is broached down the bore in one pass, so it runs the barrel's
+    whole length — and a pin cut to the disc stack had seven millimetres of
+    empty groove beneath it and nothing at the bottom but the end plate.
+    Nothing held it up. It slides down, and what it slides out of is the mesh:
+    a third of its engagement gone and an open pocket left at the top for a
+    lobe to drop into. They run the barrel now and the two plates trap them.
+  - **The output pins stopped one carrier drop short of the last disc.** They
+    leave the carrier face a drop below the first disc, so a stack-high pin
+    arrives a drop short of the top of the stack: on a two-disc drive, the last
+    disc driven over seven of its eight millimetres — while the hole bearing
+    stress this app reports is computed over all eight.
+  - **The bill of materials described a barrel seven millimetres shorter than
+    the one the exporter writes.** Exactly the tie bolt's mistake, one line up
+    the same page.
+
+- **A pin under a roller was ordered and weighed at the wrong diameter.** The
+  roller's OD *is* the working pin — the profile was cut to it — so the pin
+  beneath is the sleeve's bore. Everything that draws a pin already asked; the
+  bill of materials and the mass model did not. A 15:1 with rollers on was
+  telling you to buy 14 mm dowels for the 8 mm bore of the sleeves it lists
+  three lines further down.
+
+- **The end plates weighed nothing on the bill of materials.** Their mass was
+  real and computed, and it was being added to the barrel's line — so the
+  barrel read heavy, and a third of the gearbox went out as a blank cell next
+  to the word "make". Barrel and plates are separate numbers now, on the
+  datasheet as well.
+
+- **The screenshot tool photographed whatever the operator had left on.** The
+  section plane and the crank angle are both restored from settings, and
+  neither was being reset: one run came out as half a gearbox. It also cropped
+  the bare-gearbox figures six pixels too tall, because `GetWindowRect`
+  includes Windows' invisible resize border and dividing that by Qt's frame
+  width produced a "scale" of 1.009 on a display at 100%.
+
+**Numbers**
+
+- **Assembled mass is up 7 to 9%** — the pins are longer, and now they are as
+  long as the holes they live in. On the presets: 615.5 g → 661.1 g at 15:1,
+  724.9 g → 781.1 g at 21:1, 853.5 g → 926.8 g at 33:1. Every gram of it was
+  always in the exported STEP file; it was the sum that was light.
+- **On a design with rollers fitted the mass falls instead**, because the
+  dowels shrink to the sleeve bores they actually are.
+- **The bill of materials states different lengths and diameters.** Ring pin 17
+  → 24 mm and output pin 17 → 18 mm on every preset, the barrel 17 → 24 mm, and
+  a rollered pin at its shank rather than its nominal size. If you ordered
+  dowels from a 7.0.0 bill of materials, they are short.
+- **`housing_mass_g` in the JSON report is now the barrel alone**, with the
+  plates beside it as `plates_mass_g`. It used to be both.
+
+Unchanged: every dimension in the geometry, contact stress, torque capacity,
+efficiency, lost motion, transmission error, fatigue, lubrication and bearing
+selection. Inertia is unchanged too — the pins do not turn with anything.
+
 ## 7.0.0
 
 **Added**
