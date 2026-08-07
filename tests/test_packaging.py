@@ -85,7 +85,17 @@ def test_the_release_script_passes_it_first():
 SPEC = ROOT / "cycloidgen.spec"
 
 
-def test_the_bundle_carries_a_windowed_app_and_a_console_cli():
+def _spec_platform_branch() -> tuple[str, str]:
+    """The two arms of the spec's `sys.platform == "win32"` split, as source."""
+    text = SPEC.read_text(encoding="utf-8")
+    match = re.search(
+        r'^if sys\.platform == "win32":\n(.*?)^else:\n(.*?)^\ncoll = COLLECT\(',
+        text, re.M | re.S)
+    assert match, "the spec no longer splits its executables by platform"
+    return match.group(1), match.group(2)
+
+
+def test_the_windows_bundle_carries_a_windowed_app_and_a_console_cli():
     """Two executables over one analysis - `pythonw.exe` / `python.exe`.
 
     A single console build put a black window behind the application every time
@@ -94,10 +104,26 @@ def test_the_bundle_carries_a_windowed_app_and_a_console_cli():
     process has no stdout at all, so `--version` would not print nothing, it
     would raise.
     """
-    text = SPEC.read_text(encoding="utf-8")
-    assert '_exe("cycloidgen", console=False)' in text, "the app must be windowed"
-    assert '_exe("cycloidgen-cli", console=True)' in text, "the CLI needs a console"
-    assert re.search(r"COLLECT\(\s*gui,\s*cli,", text), "both must reach COLLECT"
+    windows, _ = _spec_platform_branch()
+    assert '_exe("cycloidgen", console=False)' in windows, "the app must be windowed"
+    assert '_exe("cycloidgen-cli", console=True)' in windows, "the CLI needs a console"
+    assert "COLLECT(\n    *executables," in SPEC.read_text(encoding="utf-8"), \
+        "both must reach COLLECT"
+
+
+def test_every_other_platform_gets_one_executable():
+    """`console` is a Windows subsystem flag - a PE header field saying whether
+    the loader allocates a console - and there is no equivalent elsewhere.
+
+    So a second binary on Linux would not be a second behaviour, only a second
+    copy of the same one under a name implying a difference that does not exist.
+    The AppImage's `.desktop` file and its AppRun both name `cycloidgen`, and the
+    release workflow checks that `cycloidgen-cli` is *not* there.
+    """
+    _, other = _spec_platform_branch()
+    assert other.count("_exe(") == 1, "one binary off Windows, not two"
+    assert '_exe("cycloidgen"' in other
+    assert "cycloidgen-cli" not in other
 
 
 def test_the_shortcuts_point_at_the_windowed_one():
@@ -150,3 +176,49 @@ def test_the_readme_carries_no_relative_link_or_image():
                        if not t.startswith(("http://", "https://", "#", "mailto:")))
     assert not offenders, (
         f"relative in a README that PyPI also serves: {offenders}")
+
+
+# --------------------------------------------------------- the Linux AppImage
+
+APPIMAGE = ROOT / "packaging" / "appimage.sh"
+RELEASE_YML = WORKFLOWS / "release.yml"
+
+
+def test_the_appimage_names_the_same_binary_in_all_three_places():
+    """AppRun starts it, the desktop entry points at it, the workflow tests it.
+
+    Three files, one name, and nothing joins them: the desktop entry's `Exec` is
+    read by the desktop and by nothing in this repository, so a rename that
+    misses it produces an AppImage that runs perfectly from a terminal and does
+    nothing at all when double-clicked.
+    """
+    script = APPIMAGE.read_text(encoding="utf-8")
+    assert 'exec "$root/usr/bin/cycloidgen" "$@"' in script
+    assert "Exec=cycloidgen %f" in script
+    # ...and `Icon=` has to match the icon's basename, or the launcher is blank.
+    assert "Icon=cycloidgen" in script
+    assert 'cp cycloidgen/ui/assets/mark-blue.png "$appdir/cycloidgen.png"' in script
+    assert "test -x ./dist/cycloidgen/cycloidgen" in RELEASE_YML.read_text(encoding="utf-8")
+
+
+def test_the_appimage_script_is_run_through_an_interpreter():
+    """Its executable bit is in the index, and this repository is developed on
+    Windows, where git's `core.filemode` is off - so an edit that recreates the
+    file drops the bit without anybody noticing.  Naming `bash` costs five
+    characters and cannot be lost half an hour into a release."""
+    workflow = RELEASE_YML.read_text(encoding="utf-8")
+    assert "bash packaging/appimage.sh" in workflow
+
+
+def test_the_appimage_is_built_on_the_oldest_supported_glibc():
+    """A PyInstaller bundle carries Python and Qt and links against the host's
+    glibc, which is forward compatible only.
+
+    Built on `ubuntu-latest` - 24.04 today - the AppImage needs glibc 2.39, and
+    that rules out Debian 12, Ubuntu 22.04 LTS and every enterprise distribution
+    currently in service.  The pin is the whole reach of the artefact, and
+    `ubuntu-latest` is exactly the sort of thing somebody tidies up.
+    """
+    import yaml
+    jobs = yaml.safe_load(RELEASE_YML.read_text(encoding="utf-8"))["jobs"]
+    assert jobs["linux"]["runs-on"] == "ubuntu-22.04"

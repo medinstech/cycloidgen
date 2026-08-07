@@ -112,6 +112,9 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+# Windows takes an .ico and nothing else; on Linux the parameter is ignored, so
+# the icon travels beside the binary in the AppImage instead - see
+# `packaging/appimage.sh`, which reads it out of the same assets folder.
 _icon = Path("cycloidgen/ui/assets/cycloidgen.ico")
 
 
@@ -121,28 +124,37 @@ def _exe(name: str, *, console: bool):
         pyz, a.scripts, [],
         exclude_binaries=True,
         name=name,
-        icon=str(_icon) if _icon.exists() else None,
+        icon=str(_icon) if (_icon.exists() and sys.platform == "win32") else None,
         version=_version_file,
         console=console,
         disable_windowed_traceback=False,
     )
 
 
-# Two executables over one analysis, which is the `pythonw.exe` / `python.exe`
-# arrangement and for the same reason.  A single console build put a black
-# window behind the application every time somebody opened it from the Start
-# menu; a single windowed build would have taken the command line away, and
-# taken it away *badly* - a frozen windowed process has no stdout at all, so
+# On Windows, two executables over one analysis: the `pythonw.exe` /
+# `python.exe` arrangement, and for the same reason.  A single console build put
+# a black window behind the application every time somebody opened it from the
+# Start menu; a single windowed build would have taken the command line away,
+# and taken it away *badly* - a frozen windowed process has no stdout at all, so
 # `--version` would not print nothing, it would raise.
 #
 # So the one the shortcuts point at is windowed, and the command line gets its
 # own console build beside it.  `launcher.py` keeps the windowed one from
 # falling over if it is handed arguments anyway.
-gui = _exe("cycloidgen", console=False)
-cli = _exe("cycloidgen-cli", console=True)
+#
+# Elsewhere, one.  `console` is a Windows subsystem flag - a PE header field
+# saying whether the loader allocates a console - and there is no equivalent on
+# Linux, where every process has whatever streams it was handed.  A second
+# binary there would not be a second behaviour, only a second copy of the same
+# one, and a name (`cycloidgen-cli`) implying a difference that does not exist.
+if sys.platform == "win32":
+    executables = [_exe("cycloidgen", console=False),
+                   _exe("cycloidgen-cli", console=True)]
+else:
+    executables = [_exe("cycloidgen", console=True)]
 
 coll = COLLECT(
-    gui, cli, a.binaries, a.datas,
+    *executables, a.binaries, a.datas,
     strip=False,
     upx=False,            # UPX corrupts some OCCT DLLs
     name="cycloidgen",

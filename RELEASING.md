@@ -88,23 +88,47 @@ pull request template asks the same question for the same reason.
 6. **The tag does the rest.** `.github/workflows/release.yml` checks the tag
    against the source, runs lint and the suite, builds the bundle, asks the
    built executable what version it thinks it is, builds the installer, and
-   publishes a GitHub release with the changelog section as its notes. Then it
-   builds the wheel and pushes it to PyPI.
+   publishes a GitHub release with the changelog section as its notes. Beside
+   it, a Linux job builds the AppImage and runs it; behind both, one job
+   attaches the AppImage to that release and another pushes the wheel to PyPI.
 
 ## Where a release goes
 
-Two artefacts, and they are not alternatives — they are for different people.
+Three artefacts, and they are not alternatives — they are for different people.
 
 | | who it is for | platforms |
 |---|---|---|
-| **Installer** on the GitHub release | somebody who wants to run the app and does not have Python | Windows |
+| **Installer** (`.exe`) on the GitHub release | somebody who wants to run the app and does not have Python | Windows |
+| **AppImage** on the GitHub release | the same person, on Linux | x86-64, glibc 2.35 and up |
 | **Wheel** on PyPI | anybody with Python 3.10–3.12; also the only way to `import cycloidgen` | Windows, Linux, macOS, x86-64 and arm64 |
 
-The installer is Windows-only and will stay that way: NSIS is a Windows tool,
-and there is no cross-platform installer format to move to. What covers the
-other two is the wheel — the application is pure Python on wheels that exist for
-every platform it runs on, `cadquery-ocp` included, so `pip install cycloidgen`
-needs a compiler nowhere.
+There is no cross-platform installer format, which is why the first two are
+separate programs: NSIS writes an installer that unpacks the bundle into Program
+Files and registers it, and an AppImage installs nothing — it *is* the bundle,
+in a squashfs image behind a runtime that mounts it. macOS has neither. `pip
+install` is the answer there until there is a Developer ID to sign with;
+Gatekeeper treats an unsigned application far more harshly than SmartScreen
+does, so shipping one would be a worse experience than the wheel, not a better.
+
+### The AppImage, and the two pins in it
+
+`packaging/appimage.sh` builds it, and the workflow runs the result before
+anything is published — extracted, `--version`, and a real export. A bundle that
+builds and cannot start is the whole failure mode here, and it is invisible
+until somebody downloads it.
+
+Two things in that job are load-bearing and look like tidying:
+
+- **`runs-on: ubuntu-22.04`, not `ubuntu-latest`.** A PyInstaller bundle carries
+  Python and Qt but links against the host's glibc, and glibc is forward
+  compatible only. Built on 24.04 the AppImage needs 2.39, which rules out
+  Debian 12, Ubuntu 22.04 LTS and every enterprise distribution in service.
+- **`appimagetool` is pinned to a release**, not `continuous`. The tool that
+  builds a release artefact is part of the release, and "whatever was on the
+  server that morning" is not something a build can be reproduced from.
+
+A user whose machine has no FUSE 2 cannot mount the image; `libfuse2` or
+`--appimage-extract-and-run` are the two ways round it, and the README says so.
 
 ### PyPI, and the one thing that is set up by hand
 

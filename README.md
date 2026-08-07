@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/medinstech/cycloidgen/releases/latest"><b>Download for Windows</b></a>
+  <a href="https://github.com/medinstech/cycloidgen/releases/latest"><b>Download</b></a>
   &nbsp;·&nbsp; <a href="#run-it"><b>pip install cycloidgen</b></a>
   &nbsp;·&nbsp; <a href="https://github.com/medinstech/cycloidgen/blob/main/docs/api.md">Python API</a>
   &nbsp;·&nbsp; <a href="#checks">The checks</a>
@@ -51,7 +51,7 @@
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
   a shortlist that passes every check, with the trade-offs side by side.
-- **Nothing is asserted that is not verified.** 767 tests, and where two parts
+- **Nothing is asserted that is not verified.** 771 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -99,9 +99,14 @@ That is the whole thing, window and all, on all three platforms. It is a large
 install — most of a gigabyte, nearly all of it Qt and the OCCT CAD kernel — so a
 virtual environment is worth the two extra lines.
 
-Windows also has a [standalone installer](#standalone-build-and-installer) that
-needs no Python at all. It is unsigned, so SmartScreen will want a *More info ▸
-Run anyway* — see [RELEASING.md](https://github.com/medinstech/cycloidgen/blob/main/RELEASING.md).
+There is also a [build that needs no Python at all](#standalone-build-and-installer),
+on the [releases page](https://github.com/medinstech/cycloidgen/releases/latest):
+a **Windows installer**, and a **Linux AppImage** — one file, `chmod +x`,
+double-click. The installer is unsigned, so SmartScreen will want a *More info ▸
+Run anyway*; see [RELEASING.md](https://github.com/medinstech/cycloidgen/blob/main/RELEASING.md).
+If the AppImage will not start, the machine is missing FUSE 2 — either install
+it (`libfuse2` on Debian and Ubuntu) or run the file with
+`--appimage-extract-and-run`, which unpacks it and needs nothing.
 
 To work on it rather than with it, install the checkout in place:
 
@@ -643,7 +648,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          767 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          771 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -752,17 +757,29 @@ loops without a jump** above.
 
 ## Standalone build and installer
 
-Two artefacts come out of a release, and they are not alternatives. The
-**installer** is for somebody who wants to run the app and does not have Python;
-it is Windows-only and will stay that way, because NSIS is a Windows tool and
-there is no cross-platform installer format to move to. The **wheel** on PyPI is
-what covers the other two platforms — the application is pure Python on wheels
-that exist for every platform and architecture it runs on, `cadquery-ocp`
-included, so `pip install cycloidgen` needs a compiler nowhere.
+Three artefacts come out of a release, and they are not alternatives:
+
+| | who it is for | platforms |
+|---|---|---|
+| **Installer** (`.exe`) | somebody who wants to run the app and does not have Python | Windows |
+| **AppImage** | the same person, on Linux | x86-64, glibc 2.35 and up |
+| **Wheel** on PyPI | anybody with Python 3.10 – 3.12; also the only way to `import cycloidgen` | Windows, Linux, macOS, x86-64 and arm64 |
+
+There is no cross-platform installer format, so the first two are separate
+programs doing the same job by opposite means. NSIS writes an installer that
+unpacks the bundle into Program Files and registers it; an AppImage installs
+nothing — it *is* the bundle, in a squashfs image behind a small runtime that
+mounts it. macOS has neither yet: `pip install` is the answer there, and an
+unsigned `.dmg` would be a worse experience than that rather than a better one.
 
 ```powershell
 .\packaging\release.ps1                        # lint, tests, bundle, installer
 .\packaging\release.ps1 -FastPack -SkipTests    # quick internal build
+```
+
+```bash
+python -m PyInstaller cycloidgen.spec --noconfirm   # Linux
+bash packaging/appimage.sh                          # -> releases/*.AppImage
 ```
 
 Or the two steps by hand:
@@ -774,7 +791,7 @@ dist\cycloidgen\cycloidgen-cli.exe --list-outputs      # the command line
 makensis /INPUTCHARSET UTF8 packaging\cycloidgen.nsi   # needs NSIS 3.x
 ```
 
-The bundle carries **two executables over one analysis**, which is the
+The Windows bundle carries **two executables over one analysis**, which is the
 `pythonw.exe` / `python.exe` arrangement and for the same reason.
 `cycloidgen.exe` is windowed — it is what the shortcuts point at, and a console
 build there put a black window behind the application every time somebody opened
@@ -782,6 +799,12 @@ it from the Start menu. `cycloidgen-cli.exe` is the console one, for headless
 runs. A single windowed build would have taken the command line away and taken
 it away badly: a frozen windowed process has no stdout at all, so `--version`
 would not print nothing, it would raise.
+
+The AppImage carries **one**. `console` is a Windows subsystem flag — a field in
+the PE header saying whether the loader allocates a console — and Linux has no
+equivalent; every process gets whatever streams it was handed. A second binary
+there would not be a second behaviour, only a second copy of the same one under
+a name implying a difference that does not exist.
 
 The installer upgrades in place — it clears the previous version first, because
 unpacking a PyInstaller bundle *over* another one leaves modules and DLLs from

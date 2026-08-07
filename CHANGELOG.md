@@ -9,14 +9,35 @@ design somebody already built.
 
 **Added**
 
+- **A Linux AppImage.** One file, `chmod +x`, double-click — the Linux answer to
+  the Windows installer, arrived at from the opposite direction: NSIS unpacks
+  the bundle into Program Files and registers it, an AppImage installs nothing
+  and *is* the bundle. Built on Ubuntu 22.04 rather than the latest runner,
+  because a PyInstaller bundle links against the host's glibc and glibc is
+  forward compatible only: built on 24.04 it would need 2.39 and rule out Debian
+  12, Ubuntu 22.04 LTS and every enterprise distribution in service.
+
+  It carries one executable where the Windows bundle carries two. `console` is a
+  Windows subsystem flag and Linux has no equivalent, so a second binary there
+  would have been a second copy of the same one under a name implying a
+  difference that does not exist.
+
+  The release workflow unpacks the AppImage and runs it — `--version` and a real
+  export — before anything is published. A bundle that builds and cannot start
+  is the whole failure mode here, and it is invisible until somebody downloads
+  it.
+
 - **`pip install cycloidgen`.** The installer is Windows-only and always will be
   — NSIS is a Windows tool — but the application never was: it is tested on
   Linux and macOS on every push, and `cadquery-ocp` ships wheels for every
   platform and architecture it runs on. So the honest answer for a Linux or Mac
   user was "clone it and install from source", which is an answer for a
   developer and not for anybody else. Now a release publishes a wheel to PyPI as
-  well as an installer to GitHub, and `cycloidgen` opens the window on all
-  three. Publishing goes through PyPI's Trusted Publishing, so there is no API
+  well, and `cycloidgen` opens the window on all three — including macOS, which
+  has no bundle of its own and will not until there is a Developer ID to sign
+  with. Gatekeeper treats an unsigned application far more harshly than
+  SmartScreen does, so an unsigned `.dmg` would be worse than the wheel rather
+  than better. Publishing goes through PyPI's Trusted Publishing, so there is no API
   token in the repository to leak or rotate.
 
   `README.md` is the project page there as well as the front of the repository,
