@@ -77,6 +77,35 @@ design somebody already built.
 
 **Fixed**
 
+- **No part in the 3D view was watertight, so the section could not cap them.**
+  A cut came out with some parts reading as solid material and others as empty
+  shells — half the assembly sectioned, half of it hollow.
+
+  The faces are emitted one at a time and each brings its own copy of every
+  corner, so no face shared an edge with its neighbour: geometrically solid,
+  topologically a heap of loose facets, every edge in it a boundary edge.
+  `vtkClipClosedSurface` caps a *closed* surface and could not cap any of the
+  fourteen.
+
+  The comment on the filter that was supposed to prevent this said it merged
+  the duplicate points. `vtkPolyDataNormals` does not merge points — with
+  `SplittingOn` it *creates* them, which is what gives a cylinder's end cap a
+  hard edge against its wall and is the right thing for shading. So the points
+  are merged first and split afterwards, and the two surfaces have different
+  jobs: the section and the edges take the closed one, the shading takes the
+  split one. Twelve of the fourteen parts are now watertight.
+
+  The same duplication had been doubling the edge overlay, which found every
+  edge twice — once from each of the two faces that should have been sharing
+  it. 12,614 line segments where 6,253 do.
+
+  Two parts are still not clean, for reasons of their own, and are not fixed
+  here: `output_flange` has 28 non-manifold edges where the plate and the boss
+  both keep the face they meet on, and `disc_1` has a four-edge hole in its top
+  face where `vtkContourTriangulator` gives up on one arrangement of output
+  holes and the code checks only that it produced *some* triangles. `disc_2`,
+  the same part on a different hole phase, is clean.
+
 - **The screenshot tool drove the operator's real preferences.** It forced the
   light theme, cleared the section plane and unhid the 3D groups, then put them
   back at the end — and anything that raised in between skipped the putting

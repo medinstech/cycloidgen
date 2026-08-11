@@ -21,7 +21,7 @@ import numpy as np
 from vtkmodules.vtkCommonCore import vtkPoints
 from vtkmodules.vtkCommonDataModel import vtkCellArray, vtkPolyData
 from vtkmodules.vtkCommonExecutionModel import vtkAlgorithm
-from vtkmodules.vtkFiltersCore import vtkPolyDataNormals
+from vtkmodules.vtkFiltersCore import vtkCleanPolyData, vtkPolyDataNormals
 from vtkmodules.vtkFiltersGeneral import vtkContourTriangulator
 
 from .mesh import Mesh, Part
@@ -34,8 +34,8 @@ from .mesh import Mesh, Part
 #: what lets a test compare a VTK point against the mesh vertex it came from.
 _DOUBLE = vtkAlgorithm.DOUBLE_PRECISION
 
-__all__ = ["FEATURE_ANGLE", "feature_edges", "local_plane", "local_point",
-           "part_polydata", "pose_matrix", "toward_eye"]
+__all__ = ["FEATURE_ANGLE", "closed_polydata", "feature_edges", "local_plane",
+           "local_point", "part_polydata", "pose_matrix", "toward_eye"]
 
 #: Edges sharper than this stay sharp; everything flatter is smoothed across.
 #: A cylinder sampled at 24 sides has 15-degree creases and should read as
@@ -77,8 +77,8 @@ def _triangulated(points: np.ndarray, loops) -> vtkCellArray | None:
     return out if out.GetNumberOfCells() else None
 
 
-def part_polydata(mesh: Mesh, part: Part) -> vtkPolyData:
-    """One part's geometry in its own frame, with vertex normals."""
+def _surface(mesh: Mesh, part: Part) -> vtkPolyData:
+    """One part's faces in its own frame, exactly as the mesh emitted them."""
     local = mesh.vertices[part.vertices]
     start = part.vertices.start
 
@@ -118,11 +118,54 @@ def part_polydata(mesh: Mesh, part: Part) -> vtkPolyData:
         append.Update()
         surface = append.GetOutput()
 
-    # Merges the duplicate points the triangulated faces bring with them and
-    # gives every vertex a normal, so the cylinders shade as cylinders.
+    return surface
+
+
+def closed_polydata(mesh: Mesh, part: Part) -> vtkPolyData:
+    """One part as a watertight surface: coincident points merged.
+
+    The faces are built face by face and each brings its own copy of every
+    corner, so nothing shares an edge with its neighbour: geometrically the
+    part is solid, topologically it is a heap of loose facets, and every edge
+    in it is a boundary edge.
+
+    That is not a cosmetic distinction.  ``vtkClipClosedSurface`` caps a
+    *closed* surface and cannot cap this one, so a section came out with some
+    parts reading as solid material and others as empty shells.  It also
+    doubled the feature-edge set - every edge found twice, once from each of
+    the two faces that should have been sharing it.
+
+    Merging is exact rather than tolerant: these points are copies of the same
+    vertex, not two vertices that happen to be close, and a tolerance here
+    would start welding a thin wall to itself.
+    """
+    clean = vtkCleanPolyData()
+    clean.SetInputData(_surface(mesh, part))
+    clean.PointMergingOn()
+    clean.SetTolerance(0.0)
+    clean.ConvertLinesToPointsOff()
+    clean.ConvertPolysToLinesOff()
+    clean.ConvertStripsToPolysOff()
+    clean.SetOutputPointsPrecision(_DOUBLE)
+    clean.Update()
+    return clean.GetOutput()
+
+
+def part_polydata(mesh: Mesh, part: Part) -> vtkPolyData:
+    """One part's geometry, shaded: merged, then split again where it creases.
+
+    Built on :func:`closed_polydata` rather than on the loose facets, so the
+    splitting below is the *only* thing separating any two points - which is
+    what makes it a shading decision rather than an accident of how the faces
+    were emitted.  Anything that needs the topology, rather than the shading,
+    wants ``closed_polydata``: this surface is deliberately open again.
+    """
     normals = vtkPolyDataNormals()
-    normals.SetInputData(surface)
+    normals.SetInputData(closed_polydata(mesh, part))
     normals.SetFeatureAngle(FEATURE_ANGLE)
+    # Splitting is what gives a cylinder's end cap a hard edge against its
+    # wall instead of a smeared one.  It duplicates the points along that
+    # crease, which is why it comes last and why the closed surface is kept.
     normals.SplittingOn()
     normals.ConsistencyOn()
     normals.AutoOrientNormalsOff()             # the mesh is already wound out

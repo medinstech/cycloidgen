@@ -292,7 +292,7 @@ class VtkAssemblyView(QWidget):
         from vtkmodules.vtkCommonDataModel import vtkPlane, vtkPlaneCollection
         from vtkmodules.vtkFiltersGeneral import vtkClipClosedSurface
 
-        from ..viz.vtkbridge import feature_edges, part_polydata
+        from ..viz.vtkbridge import closed_polydata, feature_edges, part_polydata
 
         v, mesh = self._vtk, self._mesh
         assert mesh is not None
@@ -304,6 +304,10 @@ class VtkAssemblyView(QWidget):
         for part in mesh.parts:
             colour = [c / 255.0 for c in part.colour]
             polydata = part_polydata(mesh, part)
+            # The clipper and the edge finder both want topology, not shading:
+            # the shaded surface has its points split along every crease, which
+            # leaves it open, and an open surface cannot be capped.
+            solid = closed_polydata(mesh, part)
 
             # The section is a real cut, not a hole in a shell.  A clipping
             # plane on the mapper is per-fragment and free, and it is also
@@ -317,7 +321,7 @@ class VtkAssemblyView(QWidget):
             planes = vtkPlaneCollection()
             planes.AddItem(plane)
             clipper = vtkClipClosedSurface()
-            clipper.SetInputData(polydata)
+            clipper.SetInputData(solid)
             clipper.SetClippingPlanes(planes)
             clipper.GenerateFacesOn()
             clipper.GenerateOutlineOff()
@@ -348,7 +352,7 @@ class VtkAssemblyView(QWidget):
             actor.SetUserTransform(transform)
             self._renderer.AddActor(actor)
 
-            edge_polydata = feature_edges(polydata)
+            edge_polydata = feature_edges(solid)
             edge_mapper = v["vtkPolyDataMapper"]()
             edge_mapper.SetInputData(edge_polydata)
             edge_mapper.ScalarVisibilityOff()
