@@ -423,7 +423,10 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
              "Input torque", f"{e.input_torque_Nm:.3f} Nm"],
             ["Input power", f"{e.input_power_W:.2f} W",
              "Output power", f"{e.output_power_W:.2f} W"],
-            ["Ring pins", "rolling" if s.ring_pins_are_rollers else "fixed (sliding)",
+            ["Ring pins",
+             "rolling" if s.ring_pins_roll
+             else "integral (sliding)" if s.ring_pins_integral
+             else "fixed (sliding)",
              "Output pins", "rolling" if s.output_pins_are_rollers else "fixed (sliding)"],
         ], [42 * mm, 36 * mm, 42 * mm, 36 * mm]),
     ]
@@ -690,14 +693,20 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
     story += [Paragraph(n, body) for n in notes]
 
     steps = [
-        f"Press the {s.pin_count} ring pins into the housing pockets on the "
-        f"{2 * s.pin_circle_radius:g} mm circle. They are "
-        f"{s.ring_pin_length:g} mm long - the barrel's whole length, so the two "
-        f"end plates trap them and nothing can walk out of mesh."
-        + ("" if not s.ring_pins_are_rollers else
-           " These are meant to turn, so the pins must be a running fit in the "
-           "pockets or carry rollers - a press fit here throws away the "
-           "efficiency you selected them for."),
+        (f"The {s.pin_count} ring pins are formed with the housing on the "
+         f"{2 * s.pin_circle_radius:g} mm circle - there is nothing to fit. "
+         f"Check them for the print's elephant foot at the first layer and for "
+         f"stringing between them: either one lands on the flank the disc runs "
+         f"against."
+         if s.ring_pins_integral else
+         f"Press the {s.pin_count} ring pins into the housing pockets on the "
+         f"{2 * s.pin_circle_radius:g} mm circle. They are "
+         f"{s.ring_pin_length:g} mm long - the barrel's whole length, so the two "
+         f"end plates trap them and nothing can walk out of mesh."
+         + ("" if not s.ring_pins_are_rollers else
+            " These are meant to turn, so the pins must be a running fit in the "
+            "pockets or carry rollers - a press fit here throws away the "
+            "efficiency you selected them for.")),
         f"Press the {s.output_pin_count} output pins into the carrier on the "
         f"{2 * s.output_bolt_circle_radius:g} mm circle. Use "
         f"<b>output_carrier.dxf</b> as the drilling template - those holes are "

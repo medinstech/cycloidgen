@@ -42,12 +42,6 @@ __all__ = ["VtkAssemblyView", "available"]
 #: offscreen, which is how this was found.
 _HEADLESS_PLATFORMS = frozenset({"offscreen", "minimal", "minimalegl", "vnc"})
 
-#: Degrees the section plane is turned away from square-on to the camera.  Not
-#: zero, because a cut exactly across the line of sight is a flat elevation of
-#: the cut face and nothing else; not much more, because past about half a
-#: right angle the near wall starts hiding the cut again.
-SECTION_SKEW = 38.0
-
 #: Force the decision either way: ``1`` to try VTK where it is refused, ``0`` to
 #: refuse it where it would be tried.  Both directions are worth having - the
 #: first is how the macOS path gets developed, the second is the first thing to
@@ -208,12 +202,6 @@ class VtkAssemblyView(QWidget):
         self._hidden: set[str] = set()
         self._edges = False
         self._section = 0.0
-        # The direction the cut faces, kept so that looking straight down the
-        # axis - where there is no horizontal view direction to take - leaves
-        # it where it was instead of dropping it.
-        self._section_facing: np.ndarray | None = None
-        #: The camera the section plane was last solved for.
-        self._section_view: tuple | None = None
         self._mode = "light"
 
         self._widget = _render_widget(v, self)
@@ -484,59 +472,25 @@ class VtkAssemblyView(QWidget):
         self.set_crank(self._crank)      # the plane moves with the parts
         self._render()
 
-    def _section_normal(self) -> np.ndarray | None:
-        """Which way the cut faces: away from the camera, and never tilted.
-
-        It used to be ``(0, -1, 0)``, fixed in the world while the camera
-        orbited around it.  That is right from one hemisphere and useless from
-        the other: FRONT showed an uncut gearbox, because the removed half was
-        behind it, and SIDE looked straight down the plane and showed half a
-        model edge-on.  The slider appeared to do nothing.
-
-        Only the *horizontal* part of the view direction is used.  Taking the
-        whole of it would tilt the plane by the camera's elevation and cut the
-        stack on a slant; a section through a gearbox is a plane containing its
-        axis, and this keeps it one while turning it to face the viewer.
-        Looking straight down the axis there is no horizontal part to take, so
-        the last good direction stands rather than the cut jumping.
-        """
-        camera = self._renderer.GetActiveCamera()
-        view = np.array(camera.GetFocalPoint()) - np.array(camera.GetPosition())
-        flat = np.array([view[0], view[1], 0.0])
-        length = float(np.linalg.norm(flat))
-        if length < 1e-9:
-            return self._section_facing
-        flat /= length
-        # Turned away from square-on by SECTION_SKEW.  A plane exactly across
-        # the line of sight presents its cut face flat to the camera, which is
-        # a drawing of a cross-section rather than a view into a machine: no
-        # depth, and the bores behind the cut invisible.  Off to one side, the
-        # cut reads as a solid the viewer is standing inside - which is what
-        # made the old fixed plane worth looking at from the one direction it
-        # happened to suit.
-        a = np.radians(SECTION_SKEW)
-        c, s = np.cos(a), np.sin(a)
-        self._section_facing = np.array(
-            [flat[0] * c - flat[1] * s, flat[0] * s + flat[1] * c, 0.0])
-        return self._section_facing
-
     def _section_plane(self):
-        """``(origin, normal)`` in world coordinates, or ``None`` when off."""
+        """``(origin, normal)`` in world coordinates, or ``None`` when off.
+
+        The plane is fixed in the model, not in the view.  It was made to
+        follow the camera for a while - which does keep the cut facing you from
+        every angle - and that is the wrong trade: a cut that moves while you
+        orbit gives you nothing steady to read the geometry against, and the
+        part you were looking into slides away as you turn towards it.  A
+        section plane belongs to the drawing.
+
+        The cost is the one every CAD package has: from behind, you see the
+        uncut side, and edge-on you see half a model.  Orbiting is the answer
+        to both, and orbiting is not the thing that was ever hard here.
+        """
         if self._section <= 0.0 or self._mesh is None:
             return None
-        normal = self._section_normal()
-        if normal is None:
-            return None
         lo, hi = self._mesh.bounds(self._explode)
-        # How far the assembly reaches along the cut direction.  The old
-        # version could read this straight off the Y bounds; with the plane
-        # free to turn, the box has to be measured along the normal instead.
-        corners = np.array([(x, y, z) for x in (lo[0], hi[0])
-                            for y in (lo[1], hi[1]) for z in (lo[2], hi[2])])
-        reach = corners @ normal
-        offset = float(reach.min()
-                       + (reach.max() - reach.min()) * self._section)
-        return tuple(normal * offset), tuple(normal)
+        span = float(hi[1] - lo[1])
+        return (0.0, lo[1] + span * (1.0 - self._section), 0.0), (0.0, -1.0, 0.0)
 
     def _apply_section(self) -> None:
         """Swap the capping filter in and out of each part's pipeline.
@@ -645,25 +599,6 @@ class VtkAssemblyView(QWidget):
         self._place_camera(azimuth, elevation)
         self._render()
 
-    def _follow_camera_with_section(self) -> None:
-        """Turn the cut to face the viewer, when the viewer has moved.
-
-        Here rather than on a camera observer because this already runs before
-        every frame, from the render window, and so catches the interactor's
-        own orbiting as well as the standard-view buttons.  Guarded on the
-        camera actually having moved: re-solving the plane re-caps every part,
-        which is the expensive half of sectioning, and an animation turning the
-        crank must not pay for it every frame.
-        """
-        if self._section <= 0.0 or not self._actors:
-            return
-        camera = self._renderer.GetActiveCamera()
-        view = (camera.GetPosition(), camera.GetFocalPoint())
-        if view == self._section_view:
-            return
-        self._section_view = view
-        self.set_crank(self._crank)      # re-solves the plane in every part
-
     def _before_render(self, *_args) -> None:
         """Put the drawn edges back on their own view rays.
 
@@ -672,7 +607,6 @@ class VtkAssemblyView(QWidget):
         the edges from every direction and at every zoom rather than beside
         them.
         """
-        self._follow_camera_with_section()
         if not self._edges or not self._actors:
             return
         from ..viz.vtkbridge import local_point, toward_eye

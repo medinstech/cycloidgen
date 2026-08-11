@@ -736,3 +736,80 @@ def test_the_triangulator_hands_back_the_points_it_was_given():
                            for i in range(out.GetNumberOfPoints())])
         assert np.array_equal(points, source)
         return                            # one face is enough to hold the rule
+
+
+# ------------------------------------------------------------- integral pins
+#
+# A pocket and the pin that fills it are one shape read from either side, so
+# the whole difference between a housing that takes dowels and one printed with
+# its pins on is which arc of the same circle the bore follows.
+
+
+def test_integral_pins_leave_the_bore_smaller_than_the_pin_circle():
+    """Pockets take material out of the housing; integral pins put it in.
+
+    The plain pin circle sits between the two, which is the check that the
+    arcs are complementary rather than both bulging the same way.
+    """
+    from cycloidgen.viz.mesh import pocketed_bore
+
+    spec = preset(21)
+    R, Rr, n = spec.pin_circle_radius, spec.pin_radius, spec.pin_count
+
+    def area(loop):
+        x, y = loop[:, 0], loop[:, 1]
+        return 0.5 * abs(float(np.dot(x, np.roll(y, -1))
+                               - np.dot(y, np.roll(x, -1))))
+
+    pocketed = area(pocketed_bore(R, Rr, n))
+    integral = area(pocketed_bore(R, Rr, n, integral=True))
+    plain = np.pi * R * R
+    assert integral < plain < pocketed
+
+
+def test_integral_pins_are_not_a_separate_part():
+    """No mesh part, no exported solid, no line on the bill of materials."""
+    from cycloidgen.analysis import analyse
+    from cycloidgen.export.bom import bom_items
+    from cycloidgen.export.solid import parts
+
+    spec = preset(21).model_copy(update={"ring_pins_integral": True})
+    assert "ring_pins" not in [p.name for p in build_mesh(spec).parts]
+    assert "ring_pins" not in parts(spec)
+    assert not [i for i in bom_items(analyse(spec)) if "Ring pin" in i.part]
+
+
+def test_integral_pins_move_their_mass_into_the_housing():
+    """The steel dowels become housing, in the housing's own material."""
+    from cycloidgen.analysis import analyse
+
+    loose = analyse(preset(21))
+    formed = analyse(preset(21).model_copy(
+        update={"ring_pins_integral": True}))
+
+    assert formed.mass.housing_mass_g > loose.mass.housing_mass_g
+    assert formed.mass.pins_mass_g < loose.mass.pins_mass_g
+    # lighter overall, because the housing is the softer, lighter material -
+    # which is the reason to want them on a printed drive
+    assert formed.mass.total_mass_g < loose.mass.total_mass_g
+
+
+def test_an_integral_pin_cannot_roll_however_the_spec_was_built():
+    """`model_copy` runs no validators, so this cannot be enforced by one.
+
+    The flag stays as the preference it is - it comes back when the pins stop
+    being integral - and everything that asks about the contact asks
+    ``ring_pins_roll``.
+    """
+    from cycloidgen.analysis import analyse
+
+    spec = preset(21).model_copy(update={"ring_pins_integral": True,
+                                         "ring_pins_are_rollers": True})
+    assert spec.ring_pins_are_rollers is True
+    assert spec.ring_pins_roll is False
+
+    rolling = analyse(preset(21).model_copy(
+        update={"ring_pins_are_rollers": True}))
+    sliding = analyse(spec)
+    assert sliding.efficiency.efficiency < rolling.efficiency.efficiency
+    assert sliding.thermal.pv_ring_MPa_m_s > rolling.thermal.pv_ring_MPa_m_s

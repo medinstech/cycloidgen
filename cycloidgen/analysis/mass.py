@@ -116,7 +116,12 @@ def analyse_mass(spec: GearSpec) -> MassResult:
     # The barrel is longer than the disc stack: it reaches down past the carrier
     # to the output end plate it bolts to.  The pins are not - they only have to
     # span the discs - which is why these two lengths are different.
-    housing_mass = (max(ring_area - pocket_area - bolt_area, 0.0)
+    # Integral pins are the housing, so the barrel gains the half-moons it
+    # would otherwise have had cut out of it - and gains them in the *housing's*
+    # material, which on a printed drive is the whole point of the option and
+    # is lighter than the steel dowels it replaces.
+    pins_in_barrel = pocket_area if spec.ring_pins_integral else -pocket_area
+    housing_mass = (max(ring_area + pins_in_barrel - bolt_area, 0.0)
                     * spec.barrel_height * _MM3_TO_CM3 * rho_house)
 
     # Each pin at its own length and its own diameter, and neither length is the
@@ -125,7 +130,8 @@ def analyse_mass(spec: GearSpec) -> MassResult:
     # ``stack_height`` was the same assumption the bill of materials was making,
     # and it is 41% light on the ring pins of a 21:1.
     ring_pin_d, output_pin_d = pin_diameters(spec)
-    pins_volume = (spec.pin_count * math.pi * (ring_pin_d / 2.0) ** 2
+    pins_volume = (0.0 if spec.ring_pins_integral else
+                   spec.pin_count * math.pi * (ring_pin_d / 2.0) ** 2
                    * spec.ring_pin_length)
     pins_volume += (spec.output_pin_count * math.pi * (output_pin_d / 2.0) ** 2
                     * spec.output_pin_length)

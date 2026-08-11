@@ -84,17 +84,22 @@ def ring_housing(spec: GearSpec) -> cq.Workplane:
     lower than the disc stack at the output end - the carrier hangs under the
     discs and the barrel has to cover it.  Sized to the stack alone it left a
     slot round the gearbox where the carrier was.
+
+    With ``ring_pins_integral`` the same circles are added instead of removed.
+    A pocket and the pin that fills it are one shape read from either side, so
+    the whole difference between a housing that takes dowels and one that is
+    printed with its pins on is ``cut`` against ``union``.
     """
     z0, h = spec.barrel_bottom, spec.barrel_height
     body = (cq.Workplane("XY").workplane(offset=z0)
             .circle(spec.housing_outer_radius)
             .circle(spec.pin_circle_radius)
             .extrude(h))
-    pockets = (cq.Workplane("XY").workplane(offset=z0)
-               .polarArray(spec.pin_circle_radius, 0, 360, spec.pin_count)
-               .circle(spec.pin_radius)
-               .extrude(h))
-    body = body.cut(pockets)
+    pins = (cq.Workplane("XY").workplane(offset=z0)
+            .polarArray(spec.pin_circle_radius, 0, 360, spec.pin_count)
+            .circle(spec.pin_radius)
+            .extrude(h))
+    body = body.union(pins) if spec.ring_pins_integral else body.cut(pins)
 
     # The bolts that hold the plates on have to pass through the thing they are
     # clamping.  Both plates were drilled for them and the bill of materials
@@ -283,9 +288,11 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
     identity = cq.Location(cq.Vector(0, 0, 0))
 
     assy.add(ring_housing(spec), name="housing", color=_colour("housing"))
-    assy.add(ring_pins(spec, placements), name="ring_pins",
-             color=_colour("ring_pins"))
-    planar["housing"] = planar["ring_pins"] = identity
+    planar["housing"] = identity
+    if not spec.ring_pins_integral:
+        assy.add(ring_pins(spec, placements), name="ring_pins",
+                 color=_colour("ring_pins"))
+        planar["ring_pins"] = identity
 
     z = 0.0
     for i, (phase, hole_phase) in enumerate(zip(spec.disc_phases,
@@ -352,7 +359,6 @@ def parts(spec: GearSpec) -> dict[str, cq.Workplane]:
     placements = placements_for_spec(spec)
     out = {
         "housing": ring_housing(spec),
-        "ring_pins": ring_pins(spec, placements),
         "eccentric_shaft": eccentric_shaft(spec),
         "output_flange": output_flange(spec, placements),
         "input_end_plate": housing_end_plate(spec, spec.hub_bore,
@@ -360,6 +366,11 @@ def parts(spec: GearSpec) -> dict[str, cq.Workplane]:
         "output_end_plate": housing_end_plate(
             spec, spec.output_bearing_seat_diameter),
     }
+    # Integral pins are not a part, so there is no file for them.  The bundle
+    # is declared from this dict, so leaving an empty one in would put a solid
+    # in the manifest that the housing already contains.
+    if not spec.ring_pins_integral:
+        out["ring_pins"] = ring_pins(spec, placements)
     phases = (spec.disc_hole_phases[:1] if spec.discs_are_identical
               else spec.disc_hole_phases)
     for name, hole_phase in zip(disc_names(spec), phases, strict=True):

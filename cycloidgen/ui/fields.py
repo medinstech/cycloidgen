@@ -133,8 +133,13 @@ GROUPS: list[tuple[str, list[Field]]] = [
               tip="0 = automatic: a typical RMS roughness for the process. This "
                   "is what film thickness is measured against, so it decides "
                   "the lubrication regime more than the lubricant does."),
+        Field("ring_pins_integral", "Ring pins formed with housing", "bool",
+              tip="The pins are the housing rather than dowels fitted into it: "
+                  "nothing to buy, nothing to align, and the contact is "
+                  "sliding. Usual on a printed drive."),
         Field("ring_pins_are_rollers", "Ring pins are rollers", "bool",
-              tip="Needle rollers on the ring pins remove the largest loss."),
+              tip="Needle rollers on the ring pins remove the largest loss. "
+                  "Not available on integral pins, which cannot turn."),
     ]),
     ("Mounting", [
         Field("motor_frame", "Motor", "choice", choices=tuple(MOTOR_FRAMES),

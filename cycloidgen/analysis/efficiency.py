@@ -140,7 +140,7 @@ def analyse_efficiency(spec: GearSpec, steps: int = SWEEP_STEPS,
         output_sliding_m_s=v_out / 1000.0, cam_sliding_m_s=v_cam,
         temperature_C=temperature_C)
 
-    mu_ring = ROLLING_MU if spec.ring_pins_are_rollers else lub["Ring pin / disc flank"].mu
+    mu_ring = ROLLING_MU if spec.ring_pins_roll else lub["Ring pin / disc flank"].mu
     mu_out = ROLLING_MU if spec.output_pins_are_rollers else lub["Output pin / disc hole"].mu
 
     # With no cam bearing the disc bore is a plain journal on the cam: the same

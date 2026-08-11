@@ -1447,6 +1447,14 @@ class MainWindow(QMainWindow):
                         if f.is_length:
                             shown = self._unit.show(shown)
                         w.setValue(shown)
+            # A pin formed with the housing cannot turn in it, so the roller
+            # box is greyed rather than left to look like it does something.
+            # Its value is kept, not cleared: it is the preference to go back
+            # to when the pins stop being integral, and `spec.ring_pins_roll`
+            # is what the analysis reads either way.
+            rollers = self._widgets.get("ring_pins_are_rollers")
+            if rollers is not None:
+                rollers.setEnabled(not self.spec.ring_pins_integral)
         finally:
             self._updating = False
 
@@ -1604,7 +1612,8 @@ class MainWindow(QMainWindow):
             return "rolling" if rolling else "fixed, sliding contact"
 
         self._loss_note.setText(
-            f"Ring pins: {contact_kind(s.ring_pins_are_rollers)}.   "
+            f"Ring pins: {contact_kind(s.ring_pins_roll)}"
+            f"{', formed with the housing' if s.ring_pins_integral else ''}.   "
             f"Output pins: {contact_kind(s.output_pins_are_rollers)}.   "
             f"{e.input_torque_Nm:.3f} Nm in at {s.input_rpm:g} rpm delivers "
             f"{e.output_power_W:.2f} W of the {e.input_power_W:.2f} W supplied. "

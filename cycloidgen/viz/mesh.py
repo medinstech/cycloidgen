@@ -153,8 +153,9 @@ def _circle(cx: float, cy: float, r: float, segments: int) -> np.ndarray:
 
 
 def pocketed_bore(R: float, Rr: float, count: int, *,
-                  bore_segments: int = 5, pocket_segments: int = 9) -> np.ndarray:
-    """The housing bore with the ring-pin pockets cut into it.
+                  bore_segments: int = 5, pocket_segments: int = 9,
+                  integral: bool = False) -> np.ndarray:
+    """The housing bore, with the ring pins cut out of it or grown into it.
 
     The pins sit half-embedded in the bore, so a plain circular bore would pass
     through them.  Two solids occupying the same space is not just wrong, it is
@@ -166,6 +167,12 @@ def pocketed_bore(R: float, Rr: float, count: int, *,
     The pin circle meets the bore circle at ``+-beta`` from the pin's own angle,
     where ``2*R^2*(1 - cos beta) == Rr^2``; between those two points the boundary
     follows the pin outward, and between pins it follows the bore.
+
+    With ``integral`` the pins are the housing rather than parts fitted into it,
+    and the boundary takes the *other* arc between the same two points - the one
+    bulging inward, which is the half of the pin that stood proud of the pocket.
+    Same circle, same intersections, the complementary side of each: a pocket
+    and the pin that fills it are one shape described from either side.
     """
     pitch = 2.0 * np.pi / count
     cos_beta = 1.0 - Rr * Rr / (2.0 * R * R)
@@ -188,7 +195,13 @@ def pocketed_bore(R: float, Rr: float, count: int, *,
     pieces: list[np.ndarray] = []
     for k in range(count):
         a = pitch * k
-        local = np.linspace(-theta, theta, pocket_segments)
+        # Both arcs start at the intersection ``a - beta`` and end at
+        # ``a + beta``, which is what keeps the loop continuous and wound the
+        # same way; they differ in which side of the pin they go round.  Local
+        # 0 is radially outward, so sweeping up through it takes the outward
+        # half and sweeping down through -pi takes the inward one.
+        local = (np.linspace(-theta, theta - 2.0 * math.pi, pocket_segments)
+                 if integral else np.linspace(-theta, theta, pocket_segments))
         pocket = np.column_stack([Rr * np.cos(local), Rr * np.sin(local)])
         c, s = math.cos(a), math.sin(a)
         pieces.append(pocket @ np.array([[c, s], [-s, c]]) + [R * c, R * s])
@@ -499,7 +512,8 @@ def build_mesh(spec: GearSpec,
         # bore broached in one setup looks like and is why this is one prism.
         b.prism(_circle(0.0, 0.0, spec.housing_outer_radius, 96),
                 (pocketed_bore(spec.pin_circle_radius, spec.pin_radius,
-                               spec.pin_count),
+                               spec.pin_count,
+                               integral=spec.ring_pins_integral),
                  *tie_bolt_holes(spec)),
                 spec.barrel_bottom, stack)
 
@@ -511,12 +525,18 @@ def build_mesh(spec: GearSpec,
     # The pockets run the barrel's whole length, so the pins do too: they are
     # held up by the input end plate and stopped by the output one, and a pin
     # cut to the disc stack has seven millimetres of empty groove to fall into.
-    with b.part("ring_pins", "Ring pins", "ring_pins", PART_COLOURS["ring_pins"]):
-        for k in range(spec.pin_count):
-            a = 2.0 * np.pi * k / spec.pin_count
-            b.cylinder(spec.pin_circle_radius * math.cos(a),
-                       spec.pin_circle_radius * math.sin(a),
-                       pin_r, spec.barrel_bottom, stack, pin_segments)
+    #
+    # Nothing to draw when they are integral: the bore above already has them,
+    # and a part with no facets in it would still reach the bill of materials
+    # and the visibility row as a thing you could order and switch off.
+    if not spec.ring_pins_integral:
+        with b.part("ring_pins", "Ring pins", "ring_pins",
+                    PART_COLOURS["ring_pins"]):
+            for k in range(spec.pin_count):
+                a = 2.0 * np.pi * k / spec.pin_count
+                b.cylinder(spec.pin_circle_radius * math.cos(a),
+                           spec.pin_circle_radius * math.sin(a),
+                           pin_r, spec.barrel_bottom, stack, pin_segments)
 
     outline = prof.profile_from_spec(spec, n=_profile_segments(spec)).points
     bore_r = (spec.center_bore_diameter + spec.hole_clearance) / 2.0
@@ -702,6 +722,8 @@ def mesh_fingerprint(spec: GearSpec,
         spec.output_bearing_seat_diameter, spec.output_boss_protrusion,
         spec.shaft_overhang, spec.housing_bolt_count, spec.housing_bolt_diameter,
         spec.housing_bolt_radius, spec.motor_frame,
+        # Decides both the bore's shape and whether there is a pins part at all.
+        spec.ring_pins_integral,
         tuple(placements),
     )
 

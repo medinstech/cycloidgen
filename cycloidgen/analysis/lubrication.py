@@ -351,7 +351,7 @@ def analyse_lubrication(spec: GearSpec, ring_load_N: float, output_load_N: float
     # thicker at the other; a single number for a contact that sweeps the whole
     # flank has to sit between them.
     ring = _contact(
-        "Ring pin / disc flank", spec, slides=not spec.ring_pins_are_rollers,
+        "Ring pin / disc flank", spec, slides=not spec.ring_pins_roll,
         mat_a=spec.pin_mat, mat_b=spec.disc_mat,
         reduced_radius_mm=spec.pin_radius, load_N=ring_load_N, length_mm=length,
         sliding_m_s=ring_sliding_m_s, entrainment_m_s=ring_sliding_m_s / 2.0,

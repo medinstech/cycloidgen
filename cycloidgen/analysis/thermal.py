@@ -182,7 +182,7 @@ def analyse_thermal(spec: GearSpec, efficiency: EfficiencyResult | None = None,
             j = int(np.argmax(p * v))
             peak_p, peak_v = float(p[j]), float(v[j])
 
-    if spec.ring_pins_are_rollers:
+    if spec.ring_pins_roll:
         peak_pv *= _ROLLING_PV_FACTOR
 
     # ---- output pin contact -------------------------------------------------

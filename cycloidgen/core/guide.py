@@ -315,6 +315,19 @@ PARAMETERS: dict[str, ParameterGuide] = {
         "then everything does.",
         "Finishing time and cost, and on a printed part it is not buyable at "
         "all - no grade sold builds a film that clears a layered flank."),
+    "ring_pins_integral": ParameterGuide(
+        "Whether the ring pins are formed with the housing instead of fitted "
+        "into it as separate dowels.",
+        "On, if the ring is printed: the pins come out with it, there is "
+        "nothing to buy, nothing to press in and no pin position to hold - the "
+        "tolerance that decides load sharing becomes the printer's rather than "
+        "an assembly's. Off for a machined drive, where a hardened dowel in a "
+        "pocket is both a better surface than the housing and replaceable.",
+        "The contact is sliding and stays sliding - an integral pin cannot "
+        "roll - so it gives up the largest saving in the machine. The pin is "
+        "also the housing's material, which on a printed drive is the softest "
+        "thing in the load path, and it cannot be changed without changing the "
+        "housing with it."),
     "ring_pins_are_rollers": ParameterGuide(
         "Whether the ring pins turn in their pockets - needle rollers - instead "
         "of being fixed dowels.",

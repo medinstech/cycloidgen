@@ -453,6 +453,11 @@ class GearSpec(BaseModel):
         description="RMS roughness Rq of the sliding faces; defaults to a typical "
                     "figure for the process, because every process has one",
     )
+    ring_pins_integral: bool = Field(
+        False,
+        description="ring pins formed with the housing instead of fitted as "
+                    "separate dowels - the printed-drive case",
+    )
     ring_pins_are_rollers: bool = Field(
         False, description="ring pins free to rotate (needle rollers) instead of fixed dowels"
     )
@@ -880,6 +885,21 @@ class GearSpec(BaseModel):
         return 2.0 * math.pi * r * self.envelope_length + 2.0 * math.pi * r * r
 
     # ---------------------------------------------------------------- helpers --
+    @property
+    def ring_pins_roll(self) -> bool:
+        """Whether the ring contact actually rolls.
+
+        Not the same as ``ring_pins_are_rollers``, which is what was *asked
+        for*: a pin formed with the housing is not free to turn in it, however
+        the two flags were set.  Derived rather than enforced by a validator,
+        because a validator would have to fire on every route a spec arrives
+        by - construction, assignment, ``model_copy``, a design file, a sweep -
+        and ``model_copy`` does not run them at all.  A design that names both
+        keeps the roller preference for when the pins stop being integral, and
+        every consumer reads this instead.
+        """
+        return self.ring_pins_are_rollers and not self.ring_pins_integral
+
     @model_validator(mode="after")
     def _check_materials(self) -> GearSpec:
         for field in ("disc_material", "pin_material", "housing_material",

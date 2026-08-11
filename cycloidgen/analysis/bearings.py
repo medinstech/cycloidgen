@@ -349,7 +349,7 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
 
     # 3. ring pin rollers - the other switch that was changing the physics
     # without ever being given a part.
-    if spec.ring_pins_are_rollers:
+    if spec.ring_pins_roll:
         # The roller's OD *is* the working pin: the profile is cut to the radius
         # the disc actually touches, so the sleeve has to live inside it and the
         # pin proper shrinks to whatever is left of the bore.
@@ -538,7 +538,7 @@ def pin_diameters(spec: GearSpec) -> tuple[float, float]:
     pin the answer is the nominal size by definition.
     """
     nominal = (2.0 * spec.pin_radius, spec.output_pin_diameter)
-    if not (spec.ring_pins_are_rollers or spec.output_pins_are_rollers):
+    if not (spec.ring_pins_roll or spec.output_pins_are_rollers):
         return nominal
     placements = placements_for_spec(spec)
     return (pin_shank_diameter(placements, "bearing_ring_pins", nominal[0]),
