@@ -77,6 +77,14 @@ design somebody already built.
 
 **Fixed**
 
+- **The screenshot tool drove the operator's real preferences.** It forced the
+  light theme, cleared the section plane and unhid the 3D groups, then put them
+  back at the end — and anything that raised in between skipped the putting
+  back, which is how a window starts opening in the wrong theme with no sign of
+  why. It runs against a throwaway settings file now, which is what
+  `settings.ENV_VAR` exists for and is a better answer besides: these images are
+  meant to show a fresh install, and now they are taken on one.
+
 - **The output stage was swept over a lobe pitch in four more places** —
   `analyse_contacts`, `analyse_efficiency`, the thermal solve, and the disc-web
   and output-pin fatigue checks. `output_stage_period` had been in the codebase
@@ -116,6 +124,40 @@ design somebody already built.
   `output_rpm` has no sign to carry it. The README says which member is
   grounded, why that fixes the ratio and the direction, and that the disc rolls
   on the inside of the pin circle.
+
+- **The explanation panel answers two questions and sat beside one of them.**
+  It explains the selected check *and* the parameter you clicked, and it lived
+  in the bottom-right corner — so clicking a parameter in the left-hand panel
+  put the reply as far from the question as the layout allowed. It is under the
+  parameters now, and the checks list has the full width it had been competing
+  for. That also retires the machinery that used to hide the panel on a narrow
+  window and hold a floor under the detail column: nothing competes for that
+  width any more.
+
+- **The 3D tab's controls are grouped by what they do.** Explode was alone at
+  the top beside the view buttons while section was squeezed onto the end of the
+  visibility checkboxes at 150 px, on a row that had already run out of width
+  and wrapped. They are the same kind of control — drag to open the assembly up
+  — and they share the top row now, at the same size. The second row is
+  visibility and nothing else. No extra height.
+
+- **The wrapping toolbar lined its widgets up by their boxes, not their
+  contents.** Everything was placed at the top of its row, so the bearings menu
+  — a few pixels taller than the checkboxes beside it — painted its own glyph
+  low and read as dropped punctuation. Rows are measured before they are filled
+  now, and each widget is centred in its own.
+
+- **The at-a-glance strip read as one run of words.** Eight captions, each wider
+  than the number beneath it, right-aligned in pairs: every value hung off the
+  end of its own caption with a gap to its left, which put it nearer the column
+  next door. Each pair is centred now and the columns are separated by a
+  hairline.
+
+- **The status bar and the LOG tab look like one feature.** They are not
+  duplicates — the bar is the last line and forgets it after five seconds, the
+  tab is the record — but nothing said so, and two places showing similar text
+  read as one of them being redundant. The bar carries a permanent link to the
+  log, badge and all.
 
 - **The drawing's title was cut in half by the top of its own panel.**
   `tight_layout` solves for the size it runs at and writes the answer down as

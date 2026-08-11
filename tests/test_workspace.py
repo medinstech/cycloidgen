@@ -16,7 +16,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
 
@@ -999,45 +999,43 @@ def test_a_finding_is_readable_without_being_clicked(app):
         w.close()
 
 
-def _narrow_until(app, w, hidden) -> int:
-    """Shrink the window until ``hidden()`` goes true, and say where it did.
+def test_the_explanation_panel_is_beside_the_parameters(app):
+    """It answers two questions and used to sit beside only one of them.
 
-    Written as a search rather than as two magic widths, because the width at
-    which either of these gives up is a *font* measurement - and the offscreen
-    platform this file runs on has no fonts, so its idea of how wide the strip
-    and the columns are is nothing like a real desktop's.  What is being tested
-    is the order things yield in, which is the same on both.
+    Clicking a parameter put its explanation in the opposite corner of the
+    window - the reply as far from the question as the layout allowed.  Under
+    the parameter panel it shares that panel's column, and the checks list gets
+    the width it was competing for.
     """
-    width = 1900
-    w.resize(width, 850)
-    _pump(app, 0.4)
-    while width > w.minimumWidth() + 40 and not hidden():
-        width -= 100
-        w.resize(width, 850)
-        _pump(app, 0.25)
-    return width
+    w = _window(app, width=1900)
+    try:
+        assert w._explain_split.orientation() == Qt.Vertical
+        assert w._explain_split.indexOf(w._param_scroll) == 0
+        assert w._explain_split.indexOf(w._explain) == 1
+        # the same column as the parameters, not the one the checks are in
+        assert (w._explain.mapToGlobal(w._explain.rect().topLeft()).x()
+                < w.findings.mapToGlobal(w.findings.rect().topLeft()).x())
+    finally:
+        w.close()
 
 
-def test_the_explanation_panel_yields_to_the_list_on_a_narrow_window(app):
-    """They are not equals: the list answers "is anything wrong with this",
-    and the panel is a detail view of one row of it.  The layout's own answer
-    to running out of width is to squeeze the detail column to nothing, which
-    is the one arrangement where neither of them is any use."""
-    from cycloidgen.ui.main_window import _DETAIL_COL, _MIN_DETAIL_PX
+def test_the_checks_list_keeps_its_width_on_a_narrow_window(app):
+    """Nothing competes with the list for width any more, so narrowing the
+    window must not push the detail column off the side behind a scrollbar."""
+    from cycloidgen.ui.main_window import _DETAIL_COL
 
     w = _window(app, width=1900)
     try:
-        assert w._explain.isVisible()
-        _narrow_until(app, w, lambda: not w._explain.isVisible())
-        assert not w._explain.isVisible(), \
-            "the panel never yields, however narrow the window gets"
-        # and the list keeps a readable detail rather than pushing it off the
-        # side behind a horizontal scrollbar
-        assert w.findings.columnWidth(_DETAIL_COL) >= _MIN_DETAIL_PX
-
-        w.resize(1900, 950)
-        _pump(app, 0.6)
-        assert w._explain.isVisible()
+        wide = w.findings.columnWidth(_DETAIL_COL)
+        w.resize(1200, 850)
+        _pump(app, 0.5)
+        narrow = w.findings.columnWidth(_DETAIL_COL)
+        assert narrow > 0
+        # the list is the full width of its pane at both sizes: the detail
+        # column shrinks with the window rather than being crowded out of it
+        assert narrow <= wide
+        assert w._explain.isVisible(), \
+            "the panel is in the other column now and has no reason to yield"
     finally:
         w.close()
 

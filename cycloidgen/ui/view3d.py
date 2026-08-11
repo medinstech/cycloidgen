@@ -100,23 +100,44 @@ class FlowLayout(QLayout):
                             margins.top() + margins.bottom())
 
     def _lay_out(self, rect, *, apply: bool) -> int:
-        """Place the items left to right, wrapping; return the height used."""
+        """Place the items left to right, wrapping; return the height used.
+
+        Two passes, because the items are centred in their row and a row's
+        height is not known until it has ended.  Placing everything at the
+        row's top - which is what one pass can do - lines the widgets up by
+        their boxes rather than by what is drawn in them, and a control a few
+        pixels taller than the checkboxes beside it then paints its own
+        contents low: the bearings menu hung below the row like dropped
+        punctuation, which is exactly what it was mistaken for.
+        """
         margins = self.contentsMargins()
         area = rect.adjusted(margins.left(), margins.top(),
                              -margins.right(), -margins.bottom())
-        x, y, line_height = area.x(), area.y(), 0
         space = self.spacing()
+
+        rows: list[tuple[int, list]] = []
+        x, line, line_height = area.x(), [], 0
         for item in self._items:
             hint = item.sizeHint()
-            if line_height and x + hint.width() > area.right():
-                x = area.x()
-                y += line_height + space
-                line_height = 0
-            if apply:
-                item.setGeometry(QRect(QPoint(x, y), hint))
+            if line and x + hint.width() > area.right():
+                rows.append((line_height, line))
+                x, line, line_height = area.x(), [], 0
+            line.append((item, x, hint))
             x += hint.width() + space
             line_height = max(line_height, hint.height())
-        return y + line_height - rect.y() + margins.bottom()
+        if line:
+            rows.append((line_height, line))
+        if not rows:
+            return margins.top() + margins.bottom()
+
+        y = area.y()
+        for height, items in rows:
+            if apply:
+                for item, item_x, hint in items:
+                    top = y + (height - hint.height()) // 2
+                    item.setGeometry(QRect(QPoint(item_x, top), hint))
+            y += height + space
+        return y - space - rect.y() + margins.bottom()
 
 
 #: Standard viewpoints, as (azimuth, elevation) in degrees.
@@ -429,6 +450,11 @@ class Assembly3DTab(QWidget):
         fit.clicked.connect(self.view.fit)
         view_row.addWidget(fit)
 
+        # The two sliders travel together.  They are one kind of control - drag
+        # to open the assembly up - and they were split across the two rows,
+        # explode alone at the top and section squeezed onto the end of the
+        # checkboxes at 150 px, where the row had already run out of width and
+        # wrapped.  Same row, same stretch, so they read as the pair they are.
         view_row.addSpacing(12)
         view_row.addWidget(QLabel("EXPLODE"))
         self._explode = QSlider(Qt.Horizontal)
@@ -439,6 +465,20 @@ class Assembly3DTab(QWidget):
             lambda v: self.view.set_explode(v / 100.0))
         view_row.addWidget(self._explode, 1)
 
+        self._section = QSlider(Qt.Horizontal)
+        self._section.setRange(0, 100)
+        self._section.setToolTip("Cut the assembly on a plane through the axis, "
+                                 "to see the mesh instead of the outside of it.")
+        # Only the hardware view can cut: a clipping plane is a per-fragment
+        # test, and the software painter works on whole faces.
+        if hasattr(self.view, "set_section"):
+            view_row.addSpacing(12)
+            view_row.addWidget(QLabel("SECTION"))
+            self._section.valueChanged.connect(
+                lambda v: self.view.set_section(v / 100.0))
+            view_row.addWidget(self._section, 1)
+
+        view_row.addSpacing(12)
         self._edges = QCheckBox("Edges")
         self._edges.setToolTip("Outline every facet. Useful for reading the "
                                "shape, noisy on a fine profile.")
@@ -446,15 +486,10 @@ class Assembly3DTab(QWidget):
         view_row.addWidget(self._edges)
         layout.addLayout(view_row)
 
+        # Visibility, and nothing else.  What this row is for is now answerable
+        # from the row itself.
         show_row = FlowLayout()
         show_row.addWidget(QLabel("SHOW"))
-        # Only the hardware view can cut: a clipping plane is a per-fragment
-        # test, and the software painter works on whole faces.
-        self._section = QSlider(Qt.Horizontal)
-        self._section.setRange(0, 100)
-        self._section.setMaximumWidth(150)
-        self._section.setToolTip("Cut the assembly on a plane through the axis, "
-                                 "to see the mesh instead of the outside of it.")
         # The bearings are the one group where all-or-nothing is not enough.  The
         # cam bearing is down a bore and the shaft supports are out in the open,
         # so seeing one of them usually means putting the others away - and which
@@ -483,11 +518,6 @@ class Assembly3DTab(QWidget):
             if group == "bearings":
                 show_row.addWidget(self._bearing_menu)
 
-        if hasattr(self.view, "set_section"):
-            show_row.addWidget(QLabel("SECTION"))
-            self._section.valueChanged.connect(
-                lambda v: self.view.set_section(v / 100.0))
-            show_row.addWidget(self._section)
         layout.addLayout(show_row)
 
         layout.addWidget(self.view, 1)

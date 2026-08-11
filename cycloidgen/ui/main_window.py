@@ -12,7 +12,7 @@ matplotlib.use("QtAgg")
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as Canvas
 from matplotlib.figure import Figure
-from PySide6.QtCore import QEvent, Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtCore import Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QColor, QDesktopServices, QKeySequence, QPalette
 from PySide6.QtWidgets import (
     QApplication,
@@ -98,11 +98,6 @@ _MIN_CHECKS_PX = 130
 
 #: The checks list's columns.  DETAIL is the one that carries a sentence.
 _DETAIL_COL = 4
-
-#: Narrower than this and the detail column cannot wrap a sentence into
-#: anything readable - about five words to a line - so something else has to
-#: give up its width instead.
-_MIN_DETAIL_PX = 260
 
 #: The compare tab before there is anything to compare against.  Declared once
 #: because it is set in two places - when the tab is built and whenever the
@@ -372,6 +367,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(shell)
 
         self.setStatusBar(QStatusBar())
+        self._build_status_link()
         self._build_menu()
         self._restore_workspace()
 
@@ -433,8 +429,12 @@ class MainWindow(QMainWindow):
                              self._splitter.width())
         self._apply_fraction(self._view_split, "checks_fraction",
                              self._view_split.height())
-        self._apply_fraction(self._explain_split, "explain_fraction",
-                             self._explain_split.width())
+        # A different key from the horizontal split this replaced: the stored
+        # number used to be a share of *width* with the checks list first, and
+        # restoring one of those into a vertical splitter would hand the whole
+        # left panel to whichever pane the old fraction happened to favour.
+        self._apply_fraction(self._explain_split, "explain_height_fraction",
+                             self._explain_split.height())
 
     def _apply_fraction(self, splitter: QSplitter, key: str, total: int) -> None:
         """Give the first pane ``key`` of ``total``, if that is a sane thing to do."""
@@ -451,7 +451,7 @@ class MainWindow(QMainWindow):
         self._settings.setValue("geometry", self.saveGeometry())
         for splitter, key in ((self._splitter, "splitter_fraction"),
                               (self._view_split, "checks_fraction"),
-                              (self._explain_split, "explain_fraction")):
+                              (self._explain_split, "explain_height_fraction")):
             sizes = splitter.sizes()
             if sum(sizes) > 0:
                 self._settings.setValue(key, sizes[0] / sum(sizes))
@@ -518,81 +518,38 @@ class MainWindow(QMainWindow):
         strip = QWidget()
         row = QHBoxLayout(strip)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(18)
+        # Tighter than the 18 px it was, because each column now has a rule of
+        # its own to separate it and does not have to be held apart by air.
+        row.setSpacing(0)
 
         self._stats: dict[str, QLabel] = {}
-        for key, caption, tip in _HEADER_STATS:
+        for index, (key, caption, tip) in enumerate(_HEADER_STATS):
+            if index:
+                rule = QFrame()
+                rule.setObjectName("StatRule")
+                rule.setFixedWidth(1)
+                row.addWidget(rule)
+
             cell = QWidget()
             column = QVBoxLayout(cell)
-            column.setContentsMargins(0, 0, 0, 0)
+            column.setContentsMargins(11, 0, 11, 0)
             column.setSpacing(1)
             label = QLabel(caption)
             label.setObjectName("StatCaption")
             value = QLabel("-")
             value.setObjectName("StatValue")
+            # Centred, not right-aligned.  Every caption here is wider than the
+            # number under it - TEMPERATURE over "37 C" - so right-aligning both
+            # hangs the value off the end of its own caption with a hand's width
+            # of gap to its left, and it reads as belonging to the column next
+            # door.  Centred, the pair is one object.
             for widget in (label, value):
-                widget.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                widget.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
                 column.addWidget(widget)
             cell.setToolTip(tip)
             row.addWidget(cell)
             self._stats[key] = value
         return strip
-
-    def eventFilter(self, watched, event):
-        """Watch the checks splitter's own width rather than the window's.
-
-        Two reasons it cannot be done in ``resizeEvent``.  The window's resize
-        arrives *before* the layout has handed the new width down, so the pane
-        would be measured against the size it is about to stop being; and
-        dragging the splitter changes that width without resizing the window at
-        all, which ``resizeEvent`` never hears about.
-        """
-        if watched is self._explain_split and event.type() == QEvent.Resize:
-            self._fit_checks()
-        return super().eventFilter(watched, event)
-
-    def _fit_checks(self) -> None:
-        """On a narrow window the explanation panel yields to the list.
-
-        They are not equals.  The list answers "is anything wrong with this
-        design", which is the question the application exists for; the panel is
-        a detail view of one row of it, and everything in it is one drag of the
-        splitter or one wider window away.  Below about a thousand pixels there
-        is not room for both, and what the layout does with that on its own is
-        squeeze the detail column to nothing - leaving a list of codes with a
-        horizontal scrollbar, which is the one arrangement where neither of
-        them is any use.
-        """
-        if not hasattr(self, "_explain"):
-            return
-        fixed = sum(self.findings.columnWidth(col) for col in range(_DETAIL_COL))
-
-        floor = fixed + _MIN_DETAIL_PX
-        total = self._explain_split.width()
-        show = total >= floor + self._explain.minimumWidth()
-        if show != self._explain.isVisible():
-            self._explain.setVisible(show)
-            # Showing a collapsed pane makes the splitter redistribute, and it
-            # does that *after* this returns - so any width set below would be
-            # handed straight back. Come round again once it has settled.
-            QTimer.singleShot(0, self._fit_checks)
-            return
-
-        # A floor on the list, enforced by moving the divider rather than by a
-        # minimum width on the widget.  The distinction matters: a minimum
-        # propagates all the way up and would raise the whole window's smallest
-        # usable size by about two hundred pixels, which trades a narrow column
-        # for an application that no longer fits a 1366 px laptop.
-        #
-        # Without any floor the splitter honours its stored fraction, and the
-        # detail column came out *narrower* on a 1600 px window than on a
-        # 1200 px one - because the panel that appears at the wider size takes
-        # its width from the list rather than from the space that appeared
-        # alongside it.
-        if show:
-            sizes = self._explain_split.sizes()
-            if sizes and sizes[0] < floor <= total - self._explain.minimumWidth():
-                self._explain_split.setSizes([floor, total - floor])
 
     def _build_parameter_panel(self) -> QWidget:
         inner = QWidget()
@@ -673,7 +630,30 @@ class MainWindow(QMainWindow):
         scroll.setWidgetResizable(True)
         scroll.setMinimumWidth(380)
         self._param_scroll = scroll
-        return scroll
+
+        # Selecting a finding highlights the parameters it is about.  That says
+        # *where* to look and nothing about why, which is the half of the answer
+        # the checks were always missing - the relation being tested, the
+        # physics behind it and which way to move the knob lived in the comments
+        # beside each check, where the person who needs them cannot reach them.
+        #
+        # It answers two questions, though, and it used to sit beside only one
+        # of them.  Clicking a parameter in this panel put its explanation in
+        # the far opposite corner of the window - the reply arrived as far from
+        # the question as the layout allowed.  Under the parameters it is beside
+        # the control you just touched, and still one glance from the checks
+        # list, which now has the full width it wanted anyway.
+        self._explain = QTextBrowser()
+        self._explain.setOpenExternalLinks(False)
+        self._explain.setMinimumHeight(120)
+
+        self._explain_split = QSplitter(Qt.Vertical)
+        self._explain_split.addWidget(scroll)
+        self._explain_split.addWidget(self._explain)
+        self._explain_split.setStretchFactor(0, 1)
+        self._explain_split.setCollapsible(0, False)
+        self._explain_split.setSizes([620, 280])
+        return self._explain_split
 
     def _align_label_column(self) -> None:
         """Give every group the same label column width.
@@ -846,22 +826,10 @@ class MainWindow(QMainWindow):
         self.findings.setUniformRowHeights(False)
         self.findings.setItemDelegate(WrappingColumn(self.findings, _DETAIL_COL))
 
-        # Selecting a finding highlights the parameters it is about.  That says
-        # *where* to look and nothing about why, which is the half of the answer
-        # the checks were always missing - the relation being tested, the
-        # physics behind it and which way to move the knob lived in the comments
-        # beside each check, where the person who needs them cannot reach them.
-        self._explain = QTextBrowser()
-        self._explain.setOpenExternalLinks(False)
-        self._explain.setMinimumWidth(240)
-        self._explain_split = QSplitter(Qt.Horizontal)
-        self._explain_split.addWidget(self.findings)
-        self._explain_split.addWidget(self._explain)
-        self._explain_split.installEventFilter(self)
-        self._explain_split.setStretchFactor(0, 1)
-        self._explain_split.setCollapsible(0, False)
-        self._explain_split.setSizes([760, 340])
-        checks_layout.addWidget(self._explain_split, 1)
+        # The list gets the whole width.  The explanation panel used to sit
+        # beside it and is under the parameters now - see
+        # :meth:`_build_parameter_panel` for why.
+        checks_layout.addWidget(self.findings, 1)
 
         # The crank lives under the tab strip rather than inside the drawing,
         # because it drives the 3D view as well: one control, two simulations,
@@ -1297,6 +1265,9 @@ class MainWindow(QMainWindow):
         self._logo.setPixmap(branding.logo_pixmap("wordmark", self.mode, height=34))
         self._header_rule.setStyleSheet(
             f"background: {branding.palette(self.mode).line};")
+        # Its accent is baked into the markup rather than taken from a
+        # stylesheet, so it is the one piece of chrome a restyle cannot reach.
+        self._refresh_status_link()
         for severity, box in self._severity_filters.items():
             box.setStyleSheet(f"QCheckBox {{ color: {self._severity[severity].name()}; }}")
         self._plot_bar.apply_theme(self.mode)
@@ -1376,6 +1347,30 @@ class MainWindow(QMainWindow):
         return self._unit.text(mm, decimals)
 
     # ------------------------------------------------------------------- log
+    def _build_status_link(self) -> None:
+        """Say, in the status bar, where the status bar's messages go.
+
+        The bar and the LOG tab are not two copies of one thing - the bar is the
+        last line and forgets it after five seconds, the tab is the record - but
+        that is not visible from either of them, and two places showing similar
+        text reads as one of them being redundant.  A permanent link on the
+        right of the bar makes them one feature with two ends: this is the
+        latest, the whole of it is through here.
+        """
+        self._log_link = QLabel()
+        self._log_link.setToolTip("Every message this bar has shown, kept.")
+        self._log_link.linkActivated.connect(
+            lambda _href: self.tabs.setCurrentIndex(self._log_tab))
+        self._refresh_status_link()
+        self.statusBar().addPermanentWidget(self._log_link)
+
+    def _refresh_status_link(self) -> None:
+        accent = branding.palette(self.mode).accent
+        badge = " " + "!" * self._log_badge if self._log_badge else ""
+        self._log_link.setText(
+            f"<a href='#' style='color:{accent};text-decoration:none'>"
+            f"history in LOG{badge}</a>")
+
     def _say(self, message: str, *, level: int = logging.INFO,
              seconds: int = 5) -> None:
         """Put a message on the status bar *and* keep it in the log.
@@ -1397,11 +1392,13 @@ class MainWindow(QMainWindow):
             return
         self._log_badge = max(self._log_badge, 2 if level != "WARNING" else 1)
         self.tabs.setTabText(self._log_tab, "LOG " + "!" * self._log_badge)
+        self._refresh_status_link()
 
     def _tab_changed(self, index: int) -> None:
         if index == self._log_tab:
             self._log_badge = 0
             self.tabs.setTabText(self._log_tab, "LOG")
+            self._refresh_status_link()
         # The crank means nothing on a table of numbers, and a control that does
         # nothing where it is shown teaches people to ignore it.
         self._crank_bar.setVisible(index in (self._drawing_tab, self._solid_tab))
@@ -1716,7 +1713,6 @@ class MainWindow(QMainWindow):
         # own columns and push that all the way out to the window.
         for col in (0, 1):
             self.findings.resizeColumnToContents(col)
-        self._fit_checks()
 
         for severity, label in ((Severity.ERROR, "Errors"),
                                 (Severity.WARNING, "Warnings"),

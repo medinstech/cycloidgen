@@ -36,6 +36,21 @@ DOCS = ROOT / "docs"
 # up at import time, and the whole point here is *not* to be offscreen.
 os.environ.pop("QT_QPA_PLATFORM", None)
 
+# ...and a settings file of its own, which is the thing `settings.ENV_VAR` was
+# added for.  This tool used to drive the operator's real preferences - forcing
+# the light theme, clearing the section plane, unhiding the 3D groups - and put
+# them back at the end.  Anything that raises in between skips the putting back,
+# and the operator's window opens in the wrong theme from then on with no sign
+# of why.  That happened.
+#
+# An empty file is also a better answer than a restored one: these images are
+# meant to show a fresh install, and now they are taken on one, so the tool no
+# longer has to know which preferences it is standing on.
+_PREFS = ROOT / "build" / "screenshot-prefs.ini"
+_PREFS.parent.mkdir(parents=True, exist_ok=True)
+_PREFS.unlink(missing_ok=True)
+os.environ["CYCLOIDGEN_SETTINGS"] = str(_PREFS)
+
 from PIL import Image  # noqa: E402
 from PySide6.QtCore import QEventLoop, QPoint, QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
@@ -228,29 +243,22 @@ def main() -> int:
     window.raise_()
     window.activateWindow()
 
-    # The committed screenshots are light-theme ones, and the window opens on
-    # whatever the operator's desktop is set to.  Without this the images depend
-    # on who ran the tool - and `verify_hue` below, which is written against the
-    # light palette, rejects a dark capture as a channel swap.  Put the stored
-    # preference back afterwards: this is a screenshot run, not a settings change.
-    appearance = window.appearance
+    # The committed screenshots are light-theme ones, and a fresh install
+    # follows the desktop - which on a dark desktop would make the images depend
+    # on who ran the tool, and would have `verify_hue` below, written against the
+    # light palette, reject the capture as a channel swap.  Nothing to put back:
+    # the preferences this writes to are the throwaway file set at import.
     window._set_appearance("light")
-
-    # ...and the same for the 3D tab's part visibility, which is restored from
-    # whatever the operator last left it on.  These images are of a fresh
-    # install, so they show what a fresh install shows.
-    from cycloidgen.ui.view3d import _HIDDEN_BY_DEFAULT
-    for group, box in window._view3d._groups.items():
-        box.setChecked(group not in _HIDDEN_BY_DEFAULT)
     settle(app, 600)
 
     window._replace_spec(hero(), record=False)
     wait_for_analysis(app, window)
 
-    # ...and the section plane and the crank, both restored the same way. The
-    # section is the one setting that changes what the gearbox *is* rather than
-    # how it is lit: left where an operator had been sectioning, the 3D figure is
-    # half a gearbox. After the design lands, so that neither is undone by it.
+    # The section plane and the crank are set rather than left at their
+    # defaults: the crank because these images have to be comparable run to run,
+    # and the section because zero is what "not sectioned" means and the figure
+    # is half a gearbox otherwise.  After the design lands, so that neither is
+    # undone by it.
     window._view3d._section.setValue(0)
     window._crank_slider.setValue(CRANK_DEG)
     settle(app, 600)
@@ -307,7 +315,6 @@ def main() -> int:
     settle(app, 1200)
     capture(window, DOCS / "exploded.png", widget=viewport)
 
-    window._set_appearance(appearance)
     window.close()
     return 0
 

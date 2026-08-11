@@ -355,6 +355,12 @@ def stylesheet(mode: str = "light") -> str:
     }}
     #StatValue {{ color: {p.ink}; font-size: 13px; font-weight: 600; }}
     #StatValue[state="warning"] {{ color: {p.warning}; }}
+    /* One hairline between columns.  Eight captions in a row, each wider than
+       the number under it, read as one run of words - the eye has nothing to
+       tell it where LOST MOTION stops and TEMPERATURE starts.  Styled here
+       rather than set on the widget so it follows the theme with everything
+       else. */
+    #StatRule {{ background: {p.line}; }}
     #BrandFlag {{ color: {p.error}; font-size: 11px; font-weight: 700; }}
 
     /* Grouping: a card with its heading in the margin above it, rather than a
