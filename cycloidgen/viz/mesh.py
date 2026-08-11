@@ -322,8 +322,27 @@ class _Builder:
                                  for lp in loops))
         self._facet_part.append(self._current)
 
-    def prism(self, outer: np.ndarray, holes, z0: float, z1: float) -> None:
-        """Extrude a polygon with holes between two planes."""
+    def ring(self, outer: np.ndarray, inner: np.ndarray, z: float, *,
+             up: bool) -> None:
+        """One annular face in the plane ``z``, normal +Z when ``up``.
+
+        For the exposed part of a face where two stacked prisms meet: the rest
+        of it is inside the solid and must not be emitted, or four faces end up
+        sharing the ring where they touch.
+        """
+        o = self._points(_ccw(np.asarray(outer, float)), z)
+        i = self._points(_ccw(np.asarray(inner, float)), z)
+        self.facet(o, i[::-1]) if up else self.facet(o[::-1], i)
+
+    def prism(self, outer: np.ndarray, holes, z0: float, z1: float, *,
+              cap_bottom: bool = True, cap_top: bool = True) -> None:
+        """Extrude a polygon with holes between two planes.
+
+        A cap can be left off where this prism is stacked on another and the
+        face between them is interior to the union.  Leaving one on is not a
+        cosmetic error - it is a wall inside the solid, and a solid with a wall
+        inside it is not closed, which is what the section has to cap.
+        """
         loops = [_ccw(np.asarray(outer, float))]
         loops += [_ccw(np.asarray(h, float)) for h in holes]
         bottom = [self._points(lp, z0) for lp in loops]
@@ -332,8 +351,10 @@ class _Builder:
         # End caps.  Reversing the outer loop on the bottom face turns its
         # normal to -Z; the holes are then wound the other way from whichever
         # boundary they sit inside.
-        self.facet(bottom[0][::-1], *bottom[1:])
-        self.facet(top[0], *[h[::-1] for h in top[1:]])
+        if cap_bottom:
+            self.facet(bottom[0][::-1], *bottom[1:])
+        if cap_top:
+            self.facet(top[0], *[h[::-1] for h in top[1:]])
 
         for i in range(len(loops)):
             b, t = bottom[i], top[i]
@@ -560,13 +581,21 @@ def build_mesh(spec: GearSpec,
     plate_bottom = -drop - spec.output_flange_thickness
     with b.part("output_flange", "Output carrier", "carrier",
                 PART_COLOURS["carrier"], spin=1.0 / spec.lobes):
+        # The plate and the boss below it are one part, and where they meet
+        # only the ring outside the boss is a surface of it.  Emitting both
+        # touching faces put four of them on the bore circle - the plate's
+        # underside, the boss's top, and the two halves of the bore wall - and
+        # a solid with an internal wall cannot be capped by the section.
         b.prism(_circle(0.0, 0.0, plate_r, 72),
-                (_circle(0.0, 0.0, bore_r, 28),), plate_bottom, -drop)
+                (_circle(0.0, 0.0, bore_r, 28),), plate_bottom, -drop,
+                cap_bottom=False)
+        b.ring(_circle(0.0, 0.0, plate_r, 72), _circle(0.0, 0.0, hub_r, 40),
+               plate_bottom, up=False)
         # The boss the drive turns on: the output bearing rides its outside and
-        # a shaft support sits in its bore.
+        # a shaft support sits in its bore.  Its top is inside the plate.
         b.prism(_circle(0.0, 0.0, hub_r, 40), (_circle(0.0, 0.0, bore_r, 28),),
                 plate_bottom - spec.plate_thickness - spec.output_boss_protrusion,
-                plate_bottom)
+                plate_bottom, cap_top=False)
         shank = pin_shank_diameter(placements, "bearing_output_pins",
                                    spec.output_pin_diameter)
         # Up to the top of the stack, not up by the height of it: the pin leaves

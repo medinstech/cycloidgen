@@ -619,3 +619,120 @@ def test_the_vtk_pose_is_the_same_motion_law_as_the_mesh(spec, mesh):
             local[:, 2] + dz,
         ])
         assert np.allclose(placed, world[part.vertices], atol=1e-9), part.name
+
+
+# ------------------------------------------------------- watertight surfaces
+#
+# The module docstring above has claimed since it was written that every part
+# is a closed surface.  Nothing checked it on the VTK side, and none of them
+# were: the faces are emitted one at a time, each with its own copy of every
+# corner, so no face shared an edge with its neighbour and every edge in the
+# assembly was a boundary edge.  `vtkClipClosedSurface` caps a *closed* surface
+# and could not cap any of them, which is what put half a sectioned gearbox on
+# screen as solid material and the other half as empty shells.
+
+WATERTIGHT_CASES = [10, 15, 21, 29, 39, 59]
+
+
+def _edge_counts(polydata) -> tuple[int, int]:
+    """``(holes, non-manifold edges)`` in one part."""
+    from vtkmodules.vtkFiltersCore import vtkFeatureEdges, vtkTriangleFilter
+
+    triangles = vtkTriangleFilter()
+    triangles.SetInputData(polydata)
+    triangles.Update()
+
+    def count(boundary: bool, nonmanifold: bool) -> int:
+        edges = vtkFeatureEdges()
+        edges.SetInputConnection(triangles.GetOutputPort())
+        edges.SetBoundaryEdges(boundary)
+        edges.SetNonManifoldEdges(nonmanifold)
+        edges.FeatureEdgesOff()
+        edges.ManifoldEdgesOff()
+        edges.Update()
+        return edges.GetOutput().GetNumberOfCells()
+
+    return count(True, False), count(False, True)
+
+
+@pytest.mark.parametrize("ratio", WATERTIGHT_CASES)
+def test_every_part_is_watertight_once_built_for_vtk(ratio):
+    """No holes, and no edge with more than two faces on it.
+
+    Not the same statement as
+    :func:`test_every_part_is_a_closed_surface` above, which is why that one
+    passed throughout.  It weighs the mesh's own facet loops, and those cancel:
+    a face is *declared* whether or not the triangulator managed to fill it.
+    This one asks the built surface, and so sees a face that came out with a
+    sliver missing and two prisms that both kept the face they meet on.
+    """
+    from cycloidgen.viz.vtkbridge import closed_polydata
+
+    mesh = build_mesh(preset(ratio))
+    faults = []
+    for part in mesh.parts:
+        holes, nonmanifold = _edge_counts(closed_polydata(mesh, part))
+        if holes or nonmanifold:
+            faults.append(f"{part.name}: {holes} hole edges, "
+                          f"{nonmanifold} non-manifold")
+    assert not faults, "; ".join(faults)
+
+
+@pytest.mark.parametrize("ratio", [15, 21, 29])
+def test_a_face_is_triangulated_to_its_whole_area(ratio):
+    """The check the triangulator does not do for itself.
+
+    ``vtkContourTriangulator`` can stop part way and report nothing about it,
+    and the old code accepted any output with triangles in it.  One disc's top
+    face came back 0.93% short that way, on the phase where its holes happened
+    to defeat it, while the same face on the other disc was exact.
+    """
+    from cycloidgen.viz.vtkbridge import _polygon_area, _triangulated
+
+    mesh = build_mesh(preset(ratio))
+    for index, loops in enumerate(mesh.loops):
+        if len(loops) == 1 and len(loops[0]) <= 4:
+            continue                      # a side-wall quad, handed over whole
+        want = _polygon_area(mesh.vertices[list(loops[0])])
+        for loop in loops[1:]:
+            want -= _polygon_area(mesh.vertices[list(loop)])
+        if want <= 0.0:
+            continue
+
+        out = _triangulated(mesh.vertices, loops)
+        assert out is not None, f"facet {index} produced no triangles"
+        points = np.array([out.GetPoint(i)
+                           for i in range(out.GetNumberOfPoints())])
+        got = 0.0
+        for cell in range(out.GetNumberOfCells()):
+            ids = out.GetCell(cell).GetPointIds()
+            got += _polygon_area(
+                np.array([points[ids.GetId(k)]
+                          for k in range(ids.GetNumberOfIds())]))
+        assert got == pytest.approx(want, rel=1e-6), \
+            f"facet {index} lost {100 * (want - got) / want:.3f}% of its area"
+
+
+def test_the_triangulator_hands_back_the_points_it_was_given():
+    """What the retry stands on.
+
+    A face that defeats the triangulator is tried again with the plane turned,
+    and the rotation is undone by taking the *connectivity* and dropping the
+    rotated coordinates - which only works while the output points are the
+    input points, in order.  Rotating and unrotating instead would move every
+    coordinate by a rounding error, and these points have to merge exactly with
+    the wall vertices that share them.
+    """
+    from cycloidgen.viz.vtkbridge import _triangulate_at
+
+    mesh = build_mesh(preset(21))
+    for loops in mesh.loops:
+        if len(loops) == 1 and len(loops[0]) <= 4:
+            continue
+        source = np.vstack([mesh.vertices[list(lp)] for lp in loops])
+        out = _triangulate_at(source, [len(lp) for lp in loops])
+        assert out is not None
+        points = np.array([out.GetPoint(i)
+                           for i in range(out.GetNumberOfPoints())])
+        assert np.array_equal(points, source)
+        return                            # one face is enough to hold the rule

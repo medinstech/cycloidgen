@@ -18,7 +18,8 @@ stays on the card.
 from __future__ import annotations
 
 import numpy as np
-from vtkmodules.vtkCommonCore import vtkPoints
+from vtkmodules.util.numpy_support import vtk_to_numpy
+from vtkmodules.vtkCommonCore import vtkIdList, vtkPoints
 from vtkmodules.vtkCommonDataModel import vtkCellArray, vtkPolyData
 from vtkmodules.vtkCommonExecutionModel import vtkAlgorithm
 from vtkmodules.vtkFiltersCore import vtkCleanPolyData, vtkPolyDataNormals
@@ -45,25 +46,39 @@ __all__ = ["FEATURE_ANGLE", "closed_polydata", "feature_edges", "local_plane",
 FEATURE_ANGLE = 30.0
 
 
-def _triangulated(points: np.ndarray, loops) -> vtkCellArray | None:
-    """Triangulate one planar face, holes and all.
+#: Angles to try the triangulator at, in degrees, when it loses area at the
+#: one it was given.  The failure is numerical rather than geometric - the same
+#: disc succeeds on one hole phase and fails on the next - so turning the face
+#: in its own plane is enough to clear it, and *which* angle clears it differs
+#: per face.  Nothing here is special; they are spread and not multiples of one
+#: another, so a case that is degenerate at one is unlikely to be at the rest.
+_RETRY_ANGLES = (3.1, 11.3, 37.0, 61.7, 83.3, 127.9)
 
-    VTK has no polygon-with-holes cell - ``vtkPolygon`` is a simple polygon -
-    so a disc end face, which is a lobed outline with a bore and six output
-    holes in it, cannot be handed over as one cell.  ``vtkContourTriangulator``
-    is the tool for exactly this: closed contours in, triangles out, inner
-    loops cut away by the even-odd rule.  Checked against the shoelace area of
-    the same loops in ``tests/test_viz.py``.
-    """
+#: How much of a face's area may go missing before it is treated as a failure.
+#: A correct triangulation matches the shoelace area to rounding; the failures
+#: seen lose or double tenths of a percent, so anything in between is noise.
+_AREA_TOLERANCE = 1e-6
+
+
+def _polygon_area(points: np.ndarray) -> float:
+    """Shoelace area of one closed loop, projected on XY."""
+    x, y = points[:, 0], points[:, 1]
+    return 0.5 * abs(float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))))
+
+
+def _triangulate_at(coords: np.ndarray, sizes: list[int]) -> vtkPolyData | None:
+    """Run the triangulator over loops laid end to end in ``coords``."""
     pts = vtkPoints()
     pts.SetDataTypeToDouble()
     lines = vtkCellArray()
-    for loop in loops:
-        ids = [pts.InsertNextPoint(*points[i]) for i in loop]
+    start = 0
+    for size in sizes:
+        ids = [pts.InsertNextPoint(*coords[start + k]) for k in range(size)]
         lines.InsertNextCell(len(ids) + 1)
         for i in ids:
             lines.InsertCellPoint(i)
         lines.InsertCellPoint(ids[0])          # closed
+        start += size
 
     contour = vtkPolyData()
     contour.SetPoints(pts)
@@ -75,6 +90,89 @@ def _triangulated(points: np.ndarray, loops) -> vtkCellArray | None:
     triangulator.Update()
     out = triangulator.GetOutput()
     return out if out.GetNumberOfCells() else None
+
+
+def _triangulated(points: np.ndarray, loops) -> vtkPolyData | None:
+    """Triangulate one planar face, holes and all.
+
+    VTK has no polygon-with-holes cell - ``vtkPolygon`` is a simple polygon -
+    so a disc end face, which is a lobed outline with a bore and six output
+    holes in it, cannot be handed over as one cell.  ``vtkContourTriangulator``
+    is the tool for exactly this: closed contours in, triangles out, inner
+    loops cut away by the even-odd rule.
+
+    It also gives up part way on some inputs, and says nothing about it.  This
+    used to be accepted as long as it produced *any* triangles: one disc's top
+    face came out 0.93% short - a hole in the surface, four boundary edges
+    wide, on a part the section then could not cap - while the same disc's
+    bottom face and the other disc were perfect.  So the area is checked
+    against the loops it was built from, and a face that comes up short is
+    tried again with the plane turned.
+
+    The retry keeps the *connectivity* and throws the rotated coordinates away:
+    the points come back from the original array, bit for bit, because they
+    have to merge exactly with the wall vertices that share them.
+    """
+    sizes = [len(lp) for lp in loops]
+    original = np.vstack([points[list(lp)] for lp in loops])
+
+    want = _polygon_area(points[list(loops[0])])
+    for loop in loops[1:]:
+        want -= _polygon_area(points[list(loop)])
+
+    best: vtkPolyData | None = None
+    for angle in (0.0, *_RETRY_ANGLES):
+        if angle:
+            a = np.radians(angle)
+            c, s = np.cos(a), np.sin(a)
+            coords = original.copy()
+            coords[:, 0] = original[:, 0] * c - original[:, 1] * s
+            coords[:, 1] = original[:, 0] * s + original[:, 1] * c
+        else:
+            coords = original
+
+        out = _triangulate_at(coords, sizes)
+        if out is None:
+            continue
+        best = best or out
+        if want <= 0.0:
+            return _with_points(out, original)
+
+        got = 0.0
+        polys, ids = out.GetPolys(), vtkIdList()
+        polys.InitTraversal()
+        verts = vtk_to_numpy(out.GetPoints().GetData())
+        while polys.GetNextCell(ids):
+            got += _polygon_area(
+                np.array([verts[ids.GetId(k)] for k in range(ids.GetNumberOfIds())]))
+        if abs(want - got) / want <= _AREA_TOLERANCE:
+            return _with_points(out, original)
+
+    # Every angle came up short.  The best of them is still a face, and a
+    # missing sliver is better than a missing surface - but it leaves the part
+    # unwatertight, which ``tests/test_viz.py`` asserts against so that this
+    # cannot go unnoticed the way it did before.
+    return _with_points(best, original) if best is not None else None
+
+
+def _with_points(out: vtkPolyData, original: np.ndarray) -> vtkPolyData:
+    """``out``'s triangles, over the coordinates they were built from.
+
+    ``vtkContourTriangulator`` hands back the points it was given, in the order
+    it was given them - asserted in ``tests/test_viz.py``, because the retry
+    above depends on it to undo a rotation without touching a coordinate.
+    """
+    if out.GetNumberOfPoints() != len(original):
+        return out                       # not the mapping we assumed; leave it
+    pts = vtkPoints()
+    pts.SetDataTypeToDouble()
+    pts.SetNumberOfPoints(len(original))
+    for i, (x, y, z) in enumerate(original):
+        pts.SetPoint(i, x, y, z)
+    rebuilt = vtkPolyData()
+    rebuilt.SetPoints(pts)
+    rebuilt.SetPolys(out.GetPolys())
+    return rebuilt
 
 
 def _surface(mesh: Mesh, part: Part) -> vtkPolyData:
