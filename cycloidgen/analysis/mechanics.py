@@ -22,7 +22,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ..core import profile as prof
-from ..core.kinematics import SWEEP_STEPS, output_loads, sweep
+from ..core.kinematics import SWEEP_STEPS, output_loads, output_sweep_angles, sweep
 from ..core.spec import GearSpec
 
 __all__ = [
@@ -112,7 +112,12 @@ def analyse_contacts(spec: GearSpec, steps: int = SWEEP_STEPS) -> ContactResult:
         fv = (f[:, None] * cs.normals).sum(axis=0)
         resultants.append(float(np.hypot(*fv)))
 
-        ol = output_loads(spec, cs.phi, torque_per_disc)
+    # The output pins keep their own period, so they get their own sweep.  Read
+    # off the ring's angles they would be sampled at whatever phases the ring
+    # stage happened to need, and the two only line up when n*(N-1)/(N+1) comes
+    # out whole - which it does for the default drive and does not for most.
+    for phi in output_sweep_angles(spec.lobes, spec.output_pin_count, steps):
+        ol = output_loads(spec, float(phi), torque_per_disc)
         if ol.forces.any():
             peak_out_f = max(peak_out_f, float(ol.forces.max()))
 

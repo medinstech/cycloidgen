@@ -17,7 +17,7 @@ from matplotlib.figure import Figure
 from matplotlib.patches import Circle, Polygon
 
 from ..core import profile as prof
-from ..core.kinematics import contacts, sweep, to_world
+from ..core.kinematics import contacts, ring_stage_period, sweep, to_world
 from ..core.spec import GearSpec
 from ..units import unit as _unit_for
 
@@ -215,6 +215,24 @@ class ProfileView:
         self._reference: GearSpec | None = None
         self._overlays = Overlays()
         self._crank = 0.0
+        # `tight_layout` solves for the figure size it is run at and writes the
+        # answer down as *fractions*.  Embedded in a window the figure is then
+        # resized under it, and a fraction that reserved enough room for the
+        # title at build time reserves fewer pixels as the panel gets shorter -
+        # the drawing panel is a letterbox, 973x271 on a 1560-wide window, where
+        # the build-time 0.94 leaves the title 16 px and it needs 22.  So the
+        # title was cut in half by the top of the panel, on the one figure the
+        # README leads with.
+        #
+        # Re-solved on resize rather than on every draw: a layout engine would
+        # put a `tight_layout` pass back into each animation frame, which is
+        # most of what this class exists to have removed.  Resizes are rare and
+        # the animation does not cause any.
+        self.figure.canvas.mpl_connect("resize_event", self._on_resize)
+
+    def _on_resize(self, _event) -> None:
+        if self._spec is not None:
+            self.figure.tight_layout()
 
     # ----------------------------------------------------------------- design
     def set_design(self, spec: GearSpec, *, reference: GearSpec | None = None,
@@ -329,6 +347,33 @@ class ProfileView:
         ax.set_title(f"{spec.ratio}:1   {spec.lobes} lobes / {spec.pin_count} pins   "
                      f"OD {od}",
                      color=t["ink"], fontsize=10, pad=8)
+        # The design's own speed, which is *not* the speed of the animation: the
+        # playback rate is wall-clock and says nothing about the machine.  A
+        # drawing that turns visibly at fifteen rpm while the drive it describes
+        # runs at a thousand is only confusing while the picture declines to say
+        # which of the two it is showing.  "reversed" is the other thing the
+        # drawing knew and never said - with the ring fixed the output turns
+        # against the input.
+        #
+        # One line above the readout, in the corner the housing circle leaves
+        # empty - the same reasoning that put the readout where it is.  Not a
+        # second title line, which is clipped at the app's canvas aspect, and
+        # not the opposite corner either: `set_aspect("equal")` shrinks the axes
+        # box to a square in the middle of a wide canvas, so axes-fraction 0 and
+        # 1 are much closer together than the panel looks and the two lines
+        # collide.
+        speed = ax.text(0.005, 0.05,
+                        f"ring fixed - in {spec.input_rpm:g} rpm, "
+                        f"out {spec.output_rpm:.1f} rpm reversed",
+                        transform=ax.transAxes, ha="left", va="bottom",
+                        color=t["ink2"], fontsize=8.5, family="monospace")
+        # Kept out of the layout, which is the only reason the readout below has
+        # never needed the same: it is built empty and filled after
+        # `tight_layout` has run.  This one has its text at build time, and on
+        # the animation's small canvas asking tight_layout to find room for it
+        # fails outright - the margins cannot grow that far, the layout is
+        # abandoned, and the frame's white border goes with it.
+        speed.set_in_layout(False)
         # Inside the axes, in the corner the housing circle leaves empty.  Below
         # it, `tight_layout` does not reserve room for a text in axes
         # coordinates and the line is cropped by the figure edge.
@@ -555,8 +600,19 @@ def assembly_figure(spec: GearSpec, fig: Figure | None = None, *,
     return fig
 
 
-def force_figure(spec: GearSpec, fig: Figure | None = None, steps: int = 180) -> Figure:
-    """Peak ring-pin force across one lobe pitch.
+def force_figure(spec: GearSpec, fig: Figure | None = None, steps: int = 721) -> Figure:
+    """Peak ring-pin force across one ring-stage period.
+
+    The window is a whole cycle, so the curve closes: the value at the right
+    edge is the value at the left, and the ripple quoted is the ripple there
+    really is.  It used to span one lobe pitch, which is not a period - the
+    trace was cut a tenth of the way through the cycle at an arbitrary phase,
+    so it ended somewhere other than it began and read as a broken wave.
+
+    The corners are real and are not sampling.  This is a maximum over the pins,
+    which is the upper envelope of ``N+1`` smooth per-pin curves, and an envelope
+    has a corner wherever the load hands over from one pin to the next.  The
+    trace is identical at 180 samples and at 18000.
 
     The y axis starts at zero: this is a magnitude, and the variation is often a
     fraction of a percent, which a cropped axis would blow up into a false story.
@@ -568,7 +624,8 @@ def force_figure(spec: GearSpec, fig: Figure | None = None, steps: int = 180) ->
     ax = fig.add_subplot(111)
 
     torque_per_disc = spec.output_torque_Nm * 1000.0 / spec.disc_count
-    angles = np.linspace(0.0, 360.0 / spec.lobes, steps)
+    period = np.degrees(ring_stage_period(spec.lobes))
+    angles = np.linspace(0.0, period, steps)
     peak, engaged = [], []
     for a in angles:
         f = contacts(spec, float(np.radians(a))).forces(torque_per_disc)
@@ -580,7 +637,7 @@ def force_figure(spec: GearSpec, fig: Figure | None = None, steps: int = 180) ->
     style_axes(ax)
     ax.set_ylim(0, max(peak_arr.max() * 1.25, 1e-9))
     ax.set_xlim(angles[0], angles[-1])
-    ax.set_xlabel("crank angle (deg)")
+    ax.set_xlabel(f"crank angle (deg) - one ring-stage period, {period:.1f} deg")
     ax.set_ylabel("peak pin force (N)")
 
     ripple = 100.0 * (peak_arr.max() - peak_arr.min()) / peak_arr.max() if peak_arr.max() else 0.0

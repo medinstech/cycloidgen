@@ -40,7 +40,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ..core.kinematics import SWEEP_STEPS, output_loads, sweep
+from ..core.kinematics import SWEEP_STEPS, output_loads, output_sweep_angles, sweep
 from ..core.spec import GearSpec
 from .efficiency import EfficiencyResult, analyse_efficiency
 
@@ -190,8 +190,8 @@ def analyse_thermal(spec: GearSpec, efficiency: EfficiencyResult | None = None,
     v_out = spec.eccentricity * omega_in * (1.0 - 1.0 / spec.ratio) / 1000.0
     projected_out = spec.output_pin_diameter * length
     peak_out_f = 0.0
-    for cs in sweep(spec, steps):
-        ol = output_loads(spec, cs.phi, torque_per_disc)
+    for phi in output_sweep_angles(spec.lobes, spec.output_pin_count, steps):
+        ol = output_loads(spec, float(phi), torque_per_disc)
         if ol.forces.size:
             peak_out_f = max(peak_out_f, float(ol.forces.max()))
     p_out = peak_out_f / max(projected_out, 1e-9)

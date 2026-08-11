@@ -59,8 +59,6 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-import numpy as np
-
 from ..core.spec import GearSpec, Process
 
 __all__ = [
@@ -210,12 +208,16 @@ class FatigueResult:
 
 
 def _peak_output_pin_force(spec: GearSpec) -> float:
-    """Worst force on one output pin over a lobe pitch, N."""
-    from ..core.kinematics import output_loads
+    """Worst force on one output pin over the output stage's own period, N.
+
+    A lobe pitch is about half that period, so sweeping one used to miss the
+    worst pin on drives where the peak fell in the other half.
+    """
+    from ..core.kinematics import output_loads, output_sweep_angles
 
     torque_per_disc = spec.output_torque_Nm * 1000.0 / spec.disc_count
     peak = 0.0
-    for phi in np.linspace(0.0, 2.0 * math.pi / spec.lobes, 24, endpoint=False):
+    for phi in output_sweep_angles(spec.lobes, spec.output_pin_count, 48):
         forces = output_loads(spec, float(phi), torque_per_disc).forces
         if forces.size:
             peak = max(peak, float(forces.max()))

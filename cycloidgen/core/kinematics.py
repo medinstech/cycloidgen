@@ -23,16 +23,26 @@ __all__ = [
     "disc_pose",
     "mesh_gaps",
     "output_loads",
+    "output_stage_period",
+    "output_sweep_angles",
+    "ring_stage_period",
     "sweep",
     "sweep_angles",
     "to_disc_frame",
     "to_world",
 ]
 
-#: Steps per lobe pitch for every sweep in the app.  One shared value means the
+#: Steps per period for every sweep in the app.  One shared value means the
 #: checks, the contact study and the efficiency study all reuse a single cached
 #: sweep instead of each running their own.
-SWEEP_STEPS = 72
+#:
+#: 72 is enough because each sweep now covers an exact period: uniform samples
+#: over a whole cycle are unbiased however few there are, so the count only has
+#: to resolve the peak.  Measured against a 20000-step reference, 72 steps miss
+#: the peak pin force by 0.11% at 30 lobes and 144 by 0.004%; the mean is
+#: already exact to four figures at 72.  The old window was not a period, and no
+#: step count fixes that.
+SWEEP_STEPS = 144
 
 
 def disc_pose(phi: float | np.ndarray, E: float, lobes: int):
@@ -135,9 +145,51 @@ def contacts_at(R: float, Rr: float, E: float, n_lobes: int, phi: float) -> Cont
                         curvature=kappa, sliding_speed=slide)
 
 
+def ring_stage_period(lobes: int) -> float:
+    """Crank angle over which the ring-pin engagement pattern repeats, rad.
+
+    Not the lobe pitch.  The lobe pitch is the period of the *disc's shape*, and
+    that is not what a sweep samples: a sweep samples the pins, and there are
+    ``N+1`` of them against ``N`` lobes, which is the whole point of the drive.
+    Pin ``k`` touches the profile at ``t_k = phi/N - 2*pi*k/(N+1)``, so the crank
+    has to turn ``2*pi*N/(N+1)`` before every contact lands where its neighbour
+    was.  That is just under one input revolution, ten lobe pitches, not one.
+
+    Sampling a lobe pitch instead does not merely lose resolution - it samples a
+    window that is not a cycle, so the curve does not close and the statistics
+    are taken over an arbitrary phase.  See :func:`output_stage_period`, where
+    the same mistake was caught for the other stage first.
+    """
+    return 2.0 * np.pi * lobes / (lobes + 1)
+
+
+def output_stage_period(lobes: int, output_pins: int) -> float:
+    """Crank angle over which the output-pin engagement pattern repeats, rad.
+
+    The disc's eccentricity direction, *seen from the carrier*, advances at
+    ``(N-1)/N`` of the crank; the pin pattern repeats every ``2*pi/n`` of that.
+    So the output stage's period is ``2*pi*N / (n*(N-1))`` - two and a half lobe
+    pitches on a typical drive, and sampling only one lobe pitch of it reports
+    about half the ripple that is really there.
+
+    This is a different period from :func:`ring_stage_period`, and deliberately
+    so.  Their common multiple runs to thirty input revolutions on some tooth
+    counts, which is why each stage is swept over its own: a mean of a sum is
+    the sum of the means, and a maximum per stage is a maximum per stage.
+    """
+    return 2.0 * np.pi * lobes / (output_pins * (lobes - 1))
+
+
 def sweep_angles(lobes: int, steps: int = SWEEP_STEPS) -> np.ndarray:
-    """Crank angles covering exactly one lobe pitch, the period of the mesh."""
-    return np.linspace(0.0, 2.0 * np.pi / lobes, steps, endpoint=False)
+    """Crank angles covering exactly one ring-stage period."""
+    return np.linspace(0.0, ring_stage_period(lobes), steps, endpoint=False)
+
+
+def output_sweep_angles(lobes: int, output_pins: int,
+                        steps: int = SWEEP_STEPS) -> np.ndarray:
+    """Crank angles covering exactly one output-stage period."""
+    return np.linspace(0.0, output_stage_period(lobes, output_pins), steps,
+                       endpoint=False)
 
 
 @lru_cache(maxsize=8)
@@ -152,10 +204,15 @@ def _sweep(R: float, Rr: float, E: float, lobes: int, steps: int) -> tuple[Conta
 
 
 def sweep(spec: GearSpec, steps: int = SWEEP_STEPS) -> tuple[ContactState, ...]:
-    """One cached lobe-pitch sweep, shared by the checks and both studies.
+    """One cached ring-stage sweep, shared by the checks and both studies.
 
     Rebuilding this three times was most of the cost of a design update, and the
     three copies were sampled differently for no reason.
+
+    This covers the ring stage only.  Anything that loads the *output* pins has
+    to sweep :func:`output_sweep_angles` as well - the two stages do not share a
+    period, and reading output loads off these states samples them at whatever
+    phases the ring happened to need.
     """
     return _sweep(spec.pin_circle_radius, spec.pin_radius, spec.eccentricity,
                   spec.lobes, steps)

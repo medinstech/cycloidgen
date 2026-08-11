@@ -275,6 +275,17 @@ y(t) = −R·sin(t) + E·sin(Np·t) + Rr·(sin(t) − K1·sin(Np·t)) / D(t)
 The reduction is the lobe count, `i = N = Np − 1`, and the output pin holes are
 the pin diameter plus twice the eccentricity.
 
+**Which member is grounded.** This is the *fixed-ring* arrangement: the ring
+pins are held in the housing, the disc rolls on the inside of the pin circle,
+and the output is taken from the disc's pin holes through the carrier. In
+epicyclic terms that is the **planetary** configuration, and it is the choice
+that fixes both the ratio and the direction — the output turns **against** the
+input, at `i = N`. Grounding the carrier instead and taking the output off the
+ring would be the *star* configuration: same parts, ratio `Np`, and the output
+turns the same way as the input. The generating curve is a hypotrochoid, the
+disc flank its equidistant offset at `Rr`, which is what "rolls on the inside"
+means in the formulae above — the sign of `y(t)` is not free.
+
 > **Sign warning.** The equivalent `psi` formulation needs a *leading minus*:
 > `psi(t) = -atan2(sin(N·t), R/(E·Np) - cos(N·t))`. The positive-sign variant is
 > widespread online and is wrong - it deviates by millimetres and the disc

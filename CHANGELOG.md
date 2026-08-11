@@ -5,6 +5,135 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 7.2.0
+
+**Numbers**
+
+- **Every sweep in the app was running over a window that is not a period, and
+  the numbers taken over it have moved.** A lobe pitch, `360/N`, is the period
+  of the disc's *shape*. It is not the period of anything a sweep samples: a
+  sweep samples the pins, and there are `N+1` of those against `N` lobes, which
+  is the entire mechanism. Pin `k` meets the profile at `t_k = phi/N -
+  2*pi*k/(N+1)`, so the crank has to turn `360*N/(N+1)` before each contact
+  lands where its neighbour was — 330 degrees on the default drive, not 32.7.
+
+  What gave it away is that the curve did not close. Peak pin force reads
+  49.859 N at `phi = 0` and 49.271 N one lobe pitch later, so the *Ring pin
+  load* plot was a tenth of a cycle cut at an arbitrary phase, ending somewhere
+  other than it began. Tiled, it steps at the seam. That is what it looked
+  like, and it is what it was.
+
+  The ring stage now sweeps `360*N/(N+1)` and the output stage sweeps its own
+  `360*N/(n*(N-1))`, which is a different number and always was — the two have a
+  common multiple that runs to thirty input revolutions on some tooth counts,
+  which is exactly why neither can be swept on the other's window. Each stage
+  gets its own loop. This is not an approximation: a maximum per stage is a
+  maximum per stage, and the mean of a sum is the sum of the means.
+
+  Measured against 7.1.1, over the presets and several tooth counts:
+
+  | Quantity | Worst change |
+  |---|---|
+  | Ring peaks — pin force, contact pressure, torque capacity | under 0.01% |
+  | Efficiency, running temperature | 0.6% |
+  | Mean sliding speed | 0.7% |
+  | Output pin force, output PV, disc web shear | **5.5%** |
+  | Torsional stiffness | **12.6%** |
+  | Load concentration | **8.6%** |
+  | Transmission error | **7.4%** |
+
+  The ring-side peaks barely move, and that is the expected result rather than a
+  reassuring one: a maximum over the pins does not care which phase of the cycle
+  you start at, only whether you covered it. What moves is everything averaged
+  or ripple-measured, and the output stage, which was being swept over about
+  *half* its period.
+
+- **A check that should have been firing was silent.** On the 29:1 preset the
+  output pin contact pressure exceeds the allowable, and `HERTZ_STRESS_OUTPUT`
+  now says so. It did not before, because the peak output pin force was sampled
+  over a lobe pitch — half the output stage's period — and came out 5.3% low,
+  which was the wrong side of the limit. Anyone who took that preset as passing
+  should re-run it.
+
+- **`ring_period_deg` in the transmission-error result was the lobe pitch**, on
+  a result type whose other field, `output_period_deg`, has been correct since
+  it was written. It now reports the ring period: 330 degrees rather than 32.7
+  on the default drive.
+
+- **Sweeps are 144 steps rather than 72.** Sampling an exact period uniformly is
+  unbiased at almost any count, so this is not what fixed the window — it is
+  only about resolving the peak. Against a 20000-step reference, 72 steps miss
+  peak pin force by 0.11% at 30 lobes and 144 by 0.004%.
+
+- **The transmission error's ring sweep needed four times the steps**, and this
+  one *is* about resolution. Twelve samples were enough across a lobe pitch and
+  are less than one per pitch across the ring period, which read 11% low on the
+  ring share; forty-eight is where it stops moving. What is left is bounded by
+  the shared sweep rather than by that number, and is stated in the source: the
+  ring share sits about 2% under a sweep four times finer, 0.7% on the total.
+  Closing it means quadrupling the sweep every other study reads, and a
+  transmission error 2% conservative on one of its two halves is not what limits
+  this model.
+
+**Fixed**
+
+- **The output stage was swept over a lobe pitch in four more places** —
+  `analyse_contacts`, `analyse_efficiency`, the thermal solve, and the disc-web
+  and output-pin fatigue checks. `output_stage_period` had been in the codebase
+  since the transmission-error work, with a docstring warning that sweeping a
+  lobe pitch "reports about half the ripple that is really there", and nothing
+  outside that one function called it. Both period functions live in
+  `core.kinematics` now, next to the sweeps that need them.
+
+- **Nothing in the suite asserted that a period was a period**, which is why
+  this survived four releases and 788 tests. There are now tests that advance
+  each stage by its own period and require the load pattern to return — one pin
+  along for the ring stage, one the other way for the output stage, because the
+  pattern steps onto its neighbour rather than staying put. And a test that
+  holds the mistake down directly: a lobe pitch must *not* close either stage,
+  compared as multisets so that renumbering the pins cannot rescue it.
+
+**Changed**
+
+- **The drawing says what speed it is showing, and the playback control says
+  what "1x" means.** These were one confusion. The animation runs at 3 degrees
+  of input per 33 ms frame, which is one input revolution every four seconds —
+  15.2 rpm — while the tooltip claimed "input revolutions per second of wall
+  clock", four times faster than the thing it described. The control is
+  labelled PLAYBACK now and carries a live readout of the rate it actually
+  turns at, so the multiplier is answerable without a tooltip; the rate is
+  derived from the two timing constants rather than written down beside them.
+  The drawing carries the *design's* speed, which is the other half of the
+  question: a picture turning visibly at fifteen rpm, describing a drive rated
+  at a thousand, needs to say which of the two it is.
+
+- **The drawing and the datasheet name the arrangement.** Ring fixed, output
+  taken from the disc's pin holes through the carrier — the planetary
+  configuration, as against grounding the carrier and driving the ring, which
+  is the star configuration and gives `Np` rather than `N`. The reduction line
+  and the output-speed line both now say the output turns *against* the input,
+  which the geometry has always done and nothing ever mentioned:
+  `output_rpm` has no sign to carry it. The README says which member is
+  grounded, why that fixes the ratio and the direction, and that the disc rolls
+  on the inside of the pin circle.
+
+- **The drawing's title was cut in half by the top of its own panel.**
+  `tight_layout` solves for the size it runs at and writes the answer down as
+  fractions, and the figure is then resized under it by the window. The drawing
+  panel is a letterbox — 973x271 on a 1560-wide window — where the fraction
+  solved at build time leaves the title 16 px and it needs 22. It is re-solved
+  when the canvas resizes now, rather than on every draw: a layout engine would
+  put a `tight_layout` pass back into each animation frame, which is most of
+  what `ProfileView` exists to have removed, and resizes are rare.
+
+- **The About box leads with what the output is not.** The disclaimer was the
+  last paragraph of the informative text, in the dim ink, under three links —
+  the least-read position in the dialog for the one paragraph with a
+  consequence in it. It is boxed, in the primary text, above the links. It also
+  only ever disclaimed the *numbers*; the geometry needed saying too, because a
+  STEP file that opens looking finished is the easiest thing here to mistake
+  for a drawing somebody checked.
+
 ## 7.1.1
 
 **Numbers**

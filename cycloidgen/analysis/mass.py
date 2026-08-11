@@ -195,9 +195,11 @@ def analyse_mass(spec: GearSpec) -> MassResult:
 
     # the pin's share of torque has to shear out through the thinnest ligament
     # on both sides of the hole
-    from ..core.kinematics import output_loads
+    from ..core.kinematics import output_loads, output_sweep_angles
     peak = 0.0
-    for phi in np.linspace(0.0, 2.0 * math.pi / spec.lobes, 24, endpoint=False):
+    # over the output stage's own period, which is about twice a lobe pitch -
+    # the window this used to sweep, and so half the cycle the peak is in
+    for phi in output_sweep_angles(spec.lobes, spec.output_pin_count, 48):
         f = output_loads(spec, float(phi), spec.output_torque_Nm * 1000.0 / n).forces
         if f.size:
             peak = max(peak, float(f.max()))

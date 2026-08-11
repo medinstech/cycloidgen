@@ -40,7 +40,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ..core.kinematics import SWEEP_STEPS, output_loads, sweep
+from ..core.kinematics import SWEEP_STEPS, output_loads, output_sweep_angles, sweep
 from ..core.spec import GearSpec
 from .lubrication import LubricationResult, analyse_lubrication
 
@@ -118,12 +118,17 @@ def analyse_efficiency(spec: GearSpec, steps: int = SWEEP_STEPS,
         peak_pin = max(peak_pin, float(f.max(initial=0.0)))
         peak_slide = max(peak_slide, float(cs.sliding_speed.max(initial=0.0)))
 
-        ol = output_loads(spec, cs.phi, torque_per_disc)
-        out_f.append(float(ol.forces.sum()))
-        peak_out = max(peak_out, float(ol.forces.max(initial=0.0)))
-
         fv = (f[:, None] * cs.normals).sum(axis=0)
         ecc_f.append(float(np.hypot(*fv)))
+
+    # Output pins on their own period - see output_stage_period.  Splitting the
+    # loop is exactly valid for what comes out of it: the total loss is a sum of
+    # per-stage means, and the mean of a sum is the sum of the means however
+    # differently the two stages are sampled.
+    for phi in output_sweep_angles(spec.lobes, spec.output_pin_count, steps):
+        ol = output_loads(spec, float(phi), torque_per_disc)
+        out_f.append(float(ol.forces.sum()))
+        peak_out = max(peak_out, float(ol.forces.max(initial=0.0)))
 
     # The film is evaluated at the peak load of the cycle, which is the thinnest
     # it gets.  A coefficient averaged over the cycle would be kinder and would

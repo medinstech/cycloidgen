@@ -82,7 +82,15 @@ from typing import NamedTuple
 
 import numpy as np
 
-from ..core.kinematics import SWEEP_STEPS, contacts, mesh_gaps, output_loads, sweep
+from ..core.kinematics import (
+    SWEEP_STEPS,
+    contacts,
+    mesh_gaps,
+    output_loads,
+    ring_stage_period,
+    sweep,
+)
+from ..core.kinematics import output_stage_period as _output_stage_period
 from ..core.spec import GearSpec
 from .compliance import StructureStiffness, analyse_parts, series_stiffness
 from .mechanics import effective_modulus
@@ -125,10 +133,21 @@ _STIFFNESS_STEPS = 8
 _TE_STEPS = 48
 
 #: The same for the ring stage, where every angle costs a profile measurement
-#: per disc.  Twelve is where it stops mattering: the shipped pair lands within
-#: a quarter of a percent of a sweep six times finer, and eight - the stiffness
-#: sweep's own count - can be 30% low on the ring share.
-_TE_RING_STEPS = 12
+#: per disc.
+#:
+#: Twelve was enough while the ring sweep covered one lobe pitch.  It covers the
+#: whole ring-stage period now - ten lobe pitches on the default drive - and
+#: twelve samples across that is less than one per pitch, which resolved nothing
+#: and read 11% low on the ring share.  Forty-eight is where it stops moving:
+#: identical to using every state the shared sweep has.
+#:
+#: That leaves it bounded by ``SWEEP_STEPS`` rather than by this number.  All
+#: 144 states put the ring share about 2% under a sweep four times finer - 0.7%
+#: on the total, since the output stage carries most of it - and closing that
+#: last 2% means quadrupling the sweep every other study shares.  It is left
+#: open, and stated, rather than paid for: a transmission error 2% conservative
+#: on one of its two halves is not what limits this model.
+_TE_RING_STEPS = 48
 
 
 def line_contact_approach(force_N: np.ndarray | float, length_mm: float,
@@ -635,7 +654,7 @@ class TransmissionErrorResult:
     rms_arcmin: float
     ring_arcmin: float               # the ring stage's own share, peak to peak
     output_arcmin: float             # the output stage's own share
-    ring_period_deg: float           # of crank, one lobe pitch
+    ring_period_deg: float           # of crank, one ring-pin pitch
     output_period_deg: float         # of crank, one output-hole pitch
 
     #: Rings the position tolerance was sampled over; one means the drawing
@@ -653,17 +672,14 @@ class TransmissionErrorResult:
 
 
 def output_stage_period(spec: GearSpec) -> float:
-    """Crank angle over which the output-pin engagement pattern repeats, rad.
+    """:func:`~cycloidgen.core.kinematics.output_stage_period` for a spec.
 
-    Not the lobe pitch, and getting that wrong is the easy mistake here.  The
-    disc's eccentricity direction, *seen from the carrier*, advances at
-    ``(N-1)/N`` of the crank; the pin pattern repeats every ``2*pi/n`` of that.
-    So the output stage's period is ``2*pi*N / (n*(N-1))`` - two and a half lobe
-    pitches on a typical drive, and sampling only one lobe pitch of it reports
-    about half the ripple that is really there.
+    The rule this states - that a stage has to be swept over *its own* period -
+    was worked out here, for the output stage, and left unapplied to the ring
+    stage for four releases.  It lives in ``kinematics`` now so that there is
+    one place to look before writing the next sweep.
     """
-    return (2.0 * math.pi * spec.lobes
-            / (spec.output_pin_count * (spec.lobes - 1)))
+    return _output_stage_period(spec.lobes, spec.output_pin_count)
 
 
 def _stack_rotation(parts: list[_Contacts], torque_Nmm: float) -> float:
@@ -772,7 +788,7 @@ def analyse_transmission_error(spec: GearSpec, steps: int = _TE_STEPS,
         rms_arcmin=math.hypot(ring_rms, out_rms),
         ring_arcmin=ring_pp,
         output_arcmin=out_pp,
-        ring_period_deg=360.0 / spec.lobes,
+        ring_period_deg=math.degrees(ring_stage_period(spec.lobes)),
         output_period_deg=math.degrees(period),
         rings_sampled=drawn,
         worst_ring_arcmin=max(totals),

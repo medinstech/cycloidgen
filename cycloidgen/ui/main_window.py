@@ -85,6 +85,13 @@ _FRAME_MS = 33
 #: Degrees of input per frame at 1x - one input revolution in four seconds.
 _CRANK_STEP_DEG = 3.0
 
+#: Input rpm the animation actually shows at 1x, derived from the two constants
+#: above rather than written down beside them, because a rate stated twice is a
+#: rate that ends up disagreeing with itself.  It came to 15.2 rpm while the
+#: tooltip claimed "input revolutions per second", which is 60 - the control
+#: had no honest answer to "1x of what?" for as long as it has existed.
+_PLAYBACK_RPM_AT_1X = _CRANK_STEP_DEG / _FRAME_MS * 1000.0 / 360.0 * 60.0
+
 #: The checks list never gets smaller than this.  Four rows and the filter
 #: strip: enough to see that findings exist and what the worst one is.
 _MIN_CHECKS_PX = 130
@@ -924,17 +931,36 @@ class MainWindow(QMainWindow):
         self._play.toggled.connect(self._toggle_animation)
         row.addWidget(self._play)
 
-        row.addWidget(QLabel("SPEED"))
+        # "PLAYBACK", not "SPEED": the design has a speed too, it is on the
+        # drawing, and it is nothing to do with this control.
+        row.addWidget(QLabel("PLAYBACK"))
         self._speed_box = QComboBox()
         for label, factor in (("0.25x", 0.25), ("0.5x", 0.5), ("1x", 1.0),
                               ("2x", 2.0), ("4x", 4.0)):
             self._speed_box.addItem(label, factor)
         self._speed_box.setCurrentIndex(2)
         self._speed_box.setMaximumWidth(80)
-        self._speed_box.setToolTip("Input revolutions per second of wall clock. "
-                                   "The output turns this / the ratio.")
+        self._speed_box.setToolTip(
+            f"How fast the picture turns, in wall-clock time. 1x turns the "
+            f"input once every {60.0 / _PLAYBACK_RPM_AT_1X:.0f} seconds "
+            f"({_PLAYBACK_RPM_AT_1X:.1f} rpm on screen).\n\n"
+            f"This is not the design's speed. What the drive would really run "
+            f"at is on the drawing, off the Input speed parameter.")
+        self._speed_box.currentIndexChanged.connect(self._show_playback_rate)
         row.addWidget(self._speed_box)
+
+        # The multiplier alone cannot answer "1x of what?", and a tooltip only
+        # answers it to someone who already suspects there is a question.
+        self._speed_note = QLabel()
+        self._speed_note.setToolTip(self._speed_box.toolTip())
+        row.addWidget(self._speed_note)
+        self._show_playback_rate()
         return bar
+
+    def _show_playback_rate(self) -> None:
+        """Say what the multiplier comes to, beside the multiplier."""
+        rpm = _PLAYBACK_RPM_AT_1X * float(self._speed_box.currentData())
+        self._speed_note.setText(f"{rpm:.0f} rpm shown")
 
     def _build_overlay_row(self) -> QHBoxLayout:
         """What the drawing shows on top of the outlines.
@@ -1184,10 +1210,35 @@ class MainWindow(QMainWindow):
         box.setWindowTitle("About cycloidgen")
         box.setIconPixmap(branding.logo_pixmap("mark", self.mode, height=72))
         box.setTextFormat(Qt.RichText)
+        # The disclaimer used to be the last paragraph of the informative text,
+        # in the dim ink, under three links - the least-read position in the
+        # dialog, for the one paragraph in it that carries a consequence.  It is
+        # in the primary text now, boxed, above the links rather than below
+        # them.  A one-cell table because Qt's rich text honours cell borders
+        # and does not reliably honour a border on a div.
+        #
+        # It also only ever disclaimed *the numbers*.  The geometry needed
+        # saying too: the parts are built from the closed-form profile, and a
+        # STEP file that looks finished is the easiest thing here to mistake for
+        # a drawing that has been checked.
         box.setText(
             f"<h3 style='margin:0'>cycloidgen {__version__}</h3>"
             f"<p style='color:{p.ink_dim};margin-top:2px'>"
-            f"Parametric cycloidal drive design, analysis and CAD export.</p>")
+            f"Parametric cycloidal drive design, analysis and CAD export.</p>"
+            f"<table cellpadding='8' cellspacing='0' width='100%' "
+            f"style='border:1px solid {p.warning}'>"
+            f"<tr><td style='border:1px solid {p.warning}'>"
+            f"<b style='color:{p.warning}'>Not verified output.</b> "
+            f"<span style='color:{p.ink}'>The numbers are preliminary sizing "
+            f"estimates from stated models with stated limits, not a "
+            f"certification &mdash; and the exported geometry is not a checked "
+            f"drawing. Profiles, fits and clearances come out of the same "
+            f"idealised model as the analysis: no tolerance stack has been "
+            f"proven, and nothing here has been calibrated against measured "
+            f"hardware. Treat every part as a starting point to review, and "
+            f"validate against a physical prototype before anything "
+            f"load-bearing depends on it.</span>"
+            f"</td></tr></table>")
         box.setInformativeText(
             f"<p>A <a href='{branding.COMPANY_URL}' style='color:{p.accent}'>"
             f"{branding.COMPANY}</a> tool. <i>{branding.TAGLINE}</i></p>"
@@ -1196,11 +1247,7 @@ class MainWindow(QMainWindow):
             f"<a href='{branding.ISSUES_URL}' style='color:{p.accent}'>"
             f"Report an issue</a> &middot; "
             f"<a href='{branding.RELEASES_URL}' style='color:{p.accent}'>"
-            f"Release notes</a></p>"
-            f"<p style='color:{p.ink_dim}'>The numbers it produces are "
-            f"preliminary sizing estimates, not a certification. Validate "
-            f"against a physical prototype before anything load-bearing depends "
-            f"on them.</p>")
+            f"Release notes</a></p>")
         # Without this the links are blue text that does nothing when clicked,
         # which is worse than plain text: it looks like the dialog is broken.
         box.setTextInteractionFlags(Qt.TextBrowserInteraction)
@@ -1929,7 +1976,9 @@ class MainWindow(QMainWindow):
         self._datasheet.clear()
         sections = [
             ("Ratings", [
-                ("Reduction", f"{s.ratio}:1", "ring fixed, output from the disc"),
+                ("Reduction", f"{s.ratio}:1",
+                 "ring fixed, output from the disc pin holes - the output "
+                 "turns against the input"),
                 ("Rated output torque", f"{s.output_torque_Nm:.2f} Nm", "as entered"),
                 ("Torque capacity (ideal share)", f"{a.torque_capacity_Nm:.2f} Nm",
                  "every pin carrying its ideal share"),
@@ -1996,7 +2045,8 @@ class MainWindow(QMainWindow):
                 ("Outer diameter", self._length(2 * s.housing_outer_radius), ""),
                 ("Overall length", self._length(s.envelope_length),
                  "disc stack plus output flange"),
-                ("Output speed", f"{s.output_rpm:.1f} rpm", ""),
+                ("Output speed", f"{s.output_rpm:.1f} rpm",
+                 f"at {s.input_rpm:g} rpm in, turning the other way"),
             ]),
         ]
         for title, rows in sections:
