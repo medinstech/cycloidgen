@@ -133,7 +133,80 @@ design somebody already built.
   six leaves 0.12 mm of metal; twelve against six lands one hole on another.
   Fifty-six checks.
 
+**Ring pins the housing is printed with**
+
+- **The ring pins can be formed with the housing** instead of fitted into it as
+  separate dowels — `ring_pins_integral`, and the case every printed drive is.
+  A pocket and the pin that fills it are one shape read from either side, so
+  almost the whole of the difference is which arc of the same circle the bore
+  follows, the outward half or the inward one, and `cut` against `union` in the
+  exporter.
+
+  The pins stop being a part when they are integral: no body in the 3D view, no
+  STL, no line on the bill of materials — twelve lines to eleven, six bought
+  parts to five — and no visibility row for something you can neither see
+  separately nor take out. Their mass moves into the barrel and into the
+  *housing's* material, which is the point of the option: on the 21:1 preset the
+  drive goes from 781 g to 623 g, because 188 g of steel dowels become 30 g of
+  the printed material that was going to be hollowed out to seat them.
+
+- **They also stop being able to roll, and that is not free.** An integral pin
+  cannot turn in a pocket it is part of, so the drive that pays for this is the
+  one that had rolling ring pins. Same 21:1, rollers on:
+
+  | Quantity | Rolling dowels | Formed with the housing |
+  |---|---|---|
+  | Efficiency | 83.7% | **70.4%** |
+  | Ring pin loss | 1.00 W | **6.63 W** |
+  | Running temperature | 29.5 °C | **40.5 °C** |
+  | Ring pin sliding duty | rolls | **2.2x the PV limit** |
+
+  `PV_LIMIT_RING` fires there rather than the trade being made quietly: PLA on
+  steel at 0.22 MPa and 0.30 m/s is a disc that wears round long before it
+  breaks. The ring pin roller leaves the bearing schedule with it, five rows to
+  four, which is the other half of the same fact — there is no longer a part
+  free to turn for a needle to sit under.
+
+- **`ring_pins_roll` is what every consumer asks now**, and it is derived rather
+  than enforced. The obvious way is a validator that clears
+  `ring_pins_are_rollers` when the pins are integral, and it does not work:
+  `model_copy` runs none, so a spec that arrived that way kept rolling pins on
+  an integral ring and its efficiency came back unchanged — which is how this
+  was caught. Deriving it also keeps the roller preference for when the pins
+  stop being integral, which is why the box is greyed rather than cleared. The
+  field is in `mesh_fingerprint` for the same class of reason: it changes the
+  mesh, and a key that did not carry it would have served the old one.
+
 **Fixed**
+
+- **The last two parts that were not watertight.** 7.2.0 closed twelve of the
+  fourteen and named the two it had not, which were separate faults.
+
+  `output_flange` had a wall buried in it. The carrier plate and the boss below
+  it are separate prisms that meet at the plate's underside, and each kept the
+  face it meets on, so four surfaces shared the bore ring. Only the annulus
+  outside the boss is a face of the part; the rest is interior to the union and
+  is no longer emitted. `prism` takes `cap_bottom`/`cap_top` for it, and there
+  is a `ring` for the annulus that is left — both of which any other stacked
+  pair will want.
+
+  `disc_1` had a four-edge hole in its top face. `vtkContourTriangulator`
+  stopped part way and said nothing, and any output with triangles in it was
+  accepted, so the face came back 0.93% short. The area is checked against the
+  loops it was given now, and a short face is retried with the plane turned,
+  through angles that are not multiples of one another. The retry keeps the
+  connectivity and throws the rotated coordinates away: rotating and unrotating
+  would move every point by a rounding error, and these points have to merge
+  *exactly* with the wall vertices that share them, which is what closes the
+  surface in the first place.
+
+  Every part of every preset is watertight, so the section plane caps all of
+  them rather than twelve of fourteen, and three tests hold it — no holes and no
+  non-manifold edges, every face triangulated to its whole area, and the
+  assumption the retry stands on, that the triangulator hands back the points it
+  was given in order. `test_every_part_is_a_closed_surface` passed throughout
+  and was not wrong: it weighs the mesh's own facet loops, and those cancel
+  whether or not anything managed to fill them.
 
 - **A face with two bolt circles in it could come back triangulated wrong**, and
   the check that was meant to catch it could not see the failure. Faces are
