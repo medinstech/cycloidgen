@@ -268,11 +268,12 @@ PARAMETERS: dict[str, ParameterGuide] = {
         "effect on any computed number - the analysis uses the closed form, not "
         "the sampled one."),
     "stl_linear_tolerance": ParameterGuide(
-        "How finely the solids are tessellated for STL.",
+        "How finely the solids are tessellated for the meshes - the STL files "
+        "and the 3MF, which are the same triangles either way.",
         "Fine enough that the lobes are not faceted at the size you print. It "
         "is a print-quality setting.",
-        "File size and mesh handling time, and nothing else. STL is an output "
-        "and no analysis reads it."),
+        "File size and mesh handling time, and nothing else. A mesh is an "
+        "output and no analysis reads it."),
 
     # --------------------------------------------------------------- materials --
     "disc_material": ParameterGuide(

@@ -53,6 +53,23 @@ def test_the_bundle_is_exactly_what_the_manifest_promised(spec, tmp_path_factory
     assert _on_disk(root) == planned
 
 
+def test_a_part_that_stops_existing_stops_being_promised(spec, tmp_path):
+    """Integral ring pins are the housing, so there is no pin file to write.
+
+    ``solid.parts`` knew that and the manifest did not, which is the one failure
+    this module exists to catch pointing the other way: a bundle that *lists*
+    two files nothing writes. The Outputs tab offered them, ``--list-outputs``
+    printed them, and a double-click opened nothing. Only the solids group,
+    because that is where the two of them were.
+    """
+    s = spec.model_copy(update={"ring_pins_integral": True})
+    planned = sorted(name for _, name in manifest.planned_files(s, {"solids"}))
+    assert not any("ring_pins" in name for name in planned)
+    written = write_bundle(s, tmp_path, groups={"solids"})
+    assert _relative(written, tmp_path) == planned
+    assert _on_disk(tmp_path) == planned
+
+
 def test_drawings_and_data_alone_leave_the_kernel_out(spec, tmp_path):
     """The path that has to work on a machine with no OCCT.
 

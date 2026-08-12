@@ -177,7 +177,50 @@ design somebody already built.
   field is in `mesh_fingerprint` for the same class of reason: it changes the
   mesh, and a key that did not carry it would have served the old one.
 
+**Added**
+
+- **3MF export** — `assembly.3mf`, in the solids group. The STL entry in the
+  manifest has always carried its own complaint: *STL has no assembly structure
+  and no colour, so a multi-disc stack arrives as separate files*. Every one of
+  those is a thing the app knows and the file cannot say. This is the same
+  triangles with the sentence finished — one container, every part where it
+  assembles, in the colour the 3D view paints it and named for the material the
+  bill of materials orders it in. Identical discs are one object placed twice
+  and different discs are two objects, which is the fact an STL folder can only
+  state in its file names. Made parts only: a mesh of a bearing is a fit check
+  at best and something someone tries to print at worst.
+
+  Two things 3MF asks for that STL does not. **The shells have to be closed.**
+  OCCT triangulates face by face and each face brings its own copy of the points
+  along its edges, so the raw tessellation is the same heap of loose facets the
+  3D view turned out to be, and the points are merged on a nanometre grid before
+  anything is written — which halves the vertex count as a side effect. **And
+  they have to be wound outwards**, which is checked as a signed volume against
+  the solid: every part lands within 0.1% of the body it stands for, short
+  wherever the surface is convex and — on the discs alone — a whisker long,
+  because a chord across a concave flank falls *outside* the surface it is
+  approximating.
+
+  The tessellation is the STLs' own, at the same tolerance, so two files of one
+  part cannot disagree about its geometry, and the placements are the STEP
+  assembly's. The whole drive is lifted onto the build platform by one
+  translation, because 3MF puts the plate at `z = 0` and this gearbox is
+  modelled around its disc stack, with the carrier hanging below it. Exporting
+  the same design twice gives the same bytes.
+
+  The one check the suite cannot make is whether a slicer opens it, so that was
+  made by hand: Bambu Studio's command line reads the file back as eight named
+  objects, and each one's volume matches the solid it was tessellated from.
+
 **Fixed**
+
+- **Integral ring pins were promised as two files that nothing wrote.**
+  `step/ring_pins.step` and `stl/ring_pins.stl` stayed in the manifest after the
+  pins became part of the housing. The exporter had it right — there is no pin
+  to make — so the Outputs tab listed two files, `--list-outputs` printed them,
+  and a double-click opened nothing. The check that compares the declaration
+  against what lands on disk is the one this project relies on for exactly this,
+  and it had only ever been pointed at a drive with dowels.
 
 - **The last two parts that were not watertight.** 7.2.0 closed twelve of the
   fourteen and named the two it had not, which were separate faults.

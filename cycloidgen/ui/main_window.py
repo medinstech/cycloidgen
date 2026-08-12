@@ -867,7 +867,8 @@ class MainWindow(QMainWindow):
         row.addWidget(self._export_btn)
         self._export_2d_btn = QPushButton("EXPORT WITHOUT SOLIDS")
         self._export_2d_btn.setToolTip(
-            "Everything except the STEP and STL files: drawings, the report and "
+            "Everything except the solids - STEP, STL and 3MF: drawings, the "
+            "report and "
             "the animation. Skips the CAD kernel, which is most of the wait.")
         self._export_2d_btn.clicked.connect(lambda: self._export(False))
         row.addWidget(self._export_2d_btn)

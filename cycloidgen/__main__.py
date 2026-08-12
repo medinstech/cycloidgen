@@ -255,7 +255,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--design", type=Path, help="load a saved design JSON")
     parser.add_argument("--out", type=Path, help="output folder for a headless run")
     parser.add_argument("--no-solids", action="store_true",
-                        help="skip STEP/STL, write drawings and report only")
+                        help="skip the solids (STEP, STL, 3MF), write drawings "
+                             "and report only")
     parser.add_argument("--only", metavar="GROUPS",
                         help="write only these output groups, comma separated: "
                              "drawings, solids, data")

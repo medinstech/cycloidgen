@@ -215,6 +215,7 @@ the command line with `--only`, or with the two quick export buttons.
 | `assembly.step` | solids | Full gearbox: housing and its two end plates, ring pins, phased discs, eccentric shaft, output flange with its bearing boss, every bearing that fits, coloured |
 | `step/` | solids | Each part as its own solid, in its own frame |
 | `stl/` | solids | Each part separately — STL has no assembly structure. A multi-disc stack gets `disc_1.stl`, `disc_2.stl`, … because **the discs are not the same part** (see below) |
+| `assembly.3mf` | solids | The same meshes in one container, with what STL cannot carry: every part where it assembles, in its own colour, named for its material. Identical discs are one object placed twice; different ones are two objects. Made parts only — the bearings and the bolts are bought |
 | `bom.csv` | data | Every part: quantity, material, size, mass, make or buy, and the bearing designations the sizing study picked |
 | `report.json` | data | Every parameter, derived value, load, stiffness, temperature, mass and finding as plain data |
 | `report.pdf` | data | Drawing and 3D view, geometry, checks, contact stress, stiffness and backlash, PV and temperature, mass, bill of materials, bearings, and an exploded build order |

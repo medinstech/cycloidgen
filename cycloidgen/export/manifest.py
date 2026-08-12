@@ -76,12 +76,17 @@ def disc_names(spec: GearSpec) -> list[str]:
 def part_names(spec: GearSpec) -> list[str]:
     """Every distinct part, in the order :func:`export.solid.parts` builds them.
 
-    The end cap is on the list only when there is one: it is the far end of the
-    output pins on a ring-output drive and does not exist on the other, so a
-    fixed list would put a file in the manifest that never lands on disk.
+    Two of them are conditional, and for the same reason: a fixed list would put
+    a file in the manifest that never lands on disk.  The end cap exists only on
+    a ring-output drive, where it is the far end of the output pins.  The ring
+    pins stop existing when they are formed with the housing - the housing
+    already contains them, and a promise of ``ring_pins.stl`` on an integral
+    drive is a file the Outputs tab lists, the writer skips and nobody can open.
     """
-    names = ["housing", "ring_pins", "eccentric_shaft", "output_flange",
+    names = ["housing", "eccentric_shaft", "output_flange",
              "input_end_plate", "output_end_plate"]
+    if not spec.ring_pins_integral:
+        names.insert(1, "ring_pins")
     if spec.ground_frame_fitted:
         names.append("end_cap")
     return [*names, *disc_names(spec)]
@@ -152,6 +157,14 @@ MANIFEST: tuple[Output, ...] = (
            "no assembly structure and no colour, so a multi-disc stack arrives "
            "as separate files - and they are not interchangeable.",
            contents=lambda s: [f"{n}.stl" for n in part_names(s)]),
+    Output("threemf", "assembly.3mf", "solids", "3MF",
+           "Printable assembly",
+           "The same meshes as the STL folder, in one container and with what "
+           "STL cannot carry: every part where it assembles, in its own colour, "
+           "named for the material it is made of. Identical discs are one "
+           "object placed twice and different ones are two objects, so the "
+           "stack says which it is rather than leaving it to the file names. "
+           "Made parts only - the bearings and the bolts are bought."),
     Output("bom", "bom.csv", "data", "CSV",
            "Bill of materials",
            "Every part with quantity, material, size, mass and make-or-buy, "

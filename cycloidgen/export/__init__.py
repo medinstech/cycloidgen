@@ -1,4 +1,4 @@
-"""File output: DXF, SVG, STEP, STL, and the JSON/PDF report.
+"""File output: DXF, SVG, STEP, STL, 3MF, and the JSON/PDF report.
 
 Every deliverable is declared in :mod:`cycloidgen.export.manifest`; this module
 knows how to write them.  Keeping the *declaration* separate from the *writing*
@@ -11,7 +11,7 @@ from collections.abc import Collection
 from pathlib import Path
 
 from ..core.spec import GearSpec
-from . import bom, dxf, manifest, solid, svg
+from . import bom, dxf, manifest, solid, svg, threemf
 from .manifest import GROUPS, MANIFEST, Output, planned_files, resolve_groups
 
 __all__ = [
@@ -25,6 +25,7 @@ __all__ = [
     "resolve_groups",
     "solid",
     "svg",
+    "threemf",
     "write_bundle",
 ]
 
@@ -50,6 +51,8 @@ def _write(out: Output, spec: GearSpec, directory: Path, analysis) -> list[Path]
         return solid.write_part_steps(spec, target)
     if out.key == "stl":
         return solid.write_stls(spec, target)
+    if out.key == "threemf":
+        return [threemf.write_3mf(spec, target)]
     if out.key == "bom":
         return [bom.write_bom_csv(analysis, target)]
     if out.key == "gif":

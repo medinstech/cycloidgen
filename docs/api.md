@@ -137,6 +137,11 @@ Omit it for everything. What each group contains is declared in
 `cycloidgen/export/manifest.py` and nowhere else, so this cannot disagree with
 the Outputs tab or with `--list-outputs`.
 
+`solids` is the group that needs the OCCT kernel, and it is where the meshes
+are: `stl/`, one file per part, and `assembly.3mf`, which is the same triangles
+placed as they assemble with each part's colour and material on it. Both are
+tessellated at `spec.stl_linear_tolerance`.
+
 ### 4. Sweep one parameter
 
 Four metrics against one parameter, which is what a chart can carry:
