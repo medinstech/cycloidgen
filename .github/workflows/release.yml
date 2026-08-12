@@ -147,7 +147,7 @@ jobs:
           it. Clearing the flag first avoids the dialog entirely. On an Intel
           Mac, use pip.
 
-          **Anywhere with Python 3.10-3.12**: `pip install cycloidgen`, then
+          **Anywhere with Python 3.10-3.14**: `pip install cycloidgen`, then
           `cycloidgen`.
 
           The numbers this produces are preliminary sizing estimates, not a

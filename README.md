@@ -14,13 +14,14 @@
 <p align="center">
   A desktop app that takes a handful of parameters — or a set of requirements —<br>
   runs the drive live in 2D and 3D, checks it, sizes it, and writes DXF, SVG, STEP,<br>
-  STL, a looping animation, a bill of materials and a PDF dossier.
+  STL, a coloured 3MF assembly, a looping animation, a bill of materials and a<br>
+  PDF dossier.
 </p>
 
 <p align="center">
   <a href="https://github.com/medinstech/cycloidgen/actions/workflows/tests.yml"><img alt="tests" src="https://img.shields.io/github/actions/workflow/status/medinstech/cycloidgen/tests.yml?branch=main&style=flat-square&label=tests"></a>
   <a href="https://github.com/medinstech/cycloidgen/releases/latest"><img alt="latest release" src="https://img.shields.io/github/v/release/medinstech/cycloidgen?style=flat-square&color=0d00ff&label=release"></a>
-  <a href="https://github.com/medinstech/cycloidgen/blob/main/pyproject.toml"><img alt="Python 3.10 – 3.12" src="https://img.shields.io/badge/python-3.10%20%E2%80%93%203.12-0d00ff?style=flat-square"></a>
+  <a href="https://github.com/medinstech/cycloidgen/blob/main/pyproject.toml"><img alt="Python 3.10 – 3.14" src="https://img.shields.io/badge/python-3.10%20%E2%80%93%203.14-0d00ff?style=flat-square"></a>
   <a href="https://github.com/medinstech/cycloidgen/blob/main/LICENSE"><img alt="Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-0d00ff?style=flat-square"></a>
 </p>
 
@@ -55,7 +56,7 @@
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
   a shortlist that passes every check, with the trade-offs side by side.
-- **Nothing is asserted that is not verified.** 921 tests, and where two parts
+- **Nothing is asserted that is not verified.** 936 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -92,7 +93,7 @@ software painter instead, which is what the PDF report embeds.
 
 ## Run it
 
-Python 3.10 – 3.12, on Windows, Linux or macOS.
+Python 3.10 – 3.14, on Windows, Linux or macOS.
 
 ```bash
 pip install cycloidgen
@@ -733,7 +734,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          921 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          936 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -849,7 +850,7 @@ Four artefacts come out of a release, and they are not alternatives:
 | **Installer** (`.exe`) | somebody who wants to run the app and does not have Python | Windows |
 | **Disk image** (`.dmg`) | the same person, on a Mac | macOS 11+, Apple silicon |
 | **AppImage** | the same person, on Linux | x86-64, glibc 2.35 and up |
-| **Wheel** on PyPI | anybody with Python 3.10 – 3.12 — the only route on an Intel Mac, and the only way to `import cycloidgen` | Windows, Linux, macOS, x86-64 and arm64 |
+| **Wheel** on PyPI | anybody with Python 3.10 – 3.14 — the only route on an Intel Mac, and the only way to `import cycloidgen` | Windows, Linux, macOS, x86-64 and arm64 |
 
 There is no cross-platform installer format, so the first three are separate
 programs doing one job three ways. NSIS writes an installer that unpacks the

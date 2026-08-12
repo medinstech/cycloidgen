@@ -47,6 +47,19 @@ jobs:
           # caught the animation sizing its frame buffer from the wrong number.
           - os: ubuntu-latest
             python: "3.10"
+          # The two ends of the range are where a claim of support is either
+          # made or withdrawn, so both are run rather than assumed.  3.12 stays
+          # the middle of it and the one every bundle is frozen on; these say
+          # the source is not tied to it.
+          - os: ubuntu-latest
+            python: "3.13"
+          - os: ubuntu-latest
+            python: "3.14"
+          # And the newest on Windows as well, because that is the platform the
+          # wheels are least alike on: OCCT and VTK arrive as binaries built per
+          # interpreter, and "it resolved on Linux" is not the same claim.
+          - os: windows-latest
+            python: "3.14"
 
     steps:
       - uses: actions/checkout@v5
