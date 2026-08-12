@@ -88,13 +88,18 @@ def analyse_efficiency(spec: GearSpec, steps: int = SWEEP_STEPS,
     """
     omega_in = spec.input_rpm * 2.0 * np.pi / 60.0
     omega_out = omega_in / spec.ratio
+    # The crank, which is only the input speed when the ring is the grounded
+    # member.  Every sliding speed the kinematics hands over is per unit crank
+    # angle, so this is where they all become speeds.
+    omega_crank = omega_in * spec.crank_rate
     torque_out_Nmm = spec.output_torque_Nm * 1000.0
     torque_per_disc = torque_out_Nmm / spec.disc_count
 
-    # relative sliding speed of the disc in the carrier frame (mm/s)
-    v_out = spec.eccentricity * omega_in * (1.0 - 1.0 / spec.ratio)
-    # eccentric bearing: inner race at input speed, outer at disc speed
-    omega_rel = omega_in * (1.0 - 1.0 / spec.ratio)
+    # The disc's walk round the carrier and its rotation against the crank are
+    # the same rate - see GearSpec.crank_relative_rate - so the output pin
+    # rubbing speed and the eccentric bearing's speed come off one number.
+    omega_rel = omega_in * spec.crank_relative_rate
+    v_out = spec.eccentricity * omega_rel               # mm/s
     d_mean = (spec.input_shaft_diameter + spec.center_bore_diameter) / 2.0
     r_cam = spec.cam_diameter / 2.0
     v_cam = omega_rel * r_cam / 1000.0                       # m/s
@@ -113,7 +118,7 @@ def analyse_efficiency(spec: GearSpec, steps: int = SWEEP_STEPS,
 
     for cs in sweep(spec, steps):
         f = cs.forces(torque_per_disc)                       # N
-        v = cs.sliding_speed * omega_in                      # mm/s
+        v = cs.sliding_speed * omega_crank                   # mm/s
         ring_fv.append(float((f * v).sum()))
         peak_pin = max(peak_pin, float(f.max(initial=0.0)))
         peak_slide = max(peak_slide, float(cs.sliding_speed.max(initial=0.0)))
@@ -136,7 +141,7 @@ def analyse_efficiency(spec: GearSpec, steps: int = SWEEP_STEPS,
     lub = analyse_lubrication(
         spec, ring_load_N=peak_pin, output_load_N=peak_out,
         cam_load_N=max(ecc_f, default=0.0),
-        ring_sliding_m_s=peak_slide * omega_in / 1000.0,
+        ring_sliding_m_s=peak_slide * omega_crank / 1000.0,
         output_sliding_m_s=v_out / 1000.0, cam_sliding_m_s=v_cam,
         temperature_C=temperature_C)
 

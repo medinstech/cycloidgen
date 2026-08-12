@@ -52,9 +52,11 @@ class ParameterGuide:
 PARAMETERS: dict[str, ParameterGuide] = {
     # ------------------------------------------------------ cycloid geometry --
     "lobes": ParameterGuide(
-        "The number of lobes on the disc, N. The ring gets N+1 pins and the "
-        "reduction equals N, so this one field is the gear ratio.",
-        "Start from the reduction you need - it is the same number. Everything "
+        "The number of lobes on the disc, N. The ring gets N+1 pins, and the "
+        "reduction is one of those two numbers depending on which member the "
+        "output comes off - N off the carrier, N+1 off the ring housing.",
+        "Start from the reduction you need; off the carrier it is this number "
+        "and off the ring it is one less than this number. Everything "
         "else here is then sized around it rather than the other way about.",
         "A high ratio is a shallow lobe: the contacts get flatter, the pressure "
         "angle rises, and more of the load goes into pushing the disc sideways "
@@ -125,6 +127,23 @@ PARAMETERS: dict[str, ParameterGuide] = {
         "ligament is where a disc actually breaks."),
 
     # ------------------------------------------------------ output mechanism --
+    "output_member": ParameterGuide(
+        "Which of the two slow members turns the load: the carrier the output "
+        "pins stand on, or the ring housing the pins sit in. Whichever one you "
+        "do not pick is the one the gearbox is bolted down by.",
+        "Off the carrier for a gearbox with a shaft end, which is what a "
+        "machine expects and what the industrial drives are. Off the ring for "
+        "a drive whose *outside* turns - a wheel, a pulley, a joint - which is "
+        "what most printed micro drives are, and it is also the free extra "
+        "tooth of reduction: the same parts give N+1 instead of N. It carries "
+        "one real constraint, which is that the motor bolts to the member that "
+        "stands still, so the mounting face moves to the other end of the "
+        "drive when you change it.",
+        "Off the ring the output is a turning barrel: it has no shaft end, so "
+        "the load bolts to a face, and anything hung on it is carried by one "
+        "bearing on the carrier's boss rather than by a coupling. The output "
+        "also turns the same way as the input rather than against it, which "
+        "matters if something downstream was counting on the reversal."),
     "output_pin_count": ParameterGuide(
         "How many pins carry the output torque out of the disc.",
         "More is better and it is the strongest single lever on transmission "
@@ -372,12 +391,36 @@ PARAMETERS: dict[str, ParameterGuide] = {
         "It sets how much metal is left between the bolt circle and the pin "
         "pockets."),
     "output_boss_protrusion": ParameterGuide(
-        "How far the output boss stands past the end plate, for a coupling or "
-        "a clamp hub to grip.",
-        "Long enough for whatever grips it - the output of this topology is a "
-        "boss on the axis rather than a bolt face, so this is the whole "
-        "interface. Zero leaves it flush and ungrippable.",
-        "Length, and an overhung load further from the output bearing."),
+        "How far the output boss stands past the end plate. With the carrier "
+        "as the output that is grip length for a coupling or a clamp hub; with "
+        "the ring housing as the output it is the gap between the plate that "
+        "turns and the base that does not.",
+        "Off the carrier, long enough for whatever grips it - the output there "
+        "is a boss on the axis rather than a bolt face, so this is the whole "
+        "interface, and zero leaves it flush and ungrippable. Off the ring, "
+        "enough that the turning plate clears the base and whatever is bolted "
+        "through it; a few millimetres is plenty.",
+        "Length either way, and off the carrier an overhung load further from "
+        "the output bearing."),
+    "output_bolt_count": ParameterGuide(
+        "Bolts through the turning end plate, for a driven machine to attach "
+        "to. Ring output only: with the carrier as the output the interface is "
+        "the boss on the axis and this face carries the motor instead.",
+        "The same count as the tie bolts unless you have a reason. The two "
+        "patterns share one circle - the only radius on that plate with barrel "
+        "wall behind it to thread into - and are held apart by half a pitch, "
+        "which works exactly when the counts match or one divides the other. "
+        "Zero draws none, for a drive whose output is attached some other way.",
+        "Holes in the one plate that also carries the tie bolts, and a check "
+        "that will stop you when the two patterns run into each other."),
+    "output_bolt_diameter": ParameterGuide(
+        "The clearance hole those bolts pass through.",
+        "From the bolt you are using, like the tie bolts. It has to be smaller "
+        "than the housing wall: the circle runs up the middle of that wall, so "
+        "a bolt as wide as the wall has the ring-pin pockets on one side of it "
+        "and open air on the other.",
+        "It sets how much metal is left between an output bolt and the tie "
+        "bolt beside it."),
 
     # ---------------------------------------------------------------- bearings --
     "cam_bearing_fitted": ParameterGuide(

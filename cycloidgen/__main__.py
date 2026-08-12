@@ -29,8 +29,27 @@ def _spec_from_args(args):
         if numbers_may_have_moved(written):
             print(provenance(written), file=sys.stderr)
     else:
-        spec = preset(args.ratio or 15)
+        # ``--ratio`` is a reduction wherever this CLI uses it, including in the
+        # search - and off the ring a reduction of N+1 is a disc of N lobes,
+        # which is what ``preset`` is indexed by.  Asking for 20:1 and being
+        # handed 21:1 because of how the preset table happens to be keyed would
+        # be the flag quietly not doing what it says.
+        wanted = args.ratio or 15
+        spec = preset(max(wanted - 1, 3) if args.output_from == "ring" else wanted)
+    # Applied over a loaded design too, and deliberately: this is the one
+    # decision somebody is most likely to want to try both ways on a design
+    # they already have, and the answer is a different gearbox rather than a
+    # different view of the same one.
+    if args.output_from:
+        spec.output_member = _member(args.output_from)
     return _apply_omissions(spec, args)
+
+
+def _member(name: str):
+    """``--output-from`` as the enum.  Short words on the command line, because
+    the enum's own values have spaces in them and are meant for a combo box."""
+    from .core.spec import OutputMember
+    return OutputMember.CARRIER if name == "carrier" else OutputMember.RING
 
 
 def _apply_omissions(spec, args):
@@ -170,6 +189,7 @@ def _search(args) -> tuple[int, object | None]:
 
     req = Requirements(
         ratio=args.ratio or 29,
+        output_member=_member(args.output_from or "carrier"),
         output_torque_Nm=args.torque,
         input_rpm=args.rpm,
         max_outer_diameter_mm=args.max_od,
@@ -187,7 +207,9 @@ def _search(args) -> tuple[int, object | None]:
         objective=Objective(args.objective),
         disc_count=args.discs,
     )
-    print(f"searching for a {req.ratio}:1 drive, {req.output_torque_Nm:g} Nm out, "
+    print(f"searching for a {req.ratio}:1 drive off the "
+          f"{req.output_member.value} ({req.lobes} lobes), "
+          f"{req.output_torque_Nm:g} Nm out, "
           f"under {req.max_outer_diameter_mm:g} mm across, "
           f"optimising for {req.objective.value}...\n")
     result = optimise(req, effort=args.effort)
@@ -223,6 +245,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--version", action="version",
                         version=f"cycloidgen {__version__}")
     parser.add_argument("--ratio", type=int, help="generate a preset and exit")
+    parser.add_argument("--output-from", choices=("carrier", "ring"),
+                        help="which member turns the load: 'carrier' bolts the "
+                             "housing down and reduces by the lobe count, "
+                             "reversed; 'ring' bolts the carrier down and "
+                             "reduces by the pin count - one more - in the same "
+                             "direction. Applies to a preset, a loaded design "
+                             "and a search alike")
     parser.add_argument("--design", type=Path, help="load a saved design JSON")
     parser.add_argument("--out", type=Path, help="output folder for a headless run")
     parser.add_argument("--no-solids", action="store_true",

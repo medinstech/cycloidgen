@@ -45,7 +45,7 @@ from enum import Enum
 from typing import Literal
 
 import numpy as np
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ..analysis import DesignAnalysis, analyse
 from ..analysis.efficiency import analyse_efficiency
@@ -54,7 +54,7 @@ from ..analysis.mass import analyse_mass
 from ..analysis.mechanics import analyse_contacts, torque_capacity
 from ..analysis.stiffness import analyse_stiffness
 from ..core.profile import critical_radius
-from ..core.spec import MATERIALS, GearSpec, OffsetMode, Process
+from ..core.spec import MATERIALS, GearSpec, OffsetMode, OutputMember, Process
 
 __all__ = [
     "Candidate",
@@ -107,6 +107,11 @@ class Requirements(BaseModel):
     model_config = {"validate_assignment": True}
 
     ratio: int = Field(29, ge=3, le=200)
+    output_member: OutputMember = Field(
+        OutputMember.CARRIER,
+        description="which member turns the load; it decides how many lobes a "
+                    "given reduction needs, so the search has to know",
+    )
     output_torque_Nm: float = Field(5.0, gt=0)
     input_rpm: float = Field(1000.0, gt=0)
 
@@ -137,10 +142,37 @@ class Requirements(BaseModel):
                                           description="0 = no limit")
     objective: Objective = Objective.BALANCED
 
+    @property
+    def lobes(self) -> int:
+        """How many lobes this reduction needs.
+
+        The requirement is a *reduction* and the disc is cut to a lobe count,
+        and those are the same number only off the carrier.  Off the ring the
+        reduction is the pin count, so a 30:1 wants twenty-nine lobes - and a
+        search that took the two as interchangeable would quietly hand back a
+        drive one tooth off what was asked for.
+        """
+        return (self.ratio if self.output_member is OutputMember.CARRIER
+                else self.ratio - 1)
+
+    @model_validator(mode="after")
+    def _ratio_leaves_a_disc_to_cut(self) -> Requirements:
+        """A three-lobed disc is the smallest the profile code will generate, so
+        off the ring the smallest reduction is four rather than three.  Caught
+        here, where the requirement is stated, instead of as a spec error two
+        calls later that names a field the user never set."""
+        if self.lobes < 3:
+            raise ValueError(
+                f"a {self.ratio}:1 off the {self.output_member.value} needs "
+                f"{self.lobes} lobes, and the smallest disc is 3 - ask for "
+                f"{4 if self.output_member is OutputMember.RING else 3}:1 or more")
+        return self
+
     def base_spec(self) -> GearSpec:
         """A spec carrying every non-geometric decision the search must respect."""
         return GearSpec(
-            lobes=self.ratio,
+            lobes=self.lobes,
+            output_member=self.output_member,
             process=self.process,
             offset_mode=self.offset_mode,
             disc_material=self.disc_material,
@@ -164,7 +196,8 @@ def requirements_from_spec(spec: GearSpec,
                            objective: Objective = Objective.BALANCED) -> Requirements:
     """Prefill a search from a design the user already has open."""
     return Requirements(
-        ratio=spec.lobes,
+        ratio=spec.ratio,
+        output_member=spec.output_member,
         output_torque_Nm=spec.output_torque_Nm,
         input_rpm=spec.input_rpm,
         max_outer_diameter_mm=max(2.0 * spec.housing_outer_radius, 20.0),
@@ -282,7 +315,7 @@ def _build(req: Requirements, base: GearSpec, R: float, k1: float, rr_frac: floa
     Every rejection here is closed form.  Nothing sampled, nothing swept - this
     runs tens of thousands of times and has to stay free.
     """
-    lobes = req.ratio
+    lobes = req.lobes
     pins = lobes + 1
 
     eccentricity = k1 * R / pins

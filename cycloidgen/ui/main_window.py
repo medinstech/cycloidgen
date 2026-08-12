@@ -56,7 +56,7 @@ from ..core.designfile import (
 )
 from ..core.explain import explain, margin
 from ..core.guide import guide
-from ..core.spec import GearSpec, OffsetMode, Process, preset
+from ..core.spec import GearSpec, OffsetMode, OutputMember, Process, preset
 from ..core.validate import Severity
 from ..export import animation, write_bundle
 from ..export.manifest import group_keys
@@ -1982,8 +1982,12 @@ class MainWindow(QMainWindow):
         sections = [
             ("Ratings", [
                 ("Reduction", f"{s.ratio}:1",
-                 "ring fixed, output from the disc pin holes - the output "
-                 "turns against the input"),
+                 ("ring fixed, output from the disc pin holes"
+                  if s.output_member is OutputMember.CARRIER else
+                  "carrier fixed, output from the ring housing")
+                 + " - the output turns "
+                 + ("against the input" if s.output_reverses
+                    else "with the input")),
                 ("Rated output torque", f"{s.output_torque_Nm:.2f} Nm", "as entered"),
                 ("Torque capacity (ideal share)", f"{a.torque_capacity_Nm:.2f} Nm",
                  "every pin carrying its ideal share"),
@@ -2049,9 +2053,12 @@ class MainWindow(QMainWindow):
             ("Envelope", [
                 ("Outer diameter", self._length(2 * s.housing_outer_radius), ""),
                 ("Overall length", self._length(s.envelope_length),
-                 "disc stack plus output flange"),
+                 "barrel and both end plates"
+                 + (", plus the base it is bolted down by"
+                    if s.mount_base_fitted else "")),
                 ("Output speed", f"{s.output_rpm:.1f} rpm",
-                 f"at {s.input_rpm:g} rpm in, turning the other way"),
+                 f"at {s.input_rpm:g} rpm in, turning "
+                 + ("the other way" if s.output_reverses else "the same way")),
             ]),
         ]
         for title, rows in sections:

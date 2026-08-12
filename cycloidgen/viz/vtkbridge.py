@@ -46,13 +46,26 @@ __all__ = ["FEATURE_ANGLE", "closed_polydata", "feature_edges", "local_plane",
 FEATURE_ANGLE = 30.0
 
 
-#: Angles to try the triangulator at, in degrees, when it loses area at the
-#: one it was given.  The failure is numerical rather than geometric - the same
-#: disc succeeds on one hole phase and fails on the next - so turning the face
-#: in its own plane is enough to clear it, and *which* angle clears it differs
-#: per face.  Nothing here is special; they are spread and not multiples of one
-#: another, so a case that is degenerate at one is unlikely to be at the rest.
-_RETRY_ANGLES = (3.1, 11.3, 37.0, 61.7, 83.3, 127.9)
+#: Angles to try the triangulator at, in degrees, when it comes out wrong at
+#: the one it was given.  The failure is numerical rather than geometric - the
+#: same disc succeeds on one hole phase and fails on the next - so turning the
+#: face in its own plane is enough to clear it, and *which* angle clears it
+#: differs per face.  Nothing here is special; they are spread and not multiples
+#: of one another, so a case that is degenerate at one is unlikely to be at the
+#: rest.
+#:
+#: The last four came out of a search rather than off a hat: every distinct
+#: multi-hole face this app can draw - six ratios, both output members, every
+#: motor frame, three tie-bolt counts - was triangulated at every angle on a
+#: 0.7-degree grid, and these are the smallest set that covers all of them.
+#: The six before them are kept in front so that a face which already worked
+#: goes on being triangulated the way it was.
+#:
+#: A handful of faces have no clean angle at any rotation, and all of them are
+#: the same thing: a small motor's bolt pattern overlapping the shaft-support
+#: bore, so the loops genuinely cross and there is no face to fill.  Those
+#: designs are already an export-blocking ``MOTOR_FACE_CLASH`` error.
+_RETRY_ANGLES = (3.1, 11.3, 37.0, 61.7, 83.3, 127.9, 7.7, 118.3, 133.7, 135.1)
 
 #: How much of a face's area may go missing before it is treated as a failure.
 #: A correct triangulation matches the shoelace area to rounding; the failures
@@ -92,6 +105,34 @@ def _triangulate_at(coords: np.ndarray, sizes: list[int]) -> vtkPolyData | None:
     return out if out.GetNumberOfCells() else None
 
 
+def _measure(out: vtkPolyData) -> tuple[float, int, int]:
+    """One pass over a triangulation: ``(area, boundary edges, over-shared)``.
+
+    The area says whether the triangulator covered the face.  The edge counts
+    say whether it covered it *once* and left the boundary where the loops put
+    it - and those are not the same question, which is the whole reason this
+    returns three numbers instead of one.  A face can come back with its area
+    exactly right and a triangle missing, if the triangulator has also emitted
+    another one twice; the area cancels and the hole does not.
+    """
+    area = 0.0
+    edges: dict[tuple[int, int], int] = {}
+    polys, ids = out.GetPolys(), vtkIdList()
+    polys.InitTraversal()
+    verts = vtk_to_numpy(out.GetPoints().GetData())
+    while polys.GetNextCell(ids):
+        n = ids.GetNumberOfIds()
+        pid = [ids.GetId(k) for k in range(n)]
+        area += _polygon_area(np.array([verts[i] for i in pid]))
+        for k in range(n):
+            a, b = pid[k], pid[(k + 1) % n]
+            key = (a, b) if a < b else (b, a)
+            edges[key] = edges.get(key, 0) + 1
+    boundary = sum(1 for count in edges.values() if count == 1)
+    over = sum(1 for count in edges.values() if count > 2)
+    return area, boundary, over
+
+
 def _triangulated(points: np.ndarray, loops) -> vtkPolyData | None:
     """Triangulate one planar face, holes and all.
 
@@ -105,9 +146,18 @@ def _triangulated(points: np.ndarray, loops) -> vtkPolyData | None:
     used to be accepted as long as it produced *any* triangles: one disc's top
     face came out 0.93% short - a hole in the surface, four boundary edges
     wide, on a part the section then could not cap - while the same disc's
-    bottom face and the other disc were perfect.  So the area is checked
-    against the loops it was built from, and a face that comes up short is
-    tried again with the plane turned.
+    bottom face and the other disc were perfect.  So the result is checked
+    against the loops it was built from, and a face that fails is tried again
+    with the plane turned.
+
+    Checked two ways, because the area alone is not enough.  A plate carrying
+    two bolt circles and a bore - fourteen loops in one face - came back with
+    its area exact to rounding and a triangle missing all the same: the
+    triangulator had emitted a different one twice, and the two errors cancelled
+    in a sum of absolute areas.  What that face is *for* is being closed, so the
+    second test asks the topology directly - every edge either on a loop or
+    shared by exactly two triangles - which is the same statement the watertight
+    test makes about the finished part, made early enough to retry.
 
     The retry keeps the *connectivity* and throws the rotated coordinates away:
     the points come back from the original array, bit for bit, because they
@@ -115,6 +165,7 @@ def _triangulated(points: np.ndarray, loops) -> vtkPolyData | None:
     """
     sizes = [len(lp) for lp in loops]
     original = np.vstack([points[list(lp)] for lp in loops])
+    perimeter = sum(sizes)
 
     want = _polygon_area(points[list(loops[0])])
     for loop in loops[1:]:
@@ -135,17 +186,11 @@ def _triangulated(points: np.ndarray, loops) -> vtkPolyData | None:
         if out is None:
             continue
         best = best or out
-        if want <= 0.0:
-            return _with_points(out, original)
 
-        got = 0.0
-        polys, ids = out.GetPolys(), vtkIdList()
-        polys.InitTraversal()
-        verts = vtk_to_numpy(out.GetPoints().GetData())
-        while polys.GetNextCell(ids):
-            got += _polygon_area(
-                np.array([verts[ids.GetId(k)] for k in range(ids.GetNumberOfIds())]))
-        if abs(want - got) / want <= _AREA_TOLERANCE:
+        got, boundary, over = _measure(out)
+        if boundary != perimeter or over:
+            continue
+        if want <= 0.0 or abs(want - got) / want <= _AREA_TOLERANCE:
             return _with_points(out, original)
 
     # Every angle came up short.  The best of them is still a face, and a
@@ -365,11 +410,21 @@ def pose_matrix(mesh: Mesh, part: Part, phi: float, explode: float = 0.0):
     Kept as plain numbers rather than a ``vtkTransform`` so that the motion law
     can be checked without VTK - it is the same law
     :meth:`Mesh.world_vertices` applies, and the two are compared in the tests.
+
+    Including the frame: on a ring-output drive the whole assembly turns under
+    itself, and the orbit offset is a vector in the frame being turned, so it
+    has to be carried round with it rather than added afterwards.  Leaving it
+    out here would have left the two renderers drawing different gearboxes from
+    the same mesh - the software painter turning the housing and the hardware
+    one holding it still.
     """
-    angle = part.spin * (phi + part.phase)
+    frame = mesh.frame_spin * phi
+    angle = part.spin * (phi + part.phase) + frame
     if part.orbits:
         dx = mesh.eccentricity * np.cos(phi + part.phase)
         dy = -mesh.eccentricity * np.sin(phi + part.phase)
+        c, s = np.cos(frame), np.sin(frame)
+        dx, dy = c * dx - s * dy, s * dx + c * dy
     else:
         dx = dy = 0.0
     return (np.degrees(angle), float(dx), float(dy),

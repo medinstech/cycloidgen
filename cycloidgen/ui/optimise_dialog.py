@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core.spec import MATERIALS, GearSpec, OffsetMode, Process
+from ..core.spec import MATERIALS, GearSpec, OffsetMode, OutputMember, Process
 from ..design import (
     Candidate,
     Objective,
@@ -183,6 +183,17 @@ class OptimiseDialog(QDialog):
         self._ratio = QSpinBox()
         self._ratio.setRange(3, 200)
         self._ratio.setSuffix(" :1")
+        # Which member turns belongs with the reduction rather than under
+        # materials, because it *is* half of the reduction: the same disc gives
+        # N off the carrier and N+1 off the ring, so a search told the wrong one
+        # would hand back a drive a tooth away from what was asked for.
+        self._member = QComboBox()
+        for member in OutputMember:
+            self._member.addItem(member.value, member)
+        self._member.setToolTip(
+            "Which member turns the load, and so which one is bolted down. Off "
+            "the ring housing the output turns with the input instead of "
+            "against it, and the motor moves to the carrier's base.")
         self._torque = QDoubleSpinBox()
         self._torque.setRange(0.01, 10000)
         self._torque.setDecimals(2)
@@ -192,6 +203,7 @@ class OptimiseDialog(QDialog):
         self._rpm.setDecimals(0)
         self._rpm.setSuffix(" rpm")
         f.addRow("Reduction", self._ratio)
+        f.addRow("Output from", self._member)
         f.addRow("Output torque", self._torque)
         f.addRow("Input speed", self._rpm)
         layout.addWidget(duty)
@@ -320,6 +332,8 @@ class OptimiseDialog(QDialog):
     def _load(self) -> None:
         r = self._req
         self._ratio.setValue(r.ratio)
+        self._member.setCurrentIndex(
+            self._member.findData(r.output_member))
         self._torque.setValue(r.output_torque_Nm)
         self._rpm.setValue(r.input_rpm)
         self._max_od.setValue(r.max_outer_diameter_mm)
@@ -342,6 +356,7 @@ class OptimiseDialog(QDialog):
     def _collect(self) -> Requirements:
         return Requirements(
             ratio=self._ratio.value(),
+            output_member=self._member.currentData(),
             output_torque_Nm=self._torque.value(),
             input_rpm=self._rpm.value(),
             max_outer_diameter_mm=self._max_od.value(),

@@ -149,6 +149,18 @@ def analyse_mass(spec: GearSpec) -> MassResult:
     flange_volume += math.pi * ((spec.hub_diameter / 2.0) ** 2
                                 - (spec.hub_bore / 2.0) ** 2) * spec.plate_thickness
     flange_volume -= math.pi * (spec.hub_bore / 2.0) ** 2 * spec.output_flange_thickness
+    # And, on a ring-output drive, the base on the end of that boss - the plate
+    # the whole gearbox is bolted down by.  It is housing-sized and as thick as
+    # an end plate, so on a small drive it is a fifth of the assembled mass;
+    # leaving it out would report a gearbox lighter than the one exported.
+    if spec.mount_base_fitted:
+        flange_volume += math.pi * (spec.housing_outer_radius ** 2
+                                    - (spec.hub_bore / 2.0) ** 2) * spec.plate_thickness
+        if spec.has_motor_face:
+            frame = spec.motor
+            flange_volume -= (frame.bolt_count * math.pi
+                              * (frame.bolt_diameter / 2.0) ** 2
+                              * spec.plate_thickness)
     flange_mass = max(flange_volume, 0.0) * _MM3_TO_CM3 * rho_house
 
     # The two plates that close the housing.  They are part of the gearbox and
@@ -158,10 +170,16 @@ def analyse_mass(spec: GearSpec) -> MassResult:
     # part with its own line on the bill of materials, and while the two were one
     # number that line had to quote zero - a made part that weighs nothing.
     outer_area = math.pi * spec.housing_outer_radius ** 2
+    # The output bolts go through one of the two, so they come off once - the
+    # same accounting the tie bolts get for going through both.
+    output_bolt_area = (spec.output_bolt_count * math.pi
+                        * (spec.output_bolt_diameter / 2.0) ** 2
+                        if spec.mount_base_fitted else 0.0)
     plates_volume = (2.0 * outer_area
                      - math.pi * (spec.hub_bore / 2.0) ** 2
                      - math.pi * (spec.output_bearing_seat_diameter / 2.0) ** 2
                      - 2.0 * bolt_area          # the tie bolts go through both
+                     - output_bolt_area
                      ) * spec.plate_thickness
     plates_mass = max(plates_volume, 0.0) * _MM3_TO_CM3 * rho_house
 
@@ -172,9 +190,14 @@ def analyse_mass(spec: GearSpec) -> MassResult:
     # kg*mm^2:  g/cm^3 * mm^4 * 1e-3 (cm^3/mm^3) / 1e3 (kg/g) = 1e-6
     disc_inertia = polar * t * rho_disc * 1e-6
     m_disc_kg = disc_mass / 1000.0
-    # each disc orbits at radius E and spins at 1/ratio of the input
+    # Each disc orbits at radius E - at the input speed exactly, whichever
+    # member is grounded, because the orbit is the crank's own motion seen from
+    # the axis - and spins at `disc_speed_ratio` of the input.  That second term
+    # is 1/N off the carrier and *zero* off the ring, where the disc does not
+    # rotate in the ground frame at all: a ring-output drive reflects only the
+    # orbiting mass back to the motor.
     reflected = n * (m_disc_kg * spec.eccentricity ** 2
-                     + disc_inertia / spec.ratio ** 2)
+                     + disc_inertia * spec.disc_speed_ratio ** 2)
 
     # ---- unbalance ----------------------------------------------------------
     omega = spec.input_rpm * 2.0 * math.pi / 60.0

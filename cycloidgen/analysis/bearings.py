@@ -9,7 +9,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from ..core.spec import AUTOMATIC, CARRIER_DROP, GearSpec
+from ..core.spec import AUTOMATIC, CARRIER_DROP, GearSpec, OutputMember
 
 __all__ = ["CATALOGUE", "Bearing", "BearingChoice", "BearingPlacement", "BearingRing",
            "bearing_placements", "bearing_schedule", "pin_shank_diameter",
@@ -132,17 +132,21 @@ def _roller_rpm(spec: GearSpec) -> float:
     """How fast a ring pin roller turns, rev/min.
 
     Not the input speed: the roller only turns as fast as the disc flank drags
-    its surface.  One lobe passes each pin every input revolution, and the arc
+    its surface.  One lobe passes each pin every *crank* revolution, and the arc
     swept over the pin in that time is about the lobe pitch, so the surface
-    travel per input revolution is a lobe pitch and the roller turns that
+    travel per crank revolution is a lobe pitch and the roller turns that
     divided by its own circumference.  Rough, and it only sets the L10 life
     exponent's input rather than any stress.
+
+    Per crank revolution and not per input revolution, which are the same thing
+    only while the ring is the grounded member.  The mesh is driven by the crank
+    whichever end the drive is bolted down at.
     """
     circumference = 2.0 * math.pi * spec.pin_radius
     if circumference <= 0:
         return 0.0
     lobe_pitch = 2.0 * math.pi * spec.pin_circle_radius / max(spec.pin_count, 1)
-    return spec.input_rpm * lobe_pitch / circumference
+    return spec.input_rpm * spec.crank_rate * lobe_pitch / circumference
 
 
 def _stacked(width: float, length: float) -> int:
@@ -275,7 +279,13 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
     # had to sit on - and the default cam is the bore less 8 mm precisely to
     # leave room for this bearing's wall, so the two numbers were never
     # interchangeable.
-    rpm = spec.input_rpm * (1.0 - 1.0 / spec.ratio)
+    # It separates the disc from the crank, so it turns at the difference
+    # between them - and they turn opposite ways, so that difference is their
+    # *sum*.  This read ``1 - 1/ratio`` for a long time, which is the same
+    # number with the sign of the disc's rotation reversed: it understated the
+    # fastest bearing in the drive by 14% at 15 lobes, and understated it most
+    # exactly where the ratio is low and the speed is highest.
+    rpm = spec.input_rpm * spec.crank_relative_rate
     if not spec.cam_bearing_fitted:
         out.append(BearingChoice(
             role="Eccentric cam bearing", fitted=False, count=0, bearing=None,
@@ -283,9 +293,9 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
             carries="the radial force the disc pushes back into the crank",
             seat=f"none - the {spec.center_bore_diameter:.1f} mm disc bore runs "
                  f"straight on the cam",
-            note="No cam bearing: the bore is a plain journal at nearly the "
-                 "input speed, so this contact is wear-limited rather than "
-                 "life-limited - see the PV check.",
+            note="No cam bearing: the bore is a plain journal at the input "
+                 "speed or a shade over it, so this contact is wear-limited "
+                 "rather than life-limited - see the PV check.",
         ))
     else:
         cam = _fill(_Seat(spec.cam_diameter, spec.center_bore_diameter,
@@ -307,6 +317,13 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
         ))
 
     # 2. output pin rollers - optional, and the biggest single sliding loss
+    #
+    # The hole walks round the pin at the rate the disc moves against the crank,
+    # which is the same rate the cam bearing turns at and for the same reason.
+    # That is the cycle this contact is loaded on, so it is what the L10 life is
+    # counted in - the input speed, which this used to quote, is neither the
+    # speed of anything here nor the frequency of anything.
+    outpin_rpm = spec.input_rpm * spec.crank_relative_rate
     if spec.output_pins_are_rollers:
         # As with the ring pins, the roller's OD *is* the working pin: the hole
         # is cut to the diameter the disc runs on, so the sleeve takes that
@@ -316,15 +333,15 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
         # why nothing has ever been selected here.
         outer = spec.output_pin_diameter
         outpin = _fill(_Seat(0.0, outer, spec.disc_thickness, output_pin_load_N,
-                               spec.input_rpm, ("needle",)),
+                               outpin_rpm, ("needle",)),
                        spec.output_pin_roller, spec.bearing_min_life_hours)
         b2, why2 = outpin.bearing, outpin.problem
         per_seat = _stacked(b2.width, spec.disc_thickness) if b2 else 1
         out.append(BearingChoice(
             role="Output pin roller",
             count=spec.output_pin_count * spec.disc_count * per_seat,
-            bearing=b2, load_N=output_pin_load_N, speed_rpm=spec.input_rpm,
-            life_hours=_life_hours(b2, output_pin_load_N, spec.input_rpm) if b2 else 0.0,
+            bearing=b2, load_N=output_pin_load_N, speed_rpm=outpin_rpm,
+            life_hours=_life_hours(b2, output_pin_load_N, outpin_rpm) if b2 else 0.0,
             carries="one pin's share of the output torque",
             seat=f"over each output pin, {spec.output_pin_diameter:g} mm OD "
                  f"working surface running in the "
@@ -340,7 +357,7 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
     else:
         out.append(BearingChoice(
             role="Output pin roller", fitted=False, count=0, bearing=None,
-            load_N=output_pin_load_N, speed_rpm=spec.input_rpm,
+            load_N=output_pin_load_N, speed_rpm=outpin_rpm,
             life_hours=float("inf"),
             carries="nothing - the pin rubs directly in the hole",
             seat="",
@@ -379,12 +396,21 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
     # at all.  The cam sits between them, so each takes about half of what the
     # discs push back; an overhung cam loads the inner one far harder and this
     # does not model that.
+    #
+    # The two do not turn at the same speed and never have: one sits in an end
+    # plate and the other in the carrier's boss, and those two bodies move
+    # differently whichever member is grounded.  One part number does for both -
+    # the seats are the same size - so the schedule keeps one row and sizes it
+    # on the faster of the two, which is the one that decides the life.
     shaft_load = eccentric_load_N * spec.disc_count / 2.0
+    plate_end_rpm = spec.input_rpm * spec.crank_rate
+    boss_end_rpm = spec.input_rpm * spec.crank_relative_rate
+    shaft_rpm = max(plate_end_rpm, boss_end_rpm)
     if not spec.shaft_bearings_fitted:
         out.append(BearingChoice(
             role="Input shaft support", fitted=False, carried_elsewhere=True,
             count=0, bearing=None,
-            load_N=shaft_load, speed_rpm=spec.input_rpm, life_hours=float("inf"),
+            load_N=shaft_load, speed_rpm=shaft_rpm, life_hours=float("inf"),
             carries="nothing here - the driving motor's own bearings take the "
                     "crank reaction",
             seat="none - the drive hangs on the motor face",
@@ -397,19 +423,21 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
         # carrier's boss at the other - which is what lets one part number do for
         # both.  Width against twice the plate: a bearing may stand proud of it.
         shaft = _fill(_Seat(spec.input_shaft_diameter, spec.hub_bore,
-                            spec.plate_thickness, shaft_load, spec.input_rpm,
+                            spec.plate_thickness, shaft_load, shaft_rpm,
                             ("ball",), journal="input shaft"),
                       spec.shaft_bearing, spec.bearing_min_life_hours)
         b5, why5 = shaft.bearing, shaft.problem
         out.append(BearingChoice(
             role="Input shaft support", count=2,
-            bearing=b5, load_N=shaft_load, speed_rpm=spec.input_rpm,
-            life_hours=_life_hours(b5, shaft_load, spec.input_rpm) if b5 else 0.0,
+            bearing=b5, load_N=shaft_load, speed_rpm=shaft_rpm,
+            life_hours=_life_hours(b5, shaft_load, shaft_rpm) if b5 else 0.0,
             carries="half the crank reaction each, plus whatever the driving "
                     "coupling adds",
             seat=f"on the {spec.input_shaft_diameter:.1f} mm shaft, in the "
                  f"{spec.hub_bore:.1f} mm bore of the input end plate at one end "
-                 f"and of the output carrier's boss at the other",
+                 f"and of the output carrier's boss at the other - "
+                 f"{plate_end_rpm:.0f} and {boss_end_rpm:.0f} rpm respectively, "
+                 f"sized on the faster",
             problem=why5, fits=shaft.fits,
             note=("" if (b5 or why5) else
                   f"nothing in the catalogue both fits a {spec.hub_bore:.1f} mm "
@@ -420,17 +448,26 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
         ))
 
     # 5. main output bearing - carries the external load, turns slowly
+    #
+    # The one seat whose *geometry* does not care which member is the output:
+    # it sits between the carrier's boss and the output end plate either way,
+    # and it separates the same two bodies at the same relative speed - the
+    # output speed - because that is what the output speed is. What changes is
+    # which side of it is bolted down, and so what has to be said about it.
     radial = output_pin_load_N * spec.output_pin_count / 2.0
+    turning, held = (("output flange", "the driven machine")
+                     if spec.output_member is OutputMember.CARRIER else
+                     ("housing", "the drive's own base"))
     if not spec.output_bearing_fitted:
         out.append(BearingChoice(
             role="Main output bearing", fitted=False, carried_elsewhere=True,
             count=0, bearing=None,
             load_N=radial, speed_rpm=spec.output_rpm, life_hours=float("inf"),
-            carries="nothing here - the driven machine locates the output flange",
-            seat="none - the flange is carried by whatever it bolts to",
+            carries=f"nothing here - the driven machine locates the {turning}",
+            seat=f"none - the {turning} is carried by whatever it bolts to",
             note=f"No output bearing: the driven machine has to locate the "
-                 f"flange and take {radial:.0f} N of radial load, and a flange "
-                 f"free to tilt loads the output pins unevenly.",
+                 f"{turning} and take {radial:.0f} N of radial load, and a "
+                 f"{turning} free to tilt loads the output pins unevenly.",
         ))
     else:
         output = _fill(_Seat(spec.hub_diameter,
@@ -443,8 +480,12 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
             role="Main output bearing", count=1,
             bearing=b3, load_N=radial, speed_rpm=spec.output_rpm,
             life_hours=_life_hours(b3, radial, spec.output_rpm) if b3 else 0.0,
-            carries="whatever the machine hangs on the output flange",
+            carries=f"whatever the machine hangs on the {turning}",
             seat=f"on the {spec.hub_diameter:.1f} mm carrier boss, in the "
+                 f"{spec.output_bearing_seat_diameter:.1f} mm bore of the output "
+                 f"end plate - the boss is held by {held} and the plate turns"
+                 if spec.output_member is OutputMember.RING else
+                 f"on the {spec.hub_diameter:.1f} mm carrier boss, in the "
                  f"{spec.output_bearing_seat_diameter:.1f} mm bore of the output "
                  f"end plate",
             problem=why3, fits=output.fits,

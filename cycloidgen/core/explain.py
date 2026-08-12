@@ -433,6 +433,20 @@ EXPLANATIONS: dict[str, Explanation] = {
         "Thicken the housing wall, or use a smaller bolt. The wall is what "
         "creates the band these have to fit in, so it is the one that moves.",
         keep="above", unit="mm"),
+    "OUTPUT_BOLT_CLASH": Explanation(
+        "The output face's bolts have nowhere to go",
+        "output bolt < housing wall, and clear of the tie bolt beside it",
+        "A ring-output drive turns its housing, so the load cannot bolt to a "
+        "shaft end - it bolts to the end plate that turns with it. Those bolts "
+        "want barrel wall behind them to thread into, and the only radius on "
+        "that plate with any is the one the tie bolts already use. So the two "
+        "patterns share a circle and are held apart by half a tie-bolt pitch, "
+        "which is as far apart as they can be and is far enough only while the "
+        "counts line up: equal counts interleave perfectly, seven against six "
+        "does not, and twelve against six lands one hole straight on another.",
+        "Match the two counts, or make one a multiple of the other. If it is "
+        "the wall rather than the spacing, thicken it or use a smaller bolt.",
+        keep="above", unit="mm"),
     "MOTOR_FACE_CLASH": Explanation(
         "The motor's bolt pattern misses the metal",
         "bore < bolt circle < the rim, with room for the bolt itself",

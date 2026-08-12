@@ -152,14 +152,42 @@ def eccentric_shaft(spec: GearSpec) -> cq.Workplane:
     return shaft
 
 
+def _motor_pattern(wp: cq.Workplane, spec: GearSpec) -> cq.Workplane:
+    """Drill a motor's bolt pattern from whichever face ``wp`` is on.
+
+    NEMA frames put four bolts on a *square*; metric flanges use a circle.
+    Which of the two it is comes off the frame rather than being assumed here,
+    for the reason the table exists at all - four holes drawn on a circle of the
+    same size land where a NEMA motor has nothing.
+    """
+    frame = spec.motor
+    if frame.square:
+        return wp.rarray(frame.bolt_span, frame.bolt_span, 2, 2).hole(
+            frame.bolt_diameter)
+    return wp.polarArray(frame.bolt_span / 2.0, 0, 360, frame.bolt_count).hole(
+        frame.bolt_diameter)
+
+
 def output_flange(spec: GearSpec,
                   placements: Sequence[BearingPlacement] = ()) -> cq.Workplane:
-    """Carrier plate, its output pins, and the boss the drive turns on.
+    """Carrier plate, its output pins, the boss, and - on a ring-output drive -
+    the base the whole gearbox is bolted down by.
 
     The boss is what makes the output bearing a real part rather than a line on
     a schedule: it stands out through the output end plate, carries that bearing
     on its outside, and holds the outboard shaft support on its inside.  Without
     it the flange was a plate floating on six pins.
+
+    What is on the *end* of that boss depends on which member turns.  Off the
+    carrier, nothing: the boss is the output shaft end and a coupling grips it.
+    Off the ring, this part is the one that stands still, so it is what the
+    drive is mounted by - the boss ends in a plate the size of the housing with
+    the motor's pattern in it, and the protrusion that used to be grip length
+    becomes the standoff that keeps that plate clear of the turning one.
+
+    One part rather than a base bolted to a carrier, because it is one rigid
+    body: everything here is grounded together, and a joint drawn across it
+    would be a joint with no load to carry and a fastener pattern to invent.
     """
     plate_r = spec.output_bolt_circle_radius + spec.output_pin_diameter
     t = spec.output_flange_thickness
@@ -174,9 +202,27 @@ def output_flange(spec: GearSpec,
             .circle(shank / 2.0)
             .extrude(spec.output_pin_length))
     body = plate.union(hub).union(pins)
-    # Bored through the lot in one go, from the far face of the boss: the shaft
-    # passes through both and a two-diameter bore here would be a fit this app
-    # has no reason to claim.
+
+    if spec.mount_base_fitted:
+        base = (cq.Workplane("XY").workplane(offset=spec.base_plate_bottom)
+                .circle(spec.housing_outer_radius)
+                .extrude(spec.plate_thickness))
+        if spec.has_motor_face:
+            frame = spec.motor
+            # The register first, and only where the spigot is wider than the
+            # bore already through here - a motor that pilots on 22 mm into a
+            # 22 mm bore is already located by it.
+            if frame.pilot_diameter > spec.hub_bore:
+                base = (base.faces("<Z").workplane()
+                        .circle(frame.pilot_diameter / 2.0)
+                        .cutBlind(-min(frame.pilot_depth,
+                                       spec.plate_thickness / 2.0)))
+            base = _motor_pattern(base.faces("<Z").workplane(), spec)
+        body = body.union(base)
+
+    # Bored through the lot in one go, from the far face: the shaft passes
+    # through all of it and a two-diameter bore here would be a fit this app has
+    # no reason to claim.
     return (body.faces("<Z").workplane()
             .circle(spec.hub_bore / 2.0)
             .cutThruAll())
@@ -188,8 +234,15 @@ def housing_end_plate(spec: GearSpec, bore: float,
 
     Same outside as the housing, because they bolt to it face to face.  What
     differs between them is the hole - the input side is bored for the shaft
-    support, the output side for the bearing the whole drive turns on - and
-    whether a motor bolts to the outside of it.
+    support, the output side for the bearing the whole drive turns on - and what
+    is cut into the outside of it.
+
+    ``motor_face`` marks the *input-side* plate rather than promising a motor:
+    what that face is for depends on which member turns.  With the housing
+    grounded it is where the motor bolts on.  With the housing as the output it
+    is the face that turns, so the motor has gone to the carrier's base and this
+    is what the driven machine bolts to instead - the same plate, the opposite
+    end of the power flow.
     """
     plate = (cq.Workplane("XY")
              .circle(spec.housing_outer_radius)
@@ -202,7 +255,14 @@ def housing_end_plate(spec: GearSpec, bore: float,
                              spec.housing_bolt_count)
                  .hole(spec.housing_bolt_diameter))
 
-    if motor_face and spec.has_motor_face:
+    if motor_face and spec.mount_base_fitted:
+        if spec.output_bolt_count:
+            plate = (plate.faces(">Z").workplane()
+                     .polarArray(spec.output_face_bolt_radius,
+                                 math.degrees(spec.output_bolt_phase), 360,
+                                 spec.output_bolt_count)
+                     .hole(spec.output_bolt_diameter))
+    elif motor_face and spec.has_motor_face:
         frame = spec.motor
         # The register first: a shallow recess on the outside face that the
         # motor's spigot drops into, and the only thing that actually centres it
@@ -212,13 +272,7 @@ def housing_end_plate(spec: GearSpec, bore: float,
             plate = (plate.faces(">Z").workplane()
                      .circle(frame.pilot_diameter / 2.0)
                      .cutBlind(-frame.pilot_depth))
-        plate = (plate.faces(">Z").workplane()
-                 .rarray(spec.motor.bolt_span, spec.motor.bolt_span, 2, 2)
-                 .hole(frame.bolt_diameter)
-                 if frame.square else
-                 plate.faces(">Z").workplane()
-                 .polarArray(frame.bolt_span / 2.0, 0, 360, frame.bolt_count)
-                 .hole(frame.bolt_diameter))
+        plate = _motor_pattern(plate.faces(">Z").workplane(), spec)
     return plate
 
 

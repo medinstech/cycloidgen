@@ -341,10 +341,14 @@ class AssemblyView(QWidget):
         painter.setPen(QColor(p.ink))
         if self._spec is not None:
             # Modulo a turn: playback runs the crank unwrapped over the
-            # mechanism's period, which is `lobes` input revolutions.
-            crank = self._crank % 360.0
-            out = (self._crank / self._spec.ratio) % 360.0
-            painter.drawText(12, 20, f"INPUT {crank:6.1f} deg")
+            # mechanism's period, which is `lobes` input revolutions.  And the
+            # crank angle is the *input* angle only while the ring is the
+            # grounded member - with the carrier grounded the crank runs at
+            # (N+1)/N of the input, so what the shafts read is not the
+            # parameter the animation is stepping.
+            turned = abs(self._spec.shaft_spin) * self._crank
+            out = (turned / self._spec.ratio) % 360.0
+            painter.drawText(12, 20, f"INPUT {turned % 360.0:6.1f} deg")
             painter.drawText(12, 36, f"OUTPUT{out:7.2f} deg   {self._spec.ratio}:1")
 
         right, up, _ = self._camera.basis()

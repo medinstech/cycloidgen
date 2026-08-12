@@ -93,7 +93,10 @@ def analyse_contacts(spec: GearSpec, steps: int = SWEEP_STEPS) -> ContactResult:
     slide_means: list[float] = []
     peak_out_f = 0.0
 
-    omega_in = spec.input_rpm * 2.0 * np.pi / 60.0
+    # Crank rate, not input rate: the sliding speeds a sweep hands back are per
+    # unit crank angle, and the two part company as soon as the carrier rather
+    # than the ring is the member bolted down.
+    omega_crank = spec.input_rpm * 2.0 * np.pi / 60.0 * spec.crank_rate
 
     for cs in sweep(spec, steps):
         f = cs.forces(torque_per_disc)
@@ -106,7 +109,7 @@ def analyse_contacts(spec: GearSpec, steps: int = SWEEP_STEPS) -> ContactResult:
             peak_p = max(peak_p, float(p[live].max()))
             min_req = min(min_req, float(req[live].min()))
             n_contact = max(n_contact, int(live.sum()))
-            slide_means.append(float((cs.sliding_speed[live] * omega_in).mean()))
+            slide_means.append(float((cs.sliding_speed[live] * omega_crank).mean()))
 
         # resultant radial force the disc pushes into the eccentric bearing
         fv = (f[:, None] * cs.normals).sum(axis=0)

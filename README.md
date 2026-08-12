@@ -43,15 +43,19 @@
 
 - **Exact geometry.** The conjugate profile in closed form, verified to sit at
   exactly the pin radius from the pin-centre locus — envelope deviation 0.0 µm.
+- **Either member as the output.** Bolt the housing down and take `N:1`
+  reversed off the carrier, or bolt the carrier down and take `N+1:1` off the
+  turning housing. The mounting face, the bearing speeds and the part that
+  turns on screen all follow.
 - **A datasheet, not a drawing.** Contact stress, torque capacity, efficiency,
   torsional stiffness, lost motion, transmission error, PV and running
   temperature, lubrication regime, mass and inertia, bearing life.
-- **Fifty-five checks that explain themselves.** Each says what it tests, what
+- **Fifty-six checks that explain themselves.** Each says what it tests, what
   goes wrong physically when it fails, and which parameter to move — and lights
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
   a shortlist that passes every check, with the trade-offs side by side.
-- **Nothing is asserted that is not verified.** 779 tests, and where two parts
+- **Nothing is asserted that is not verified.** 913 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -141,6 +145,7 @@ Headless, without opening the window:
 python -m cycloidgen --ratio 29 --out ./my_gearbox
 python -m cycloidgen --design saved.json --out ./x --no-solids
 python -m cycloidgen --ratio 29 --no-cam-bearing --no-shaft-bearings --out ./x
+python -m cycloidgen --ratio 20 --output-from ring --out ./x   # the housing turns
 ```
 
 Or put a whole grid of designs through it and get a table rather than a folder
@@ -272,19 +277,52 @@ x(t) =  R·cos(t) − E·cos(Np·t) − Rr·(cos(t) − K1·cos(Np·t)) / D(t)
 y(t) = −R·sin(t) + E·sin(Np·t) + Rr·(sin(t) − K1·sin(Np·t)) / D(t)
 ```
 
-The reduction is the lobe count, `i = N = Np − 1`, and the output pin holes are
-the pin diameter plus twice the eccentricity.
+The output pin holes are the pin diameter plus twice the eccentricity. The
+generating curve is a hypotrochoid, the disc flank its equidistant offset at
+`Rr`, which is what "rolls on the inside" means in the formulae above — the sign
+of `y(t)` is not free.
 
-**Which member is grounded.** This is the *fixed-ring* arrangement: the ring
-pins are held in the housing, the disc rolls on the inside of the pin circle,
-and the output is taken from the disc's pin holes through the carrier. In
-epicyclic terms that is the **planetary** configuration, and it is the choice
-that fixes both the ratio and the direction — the output turns **against** the
-input, at `i = N`. Grounding the carrier instead and taking the output off the
-ring would be the *star* configuration: same parts, ratio `Np`, and the output
-turns the same way as the input. The generating curve is a hypotrochoid, the
-disc flank its equidistant offset at `Rr`, which is what "rolls on the inside"
-means in the formulae above — the sign of `y(t)` is not free.
+## Which member is the output
+
+A cycloidal drive is a **three-shaft** machine, not a two-shaft one. The crank
+is always the input; the ring the pins sit in and the carrier the pins through
+the disc holes stand on are interchangeable. Ground either one and the other is
+the output — and which you ground is a design decision, not a point of view.
+Both are built and sold, so `output_member` picks between them and everything
+downstream follows.
+
+| | **Carrier output** (`output pin carrier`) | **Ring output** (`ring housing`) |
+|---|---|---|
+| Epicyclic name | planetary | star |
+| Bolted down | ring housing and both end plates | carrier, output pins and its base |
+| Turns | carrier, pins and boss | housing barrel and both end plates |
+| Reduction | `N` (the lobe count) | `Np = N+1` (the pin count) |
+| Direction | against the input | with the input |
+| Motor bolts to | the input end plate | the carrier's base |
+| Load attaches to | the boss on the axis | bolts through the input end plate |
+| Cam bearing speed | `(N+1)/N ×` input | exactly the input speed |
+| Disc rotation in the ground frame | `1/N` of the input | none — it only orbits |
+
+The extra tooth of reduction is free: the *same parts*, bolted down at the other
+end. What it costs is the shaft end — a turning barrel has nowhere to grip, so
+the load bolts to a face, and the drive is carried by the one bearing on the
+grounded carrier's boss rather than by a coupling.
+
+Two things follow from grounding the other member and are worth stating because
+they are easy to get wrong. First, every relative motion inside the drive is
+**unchanged** — grounding a member adds one rigid rotation to all of it at once,
+which is exactly what `GearSpec.frame_spin` is, and it is why the 3D view draws
+one mechanism from one mesh. Second, the crank is then no longer turning at the
+input speed: it runs at `(N+1)/N` of it, so every sliding speed in the drive
+passes through `GearSpec.crank_rate` on its way from rpm to mm/s.
+
+The motor face has to move, and that is not cosmetic — a motor bolted to a plate
+that turns is a gearbox nobody can build. So on a ring-output drive the carrier
+grows a base at the end of its boss, the motor's pattern and register go into
+that, and the input end plate gets an output bolt circle instead. Those output
+bolts share the tie bolts' circle, because that is the one radius on that plate
+with barrel wall behind it to thread into; they are held half a pitch away from
+them, and `OUTPUT_BOLT_CLASH` says so when the two counts do not interleave.
 
 > **Sign warning.** The equivalent `psi` formulation needs a *leading minus*:
 > `psi(t) = -atan2(sin(N·t), R/(E·Np) - cos(N·t))`. The positive-sign variant is
@@ -401,7 +439,7 @@ Beyond the geometry checks, every design gets a datasheet:
 
 ## Checks
 
-Fifty-five of them. Errors block export; warnings do not; several are readings
+Fifty-six of them. Errors block export; warnings do not; several are readings
 rather than tests.
 
 **Profile** — `K1_TOO_HIGH` · `K1_HIGH` · `UNDERCUT` · `UNDERCUT_MARGIN` ·
@@ -429,8 +467,8 @@ rather than tests.
 `OVERTEMP` · `RUNNING_HOT` · `SHORT_BEARING_LIFE` · `NO_BEARING_FITS` ·
 `BEARING_DOES_NOT_FIT` · `BEARINGS_OMITTED`
 
-**Mounting** — `HOUSING_BOLT_CLASH` · `MOTOR_SHAFT_MISMATCH` ·
-`MOTOR_FACE_CLASH` · `MOTOR_RADIAL_LOAD`
+**Mounting** — `HOUSING_BOLT_CLASH` · `OUTPUT_BOLT_CLASH` ·
+`MOTOR_SHAFT_MISMATCH` · `MOTOR_FACE_CLASH` · `MOTOR_RADIAL_LOAD`
 
 **Dynamics and mass** — `SINGLE_DISC_UNBALANCE` · `UNBALANCE_FORCE` · `MASS`
 
@@ -672,7 +710,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          779 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          913 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 

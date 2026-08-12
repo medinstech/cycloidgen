@@ -18,7 +18,7 @@ from matplotlib.patches import Circle, Polygon
 
 from ..core import profile as prof
 from ..core.kinematics import contacts, ring_stage_period, sweep, to_world
-from ..core.spec import GearSpec
+from ..core.spec import GearSpec, OutputMember
 from ..units import unit as _unit_for
 
 __all__ = [
@@ -215,6 +215,8 @@ class ProfileView:
         self._reference: GearSpec | None = None
         self._overlays = Overlays()
         self._crank = 0.0
+        self._ring_pins: list = []
+        self._pin_labels: list = []
         # `tight_layout` solves for the figure size it is run at and writes the
         # answer down as *fractions*.  Embedded in a window the figure is then
         # resized under it, and a fraction that reserved enough room for the
@@ -278,16 +280,23 @@ class ProfileView:
             ax.add_artist(_circle(0, 0, reference.housing_outer_radius, t["muted"],
                                   0.8, dashed=True, alpha=0.7))
 
+        # The barrel and the pin circle are concentric, so they read the same
+        # whichever way the housing is turning.  The pins do not: on a
+        # ring-output drive they are the part that moves, and drawing them
+        # nailed down would be drawing the wrong mechanism - the readout would
+        # claim an output angle with nothing on screen turning by it.
         ax.add_artist(_circle(0, 0, spec.housing_outer_radius, t["muted"], 0.8))
         ax.add_artist(_circle(0, 0, spec.pin_circle_radius, t["grid"], 0.8, dashed=True))
+        self._ring_pins = []
+        self._pin_labels = []
         for k in range(spec.pin_count):
-            a = 2.0 * np.pi * k / spec.pin_count
-            x = spec.pin_circle_radius * np.cos(a)
-            y = spec.pin_circle_radius * np.sin(a)
-            ax.add_artist(_circle(x, y, spec.pin_radius, series[1], 1.2))
+            pin = _circle(0, 0, spec.pin_radius, series[1], 1.2)
+            ax.add_artist(pin)
+            self._ring_pins.append(pin)
             if self._overlays.labels:
-                ax.text(x, y, str(k), color=t["ink2"], fontsize=6.5,
-                        ha="center", va="center", zorder=6)
+                self._pin_labels.append(
+                    ax.text(0, 0, str(k), color=t["ink2"], fontsize=6.5,
+                            ha="center", va="center", zorder=6))
 
         self._profile = prof.profile_from_spec(spec)
         self._discs = []
@@ -362,9 +371,12 @@ class ProfileView:
         # box to a square in the middle of a wide canvas, so axes-fraction 0 and
         # 1 are much closer together than the panel looks and the two lines
         # collide.
+        held = "ring fixed" if spec.output_member is OutputMember.CARRIER \
+            else "carrier fixed"
         speed = ax.text(0.005, 0.05,
-                        f"ring fixed - in {spec.input_rpm:g} rpm, "
-                        f"out {spec.output_rpm:.1f} rpm reversed",
+                        f"{held} - in {spec.input_rpm:g} rpm, "
+                        f"out {spec.output_rpm:.1f} rpm"
+                        f"{' reversed' if spec.output_reverses else ''}",
                         transform=ax.transAxes, ha="left", va="bottom",
                         color=t["ink2"], fontsize=8.5, family="monospace")
         # Kept out of the layout, which is the only reason the readout below has
@@ -402,8 +414,14 @@ class ProfileView:
             # disc rotation applied to that plus the eccentric centre.
             r, E = self._profile.outer_radius, spec.eccentricity
             delta = phis / spec.lobes
-            ax.plot(r * np.cos(delta) + E * np.cos(phis),
-                    r * np.sin(delta) - E * np.sin(phis),
+            x = r * np.cos(delta) + E * np.cos(phis)
+            y = r * np.sin(delta) - E * np.sin(phis)
+            # Seen from the ground, which on a ring-output drive is a frame
+            # turning under all of this: the locus is a different curve there,
+            # and the one drawn has to be the one the eye can follow.
+            f = spec.frame_spin * phis
+            cf, sf = np.cos(f), np.sin(f)
+            ax.plot(x * cf - y * sf, x * sf + y * cf,
                     color=t["ink2"], linewidth=0.7, alpha=0.9, zorder=2)
             (self._trace_dot,) = ax.plot([], [], marker="o", markersize=4,
                                          color=t["ink"], zorder=6)
@@ -443,21 +461,43 @@ class ProfileView:
         phi = np.radians(self._crank)
         E, lobes = spec.eccentricity, spec.lobes
 
+        # The whole picture is built in the frame the ring sits still in, which
+        # is the ground frame only when the ring is what is bolted down.  When
+        # it is not, one rigid rotation puts every artist below into the frame
+        # that *is* the ground - the same trick the 3D mesh uses, and for the
+        # same reason: the mechanism is one mechanism, and which part of it
+        # stands still is a mounting decision rather than a different drawing.
+        frame = spec.frame_spin * phi
+        cf, sf = np.cos(frame), np.sin(frame)
+        turn = np.array([[cf, sf], [-sf, cf]])           # right-multiplied
+
+        def place(x: float, y: float) -> tuple[float, float]:
+            return cf * x - sf * y, sf * x + cf * y
+
+        for k, pin in enumerate(self._ring_pins):
+            a = 2.0 * np.pi * k / spec.pin_count + frame
+            pin.set_center((spec.pin_circle_radius * np.cos(a),
+                            spec.pin_circle_radius * np.sin(a)))
+        for k, label in enumerate(self._pin_labels):
+            a = 2.0 * np.pi * k / spec.pin_count + frame
+            label.set_position((spec.pin_circle_radius * np.cos(a),
+                                spec.pin_circle_radius * np.sin(a)))
+
         if self._ghost is not None:
             ref = self._reference
-            d = phi / ref.lobes
+            d = phi / ref.lobes + ref.frame_spin * phi
             c, s = np.cos(d), np.sin(d)
-            pts = (self._ref_profile.closed @ np.array([[c, s], [-s, c]])
-                   + [ref.eccentricity * np.cos(phi), -ref.eccentricity * np.sin(phi)])
+            centre = place(ref.eccentricity * np.cos(phi),
+                           -ref.eccentricity * np.sin(phi))
+            pts = self._ref_profile.closed @ np.array([[c, s], [-s, c]]) + list(centre)
             self._ghost.set_data(pts[:, 0], pts[:, 1])
 
         outline = self._profile.points
         for i, (line, bore, holes) in enumerate(self._discs):
             phase = spec.disc_phases[i]
             hole_phase = spec.disc_hole_phases[i]
-            cx = E * np.cos(phi + phase)
-            cy = -E * np.sin(phi + phase)
-            d = (phi + phase) / lobes
+            cx, cy = place(E * np.cos(phi + phase), -E * np.sin(phi + phase))
+            d = (phi + phase) / lobes + frame
             c, s = np.cos(d), np.sin(d)
             pts = outline @ np.array([[c, s], [-s, c]]) + [cx, cy]
             line.set_xy(pts)
@@ -470,34 +510,41 @@ class ProfileView:
                                  cy + spec.output_bolt_circle_radius * np.sin(a)))
 
         for k, pin in enumerate(self._output_pins):
-            a = 2.0 * np.pi * k / spec.output_pin_count + phi / lobes
+            a = 2.0 * np.pi * k / spec.output_pin_count + phi / lobes + frame
             pin.set_center((spec.output_bolt_circle_radius * np.cos(a),
                             spec.output_bolt_circle_radius * np.sin(a)))
 
-        cx, cy = E * np.cos(phi), -E * np.sin(phi)
+        cx, cy = place(E * np.cos(phi), -E * np.sin(phi))
         self._crank_arm.set_data([0.0, cx], [0.0, cy])
         self._crank_dot.set_data([cx], [cy])
         # The shaft turns *against* the crank angle: the disc centre walks
         # clockwise, so the cam carrying it is rotated by -phi.
-        self._input_ray.set_data([0.0, self._input_ray_length * np.cos(-phi)],
-                                 [0.0, self._input_ray_length * np.sin(-phi)])
+        ray = -phi + frame
+        self._input_ray.set_data([0.0, self._input_ray_length * np.cos(ray)],
+                                 [0.0, self._input_ray_length * np.sin(ray)])
 
         if self._trace_dot is not None:
             point = to_world(np.array([[self._profile.outer_radius, 0.0]]),
-                             float(phi), E, lobes)
+                             float(phi), E, lobes) @ turn
             self._trace_dot.set_data(point[:, 0], point[:, 1])
 
-        engaged = self._update_contacts(phi)
-        # Both angles modulo a turn.  The crank arrives unwrapped during
-        # playback - the mechanism's period is `lobes` input revolutions, not
-        # one - and "in 4680.0 deg" is not a reading anybody wants.
+        engaged = self._update_contacts(phi, turn)
+        # Both angles modulo a turn, and both as the *shafts* read them: the
+        # crank angle is not the input angle once the carrier is the grounded
+        # member, because the crank then runs at (N+1)/N of it.  Playback also
+        # arrives unwrapped - the mechanism's period is several input turns -
+        # and "in 4680.0 deg" is not a reading anybody wants.
+        turned_in = abs(spec.shaft_spin) * self._crank
         self._readout.set_text(
-            f"in {self._crank % 360.0:6.1f} deg    "
-            f"out {(self._crank / spec.ratio) % 360.0:6.2f} deg"
+            f"in {turned_in % 360.0:6.1f} deg    "
+            f"out {(turned_in / spec.ratio) % 360.0:6.2f} deg"
             + (f"    {engaged} of {spec.pin_count} pins carrying"
                if engaged is not None else ""))
 
-    def _update_contacts(self, phi: float) -> int | None:
+    def _update_contacts(self, phi: float, turn: np.ndarray) -> int | None:
+        """``turn`` puts the contact geometry into the ground frame - see
+        :meth:`set_crank`.  It is passed in rather than recomputed so the dots
+        cannot land anywhere but on the profile they were computed against."""
         if self._contact_dots is None and self._force_lines is None:
             return None
         spec = self._spec
@@ -509,7 +556,8 @@ class ProfileView:
         state = contacts(spec, float(phi))
         force = state.forces(self._torque_per_disc)
         loaded = force > _CONTACT_FLOOR * self._peak_force
-        points = state.points[loaded]
+        points = state.points[loaded] @ turn
+        normals = state.normals[loaded] @ turn
         magnitude = force[loaded]
 
         if self._contact_dots is not None:
@@ -520,7 +568,7 @@ class ProfileView:
             # The pin pushes the disc, so the arrow points along -n.
             length = (magnitude / self._peak_force * self._arrow_span
                       if self._peak_force else np.zeros_like(magnitude))
-            tips = points - state.normals[loaded] * length[:, None]
+            tips = points - normals * length[:, None]
             self._force_lines.set_segments(
                 [[tuple(a), tuple(b)] for a, b in zip(points, tips, strict=True)])
         return int(loaded.sum())

@@ -318,6 +318,32 @@ class OffsetMode(str, Enum):
     BOTH = "both"                 # split evenly between the two
 
 
+class OutputMember(str, Enum):
+    """Which member the load is taken from - and so which one is bolted down.
+
+    A cycloidal drive is a three-shaft machine, not a two-shaft one.  The crank
+    is always the input, but the *other two* - the ring the pins sit in and the
+    carrier the pins through the disc holes sit on - are interchangeable: ground
+    either and the remaining one is the output.  Both are built and sold.
+
+    The choice is not a labelling exercise.  It changes the reduction, because
+    the two members do not turn at the same rate; it changes the direction,
+    because only one of them turns against the crank; and it changes the drive,
+    because the motor has to bolt to whichever member is standing still and the
+    load to whichever one is not.  See :attr:`GearSpec.ratio` and the rate
+    properties beside it for the first two, and the end plates for the third.
+    """
+
+    #: Ring bolted down, output off the carrier: the reduction is the lobe
+    #: count and the output turns backwards.  The classic industrial layout.
+    CARRIER = "output pin carrier"
+    #: Carrier bolted down, output off the ring housing: the reduction is the
+    #: *pin* count, one more, and the output turns with the input.  What most
+    #: printed micro drives do, because the turning part is then the outside of
+    #: the gearbox and a pulley or a wheel goes straight on it.
+    RING = "ring housing"
+
+
 class Process(str, Enum):
     FDM = "FDM 3D print"
     SLA = "SLA/resin print"
@@ -393,6 +419,16 @@ class GearSpec(BaseModel):
     center_bore_diameter: float = Field(22.0, gt=0, description="eccentric bearing OD")
 
     # ---- output mechanism -----------------------------------------------------
+    #
+    # Which member the load comes off is the first question here, not the last:
+    # it decides the reduction and the direction before any of the dimensions
+    # below are read, and it decides which end of the drive the motor bolts to.
+    output_member: OutputMember = Field(
+        OutputMember.CARRIER,
+        description="which member turns the load - the output pin carrier with "
+                    "the ring housing bolted down, or the ring housing with the "
+                    "carrier bolted down",
+    )
     output_pin_count: int = Field(6, ge=3, le=24)
     output_pin_diameter: float = Field(6.0, gt=0)
     output_bolt_circle_radius: float = Field(30.0, gt=0)
@@ -540,6 +576,17 @@ class GearSpec(BaseModel):
                     "the plates are held on by something this app is not drawing",
     )
     housing_bolt_diameter: float = Field(4.5, gt=0)
+    # A ring-output drive turns its housing, and a barrel has nowhere to grip:
+    # the boss that is the whole output interface of the carrier-output layout
+    # belongs to the *grounded* member here, so the load needs a face of its
+    # own.  Only cut when the ring is the output, and half a pitch off the tie
+    # bolts so the two patterns in that one plate miss each other.
+    output_bolt_count: int = Field(
+        6, ge=0, le=24,
+        description="bolts a driven machine attaches to on the turning housing's "
+                    "end plate; ring output only, and 0 draws none",
+    )
+    output_bolt_diameter: float = Field(4.5, gt=0)
 
     bearing_min_life_hours: float = Field(
         5000.0, gt=0,
@@ -559,14 +606,133 @@ class GearSpec(BaseModel):
         """Ring pins.  One more than the lobe count for a single-tooth-difference drive."""
         return self.lobes + 1
 
+    # ---- how fast each body turns ---------------------------------------------
+    #
+    # All of the geometry in this app is modelled in the frame the ring housing
+    # sits still in, because that is the frame the profile is generated in and
+    # the frame the meshing was verified in.  Grounding the *carrier* instead
+    # does not change a single relative motion in the drive - it adds one rigid
+    # rotation to every part at once, and that is exactly what
+    # :attr:`frame_spin` is.
+    #
+    # Everything below is per radian of crank angle, so the frame term appears
+    # once and cancels wherever two bodies are compared with each other.  That
+    # cancellation is the point: a relative speed is a fact about the mechanism
+    # and must not depend on which member somebody bolted down, while an
+    # absolute one must.
+    @property
+    def frame_spin(self) -> float:
+        """Rigid rotation added to every part, per radian of crank angle.
+
+        Zero with the ring grounded, which is how the model is built.  With the
+        carrier grounded it is ``-1/N``, precisely cancelling the carrier's own
+        rotation and setting the whole drive turning the other way underneath.
+        """
+        return 0.0 if self.output_member is OutputMember.CARRIER else -1.0 / self.lobes
+
+    @property
+    def shaft_spin(self) -> float:
+        """The crank, per radian of crank angle.
+
+        Negative: the disc centre runs to ``(E cos phi, -E sin phi)``, which is
+        a clockwise walk, so the cam carrying it turns by ``-phi``.
+        """
+        return -1.0 + self.frame_spin
+
+    @property
+    def disc_spin(self) -> float:
+        """The disc, per radian of crank angle.  ``+phi/N`` in the built frame."""
+        return 1.0 / self.lobes + self.frame_spin
+
+    @property
+    def carrier_spin(self) -> float:
+        """The output carrier: the disc's own rotation, and exactly it.
+
+        The pins in the disc's holes are a coupling, not a gear - they pass the
+        disc's rotation on at one to one and take out the orbit.  So this is
+        :attr:`disc_spin` rather than a second law that would have to be kept
+        in step with it.
+        """
+        return self.disc_spin
+
+    @property
+    def ring_spin(self) -> float:
+        """The ring housing and the two plates bolted to it."""
+        return self.frame_spin
+
+    @property
+    def output_spin(self) -> float:
+        """Whichever of the two the load is taken from."""
+        return (self.carrier_spin if self.output_member is OutputMember.CARRIER
+                else self.ring_spin)
+
+    @property
+    def crank_rate(self) -> float:
+        """Crank angle per unit *input* rotation.
+
+        One with the ring grounded, where the crank is the input and nothing
+        else moves under it.  With the carrier grounded the crank is already
+        turning at ``(N+1)/N`` of the crank angle, so a given input speed buys
+        proportionally less of it - and every sliding speed in the drive is
+        stated per unit crank angle, so they all pass through here.
+        """
+        return 1.0 / abs(self.shaft_spin)
+
+    @property
+    def crank_relative_rate(self) -> float:
+        """Disc against crank, per unit input speed.
+
+        Two contacts turn out to be the same number and it is worth saying why.
+        The cam bearing separates the disc from the crank, so it turns at their
+        difference.  The output pins rub because the disc's centre walks a
+        circle of radius E *in the carrier's frame*, and the carrier turns with
+        the disc - so that walk is at the difference between the disc and the
+        crank as well.  One rate, two contacts.
+
+        It is ``1 + 1/N`` per crank radian and not ``1 - 1/N``: the disc turns
+        the *opposite* way from the crank, so the two rates add.  Getting that
+        backwards understates the fastest contact in the machine, and it
+        understates it worst on the low ratios where it matters most.
+        """
+        return abs(self.disc_spin - self.shaft_spin) * self.crank_rate
+
+    @property
+    def disc_speed_ratio(self) -> float:
+        """How fast the disc turns in the ground frame, per unit input speed.
+
+        ``1/N`` with the ring grounded.  Zero with the carrier grounded, where
+        the disc does not rotate at all - it only orbits - which is why a
+        ring-output drive reflects less of the disc's inertia back to the motor.
+        """
+        return abs(self.disc_spin) * self.crank_rate
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def ratio(self) -> int:
-        """Reduction with the ring fixed and output taken from the disc pin holes.
+        """Reduction, from whichever member the output is taken off.
 
-        Verified by meshing simulation: i == lobe count == pin_count - 1.
+        With the **ring** grounded it is the lobe count, verified by meshing
+        simulation: i == lobe count == pin_count - 1.
+
+        With the **carrier** grounded it is the *pin* count, one more.  Not a
+        coincidence and not an approximation: the two members are one tooth
+        apart, so grounding the other one moves the reduction by exactly one.
+        The extra tooth of reduction is free - the same parts, bolted down at
+        the other end.
         """
-        return self.lobes
+        return self.lobes if self.output_member is OutputMember.CARRIER else self.pin_count
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def output_reverses(self) -> bool:
+        """Whether the output turns against the input.
+
+        It does off the carrier and does not off the ring, which is the other
+        half of what grounding the other member buys you.  Derived from the two
+        spins rather than stated, so it cannot disagree with the picture the 3D
+        view draws from the same numbers.
+        """
+        return (self.output_spin < 0.0) != (self.shaft_spin < 0.0)
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -713,12 +879,86 @@ class GearSpec(BaseModel):
         return max(self.hub_diameter - 8.0, self.input_shaft_diameter + 1.0)
 
     @property
+    def boss_bottom(self) -> float:
+        """The far end of the carrier's boss.
+
+        The output end plate's outer face, then however far the boss was asked
+        to stand past it.  What is *at* that end differs: a coupling grips it
+        when the carrier is the output, and the base the drive is bolted down
+        by is on it when the carrier is the ground.
+        """
+        return (self.barrel_bottom - self.plate_thickness
+                - self.output_boss_protrusion)
+
+    @property
+    def mount_base_fitted(self) -> bool:
+        """Whether the carrier grows a base plate to be bolted down by.
+
+        Only when it is the grounded member.  A motor cannot bolt to a plate
+        that turns, and with the ring as the output every plate on the housing
+        does - so the motor face has to come off the input end plate and go
+        somewhere that stands still, and the only thing that does is the
+        carrier.
+        """
+        return self.output_member is OutputMember.RING
+
+    @property
+    def base_plate_bottom(self) -> float:
+        """Outer face of that base: the face the motor bolts to."""
+        return self.boss_bottom - self.plate_thickness
+
+    @property
+    def output_face_bolt_radius(self) -> float:
+        """Where a driven machine bolts to the turning housing.
+
+        The tie bolts' own circle, because that is where the metal is: it is
+        the one radius on that plate with the barrel wall behind it rather than
+        the disc chamber, so a bolt lands in something.  The two patterns share
+        a circle and are kept apart by angle instead - see
+        :attr:`output_bolt_phase` - and when they cannot be, the
+        ``OUTPUT_BOLT_CLASH`` check says so rather than the model quietly
+        drawing one hole through another.
+        """
+        return self.housing_bolt_radius
+
+    @property
+    def output_bolt_phase(self) -> float:
+        """Half a tie-bolt pitch, so the two circles interleave.
+
+        Zero when there are no tie bolts to miss.  With the usual six of each
+        this puts an output hole exactly between every pair of tie bolts, which
+        is as far from them as the circle allows.
+        """
+        import math
+        if not self.housing_bolt_count:
+            return 0.0
+        return math.pi / self.housing_bolt_count
+
+    @property
     def motor(self) -> MotorFrame:
         return MOTOR_FRAMES[self.motor_frame]
 
     @property
     def has_motor_face(self) -> bool:
         return self.motor_frame != NO_MOTOR
+
+    @property
+    def motor_mounts_on_carrier(self) -> bool:
+        """Whether the motor face is cut into the carrier's base instead of the
+        input end plate.  It goes on whichever member does not turn."""
+        return self.has_motor_face and self.mount_base_fitted
+
+    @property
+    def grounded_part(self) -> str:
+        """The part that is bolted to the world, named as the assembly names it."""
+        return ("housing" if self.output_member is OutputMember.CARRIER
+                else "output_flange")
+
+    @property
+    def output_part(self) -> str:
+        """The part the load comes off, named as the assembly names it."""
+        return ("output_flange" if self.output_member is OutputMember.CARRIER
+                else "housing")
 
     @property
     def housing_bolt_radius(self) -> float:
@@ -869,8 +1109,18 @@ class GearSpec(BaseModel):
         counting the carrier's share of the length while the barrel itself
         stopped at the discs, so the app reported an envelope the geometry did
         not fill.
+
+        A ring-output drive is longer by its base and the standoff the base
+        needs.  The boss protrusion is not a face of the gearbox when the
+        carrier is the output - it is a shaft end, and nobody counts a shaft
+        end in a gearbox's length - but when the carrier is the *ground* that
+        same protrusion is structure between two faces of the machine, with the
+        plate you bolt it down by on the end of it.
         """
-        return self.barrel_height + 2.0 * self.plate_thickness
+        length = self.barrel_height + 2.0 * self.plate_thickness
+        if self.mount_base_fitted:
+            length += self.output_boss_protrusion + self.plate_thickness
+        return length
 
     @property
     def cooling_area_mm2(self) -> float:

@@ -256,6 +256,18 @@ class Mesh:
     parts: tuple[Part, ...]
     eccentricity: float
     explode_span: float
+    #: Rotation added to the *whole* assembly per radian of crank angle, so that
+    #: the grounded member is the one standing still on screen.
+    #:
+    #: Every part's own ``spin`` is stated in the frame the geometry is built
+    #: in, which is the one the ring housing sits still in.  That is right for a
+    #: carrier-output drive and wrong for a ring-output one by exactly one rigid
+    #: rotation - so this is that rotation, applied once at the end, rather than
+    #: a second set of spins that would have to be kept in step with the first.
+    #: It falls out that the orbit gets it too, which it must: relative to a
+    #: grounded carrier the disc's centre still walks a circle, but the circle
+    #: is walked at a different rate and from a turning frame.
+    frame_spin: float = 0.0
 
     @property
     def facet_count(self) -> int:
@@ -271,12 +283,21 @@ class Mesh:
         out = np.empty_like(self.vertices)
         for p in self.parts:
             local = self.vertices[p.vertices]
-            angle = p.spin * (phi + p.phase)
+            angle = p.spin * (phi + p.phase) + self.frame_spin * phi
             c, s = math.cos(angle), math.sin(angle)
             xy = local[:, :2] @ np.array([[c, -s], [s, c]]).T
             if p.orbits:
-                xy = xy + np.array([self.eccentricity * math.cos(phi + p.phase),
-                                    -self.eccentricity * math.sin(phi + p.phase)])
+                # The orbit offset is a vector in the built frame, so it turns
+                # with the frame as well - added before the frame rotation
+                # rather than after, which is what taking the whole angle above
+                # would have done to it.
+                orbit = phi + p.phase
+                off = np.array([self.eccentricity * math.cos(orbit),
+                                -self.eccentricity * math.sin(orbit)])
+                f = self.frame_spin * phi
+                cf, sf = math.cos(f), math.sin(f)
+                xy = xy + np.array([cf * off[0] - sf * off[1],
+                                    sf * off[0] + cf * off[1]])
             out[p.vertices, :2] = xy
             out[p.vertices, 2] = local[:, 2] + explode * p.explode * self.explode_span
         return out
@@ -335,17 +356,29 @@ class _Builder:
                                  for lp in loops))
         self._facet_part.append(self._current)
 
-    def ring(self, outer: np.ndarray, inner: np.ndarray, z: float, *,
-             up: bool) -> None:
-        """One annular face in the plane ``z``, normal +Z when ``up``.
+    def cap(self, outer: np.ndarray, holes, z: float, *, up: bool) -> None:
+        """One face in the plane ``z`` with any number of holes, normal +Z when
+        ``up``.
 
         For the exposed part of a face where two stacked prisms meet: the rest
         of it is inside the solid and must not be emitted, or four faces end up
-        sharing the ring where they touch.
+        sharing the ring where they touch.  It takes *holes* rather than one
+        inner loop because what a prism is capped by is not always an annulus -
+        the base of a ring-output carrier is covered by the boss standing on it
+        and pierced by the motor's bolts, and a cap that only knew about the
+        boss left every one of those bolt holes open at the top.
         """
         o = self._points(_ccw(np.asarray(outer, float)), z)
-        i = self._points(_ccw(np.asarray(inner, float)), z)
-        self.facet(o, i[::-1]) if up else self.facet(o[::-1], i)
+        h = [self._points(_ccw(np.asarray(loop, float)), z) for loop in holes]
+        if up:
+            self.facet(o, *[loop[::-1] for loop in h])
+        else:
+            self.facet(o[::-1], *h)
+
+    def ring(self, outer: np.ndarray, inner: np.ndarray, z: float, *,
+             up: bool) -> None:
+        """:meth:`cap` with the one hole that is usually all it takes."""
+        self.cap(outer, (inner,), z, up=up)
 
     def prism(self, outer: np.ndarray, holes, z0: float, z1: float, *,
               cap_bottom: bool = True, cap_top: bool = True) -> None:
@@ -401,6 +434,7 @@ class _Builder:
             parts=tuple(self.parts),
             eccentricity=spec.eccentricity,
             explode_span=spec.stack_height + spec.output_flange_thickness + 14.0,
+            frame_spin=spec.frame_spin,
         )
 
 
@@ -452,28 +486,61 @@ def tie_bolt_holes(spec: GearSpec) -> list[np.ndarray]:
                       for k in range(spec.housing_bolt_count))]
 
 
-def _plate_bolt_holes(spec: GearSpec, motor_face: bool) -> list[np.ndarray]:
-    """Every hole through an end plate: the tie bolts, and the motor's four.
+def motor_bolt_holes(spec: GearSpec) -> list[np.ndarray]:
+    """A motor's bolt pattern, as loops to cut.
 
     NEMA patterns are a *square*.  Drawing them on a circle of the same size
     puts all four holes somewhere the motor has nothing, which would look
     entirely plausible and be entirely wrong.
+
+    A function rather than four lines inside the plate builder because the
+    pattern moves: it is cut into the input end plate on a carrier-output drive
+    and into the carrier's own base on a ring-output one, and it has to be the
+    same pattern in both places.
+    """
+    if not spec.has_motor_face:
+        return []
+    frame = spec.motor
+    rb = frame.bolt_diameter / 2.0
+    if frame.square:
+        half = frame.bolt_span / 2.0
+        return [_circle(sx * half, sy * half, rb, 12)
+                for sx in (-1.0, 1.0) for sy in (-1.0, 1.0)]
+    return [_circle(frame.bolt_span / 2.0 * math.cos(a),
+                    frame.bolt_span / 2.0 * math.sin(a), rb, 12)
+            for a in (2.0 * np.pi * k / max(frame.bolt_count, 1)
+                      for k in range(frame.bolt_count))]
+
+
+def output_face_bolt_holes(spec: GearSpec) -> list[np.ndarray]:
+    """What a driven machine bolts to on a turning housing, as loops to cut.
+
+    Empty unless the ring is the output member: on a carrier-output drive the
+    interface is the boss on the axis and this face carries the motor instead.
+    """
+    if not spec.mount_base_fitted or not spec.output_bolt_count:
+        return []
+    r = spec.output_bolt_diameter / 2.0
+    return [_circle(spec.output_face_bolt_radius * math.cos(a),
+                    spec.output_face_bolt_radius * math.sin(a), r, 12)
+            for a in (spec.output_bolt_phase + 2.0 * np.pi * k / spec.output_bolt_count
+                      for k in range(spec.output_bolt_count))]
+
+
+def _plate_bolt_holes(spec: GearSpec, motor_face: bool) -> list[np.ndarray]:
+    """Every hole through an end plate: the tie bolts, and whichever pattern the
+    outside face carries.
+
+    ``motor_face`` marks the input-side plate.  Which pattern goes in it is the
+    spec's answer and not this argument's: the motor's when the housing is
+    bolted down, the driven machine's when the housing is what turns.
     """
     holes = tie_bolt_holes(spec)
-
-    if motor_face and spec.has_motor_face:
-        frame = spec.motor
-        rb = frame.bolt_diameter / 2.0
-        if frame.square:
-            half = frame.bolt_span / 2.0
-            holes += [_circle(sx * half, sy * half, rb, 12)
-                      for sx in (-1.0, 1.0) for sy in (-1.0, 1.0)]
-        else:
-            for k in range(frame.bolt_count):
-                a = 2.0 * np.pi * k / max(frame.bolt_count, 1)
-                holes.append(_circle(frame.bolt_span / 2.0 * math.cos(a),
-                                     frame.bolt_span / 2.0 * math.sin(a), rb, 12))
-    return holes
+    if not motor_face:
+        return holes
+    if spec.mount_base_fitted:
+        return holes + output_face_bolt_holes(spec)
+    return holes + motor_bolt_holes(spec)
 
 
 def _pilot_recess(spec: GearSpec, bore: float) -> float:
@@ -482,6 +549,9 @@ def _pilot_recess(spec: GearSpec, bore: float) -> float:
     A spigot no bigger than the hole it goes into needs no recess: the bore is
     the register.  That is the default here rather than a contrivance - a NEMA
     17 pilots at 22 mm and the shaft support seat happens to be 22 mm too.
+
+    Zero as well wherever the motor is not: on a ring-output drive the face this
+    is asked about turns, and a register in it would centre nothing.
     """
     if not spec.has_motor_face or spec.motor.pilot_diameter <= bore:
         return 0.0
@@ -612,10 +682,40 @@ def build_mesh(spec: GearSpec,
         b.ring(_circle(0.0, 0.0, plate_r, 72), _circle(0.0, 0.0, hub_r, 40),
                plate_bottom, up=False)
         # The boss the drive turns on: the output bearing rides its outside and
-        # a shaft support sits in its bore.  Its top is inside the plate.
+        # a shaft support sits in its bore.  Its top is inside the plate, and so
+        # is its bottom whenever there is a base under it.
+        boss_bottom = spec.boss_bottom
         b.prism(_circle(0.0, 0.0, hub_r, 40), (_circle(0.0, 0.0, bore_r, 28),),
-                plate_bottom - spec.plate_thickness - spec.output_boss_protrusion,
-                plate_bottom, cap_top=False)
+                boss_bottom, plate_bottom, cap_top=False,
+                cap_bottom=not spec.mount_base_fitted)
+        if spec.mount_base_fitted:
+            # The base the gearbox is bolted down by, on the end of the boss.
+            # Housing-sized, because it is the face of the machine at that end
+            # and because a NEMA pattern needs the width.
+            base_outer = _circle(0.0, 0.0, spec.housing_outer_radius, 96)
+            motor_holes = motor_bolt_holes(spec)
+            floor = spec.base_plate_bottom
+            recess = _pilot_recess(spec, spec.hub_bore)
+            if recess:
+                # Two prisms, and the step between them emitted only where it is
+                # actually exposed: the recess is wider than the bore, so all
+                # that shows is the ring between the two.  Capping both prisms
+                # instead would bury a wall inside the solid, and a solid with a
+                # wall inside it is not something the section plane can cap.
+                pilot = _circle(0.0, 0.0, spec.motor.pilot_diameter / 2.0, 48)
+                b.prism(base_outer, (pilot, *motor_holes), floor, floor + recess,
+                        cap_top=False)
+                b.ring(pilot, _circle(0.0, 0.0, bore_r, 28), floor + recess,
+                       up=False)
+                floor += recess
+            b.prism(base_outer, (_circle(0.0, 0.0, bore_r, 28), *motor_holes),
+                    floor, boss_bottom, cap_top=False,
+                    cap_bottom=not recess)
+            # The base's top: covered by the boss standing on it, and pierced by
+            # the motor's bolts, which pass right through and so are open at
+            # this end too.
+            b.cap(base_outer, (_circle(0.0, 0.0, hub_r, 40), *motor_holes),
+                  boss_bottom, up=True)
         shank = pin_shank_diameter(placements, "bearing_output_pins",
                                    spec.output_pin_diameter)
         # Up to the top of the stack, not up by the height of it: the pin leaves
@@ -643,16 +743,29 @@ def build_mesh(spec: GearSpec,
             bolts = _plate_bolt_holes(spec, motor)
             outer = _circle(0.0, 0.0, spec.housing_outer_radius, 96)
             top = z0 + spec.plate_thickness
-            recess = _pilot_recess(spec, bore) if motor else 0.0
+            bore_loop = _circle(0.0, 0.0, max(bore, 1e-3) / 2.0, 48)
+            recess = (_pilot_recess(spec, bore)
+                      if motor and not spec.mount_base_fitted else 0.0)
             if recess:
                 # A register is a step, not a hole: the outer face is bored to
                 # the motor's spigot for the first couple of millimetres and to
                 # the bearing seat after that, so it takes two prisms.
-                b.prism(outer, (_circle(0.0, 0.0, spec.motor.pilot_diameter / 2.0,
-                                        48), *bolts), top - recess, top)
+                #
+                # And the face where those two meet is *interior* everywhere the
+                # upper one covers, which is everywhere: the recess is wider
+                # than the bore under it, so the whole of the upper prism's
+                # underside is against the lower one. Capping both - which is
+                # what this did - buried a full annular wall inside the plate,
+                # left every bolt hole crossing it non-manifold, and so cost the
+                # section its cap on the one part a motor bolts to. All that is
+                # really exposed is the step itself, the ring between the
+                # spigot's bore and the shaft support's.
+                pilot = _circle(0.0, 0.0, spec.motor.pilot_diameter / 2.0, 48)
+                b.prism(outer, (pilot, *bolts), top - recess, top,
+                        cap_bottom=False)
+                b.ring(pilot, bore_loop, top - recess, up=False)
                 top -= recess
-            b.prism(outer, (_circle(0.0, 0.0, max(bore, 1e-3) / 2.0, 48), *bolts),
-                    z0, top)
+            b.prism(outer, (bore_loop, *bolts), z0, top, cap_top=not recess)
 
     # Bearings last, and each one takes the motion of the part it was placed
     # against rather than restating it.  Two copies of "how does a disc move"
@@ -724,6 +837,11 @@ def mesh_fingerprint(spec: GearSpec,
         spec.housing_bolt_radius, spec.motor_frame,
         # Decides both the bore's shape and whether there is a pins part at all.
         spec.ring_pins_integral,
+        # Which member turns: it moves the motor pattern off one part and onto
+        # another, grows the carrier a base, and sets the whole assembly
+        # spinning the other way - so it changes the mesh three times over.
+        spec.output_member, spec.frame_spin,
+        spec.output_bolt_count, spec.output_bolt_diameter,
         tuple(placements),
     )
 

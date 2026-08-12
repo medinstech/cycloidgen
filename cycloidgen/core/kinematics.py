@@ -84,7 +84,12 @@ class ContactState:
     normals: np.ndarray      # unit normals pointing disc -> pin, housing frame
     moment_arms: np.ndarray  # signed, about the disc centre (mm)
     curvature: np.ndarray    # signed profile curvature at contact (1/mm)
-    sliding_speed: np.ndarray  # |mm/s| per unit input rad/s
+    #: |mm/s| per unit *crank* rad/s, which is not the same as per unit input
+    #: rad/s once the carrier can be the grounded member: the crank then turns
+    #: at ``(N+1)/N`` of the input.  Multiply by ``omega_in * spec.crank_rate``.
+    #: Stated in crank angle because that is the only thing this module knows -
+    #: a contact does not care which member somebody bolted down.
+    sliding_speed: np.ndarray
 
     @property
     def loaded_mask(self) -> np.ndarray:
@@ -167,17 +172,24 @@ def output_stage_period(lobes: int, output_pins: int) -> float:
     """Crank angle over which the output-pin engagement pattern repeats, rad.
 
     The disc's eccentricity direction, *seen from the carrier*, advances at
-    ``(N-1)/N`` of the crank; the pin pattern repeats every ``2*pi/n`` of that.
-    So the output stage's period is ``2*pi*N / (n*(N-1))`` - two and a half lobe
-    pitches on a typical drive, and sampling only one lobe pitch of it reports
-    about half the ripple that is really there.
+    ``(N+1)/N`` of the crank; the pin pattern repeats every ``2*pi/n`` of that.
+    So the output stage's period is ``2*pi*N / (n*(N+1))``.
 
-    This is a different period from :func:`ring_stage_period`, and deliberately
-    so.  Their common multiple runs to thirty input revolutions on some tooth
-    counts, which is why each stage is swept over its own: a mean of a sum is
-    the sum of the means, and a maximum per stage is a maximum per stage.
+    The sign in that rate is the whole of it, and it was wrong here: the carrier
+    turns *with* the disc and the crank turns the other way, so seen from the
+    carrier the eccentricity runs round at the sum of the two rates and not the
+    difference.  ``(N-1)/N`` stretched this window by about 14% at 15 lobes,
+    which is not a period of anything - and a window that is not a period is not
+    merely coarse, it samples an arbitrary phase and the statistics taken over
+    it are of no cycle in particular.
+
+    Once the sign is right the two stages fall into step: this is exactly
+    :func:`ring_stage_period` divided by the output pin count, because a pin
+    pattern of ``n`` repeats ``n`` times over the turn the ring pattern needs.
+    That agreement is the check on both - they were derived independently and
+    only the correct rate makes them meet.
     """
-    return 2.0 * np.pi * lobes / (output_pins * (lobes - 1))
+    return 2.0 * np.pi * lobes / (output_pins * (lobes + 1))
 
 
 def sweep_angles(lobes: int, steps: int = SWEEP_STEPS) -> np.ndarray:
@@ -261,7 +273,10 @@ class OutputLoads:
     positions: np.ndarray    # pin centres in the carrier frame (n, 2)
     moment_arms: np.ndarray
     forces: np.ndarray       # N, magnitude
-    sliding_speed: float     # mm per unit input rad/s
+    #: mm of travel per radian of the disc's walk round the carrier, which is
+    #: E - the radius of that walk.  How fast the walk goes is
+    #: ``spec.crank_relative_rate``, and it is the caller's to apply.
+    sliding_speed: float
 
     @property
     def engaged(self) -> int:
@@ -279,8 +294,14 @@ def output_loads(spec: GearSpec, phi: float, torque_Nmm: float) -> OutputLoads:
     gamma = 2.0 * np.pi * np.arange(n) / n
     pos = spec.output_bolt_circle_radius * np.column_stack([np.cos(gamma), np.sin(gamma)])
 
-    # eccentricity direction seen from the carrier (carrier spins with the disc)
-    eps = phi - phi / spec.lobes
+    # Eccentricity direction seen from the carrier.  The eccentricity itself
+    # lies at ``-phi`` in the housing frame and the carrier has turned by
+    # ``+phi/N``, so in the carrier's own frame it is at ``-(phi + phi/N)``:
+    # the two rates *add*, because the carrier turns the opposite way from the
+    # crank.  Verified against the pin-in-hole constraint - with this rate every
+    # pin sits exactly E from its hole centre at every crank angle, and with the
+    # difference instead they walk apart within a few degrees.
+    eps = phi + phi / spec.lobes
     normal = np.array([np.cos(eps), -np.sin(eps)])
     h = pos[:, 0] * normal[1] - pos[:, 1] * normal[0]
 

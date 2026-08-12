@@ -400,6 +400,46 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                 f"wall or use a smaller bolt.",
                 spec.housing_bolt_diameter, spec.housing_wall)
 
+    # The output face's own bolts, which exist only on a ring-output drive: the
+    # turning member there is a barrel, and a barrel has nowhere to grip, so the
+    # load bolts to the end plate.  They share the tie bolts' circle because
+    # that is the one radius on that plate with barrel wall behind it to thread
+    # into - so the two patterns are kept apart by angle, and whether that
+    # actually works depends on two counts the user sets independently.
+    if spec.mount_base_fitted and spec.output_bolt_count:
+        if spec.output_bolt_diameter >= spec.housing_wall:
+            rep.add(Severity.ERROR, "OUTPUT_BOLT_CLASH",
+                    f"A {spec.output_bolt_diameter:g} mm output bolt does not fit "
+                    f"in a {spec.housing_wall:g} mm housing wall. It lands on the "
+                    f"middle of that wall, so at this size there is nothing "
+                    f"behind it but the ring-pin pockets on one side and open "
+                    f"air on the other. Thicken the wall or use a smaller bolt.",
+                    spec.output_bolt_diameter, spec.housing_wall)
+        elif spec.housing_bolt_count:
+            ties = [2.0 * math.pi * j / spec.housing_bolt_count
+                    for j in range(spec.housing_bolt_count)]
+            outs = [spec.output_bolt_phase + 2.0 * math.pi * k / spec.output_bolt_count
+                    for k in range(spec.output_bolt_count)]
+            closest = min(min(abs(o - t) % (2.0 * math.pi),
+                              2.0 * math.pi - abs(o - t) % (2.0 * math.pi))
+                          for o in outs for t in ties)
+            gap = 2.0 * spec.output_face_bolt_radius * math.sin(closest / 2.0)
+            metal = gap - (spec.output_bolt_diameter
+                           + spec.housing_bolt_diameter) / 2.0
+            if metal <= 0.0:
+                rep.add(Severity.ERROR, "OUTPUT_BOLT_CLASH",
+                        f"The {spec.output_bolt_count} output bolts and the "
+                        f"{spec.housing_bolt_count} tie bolts share one circle "
+                        f"and at these counts they run into each other. Match "
+                        f"the counts, or make one of them a multiple of the "
+                        f"other, so the two patterns interleave.",
+                        metal, 0.0)
+            elif metal < 1.5:
+                rep.add(Severity.WARNING, "OUTPUT_BOLT_CLASH",
+                        f"Only {metal:.2f} mm of metal between an output bolt "
+                        f"and the tie bolt beside it on the same circle.",
+                        metal, 1.5)
+
     # Not "has no bearing" - a plain cam has none and the drive still carries
     # that force, sliding, which the PV check is there for.  This is the narrower
     # question of a load leaving the gearbox for something on the other end of it.
@@ -425,10 +465,16 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
         # rim - a pattern that misses the metal is a motor that cannot be bolted
         # on, and nothing else in the app would notice.
         reach = frame.bolt_circle_diameter / 2.0
+        # Named for the plate it is actually cut into.  The two are the same
+        # size and the same bore, so this is one check either way - but a
+        # message that says "input end plate" to somebody looking at a base is
+        # a message that sends them to the wrong parameter.
+        face = ("carrier's base" if spec.motor_mounts_on_carrier
+                else "input end plate")
         if reach - frame.bolt_diameter / 2.0 < spec.hub_bore / 2.0:
             rep.add(Severity.ERROR, "MOTOR_FACE_CLASH",
                     f"The {frame.name} bolt pattern falls into the "
-                    f"{spec.hub_bore:.1f} mm bore of the input end plate - there "
+                    f"{spec.hub_bore:.1f} mm bore of the {face} - there "
                     f"is no metal there to bolt to. A smaller frame, or a "
                     f"narrower carrier boss.",
                     2.0 * reach, spec.hub_bore)

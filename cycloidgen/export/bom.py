@@ -19,6 +19,7 @@ from pathlib import Path
 
 from ..analysis import DesignAnalysis
 from ..analysis.bearings import pin_diameters
+from ..core.spec import OutputMember
 
 __all__ = ["BomItem", "bom_items", "write_bom_csv"]
 
@@ -75,7 +76,10 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
         mass_each_g=m.housing_mass_g, source="make",
         note=f"{s.pin_count} "
              + ("pins formed with it" if s.ring_pins_integral else "pin pockets")
-             + f" on a {2 * s.pin_circle_radius:g} mm circle"))
+             + f" on a {2 * s.pin_circle_radius:g} mm circle; "
+             + ("bolted down - this is the fixed member"
+                if s.output_member is OutputMember.CARRIER else
+                "this is the output member and it turns")))
 
     items.append(BomItem(
         part="Housing end plate", quantity=2, material=s.housing_material,
@@ -83,7 +87,10 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
         mass_each_g=m.plates_mass_g / 2.0, source="make",
         note=f"input side bored {s.hub_bore:.1f} for the shaft support, output "
              f"side {s.output_bearing_seat_diameter:.1f} for the output bearing "
-             f"- they are not interchangeable"))
+             f"- they are not interchangeable"
+             + (f"; the input side also carries the {s.output_bolt_count} "
+                f"output bolts the load hangs on" if s.mount_base_fitted
+                and s.output_bolt_count else "")))
 
     items.append(BomItem(
         part="Output flange / carrier", quantity=1, material=s.housing_material,
@@ -91,7 +98,10 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
              f"x {s.output_flange_thickness:g} mm",
         mass_each_g=m.flange_mass_g, source="make",
         note=f"{s.output_pin_count} pin seats on a "
-             f"{2 * s.output_bolt_circle_radius:g} mm circle"))
+             f"{2 * s.output_bolt_circle_radius:g} mm circle"
+             + ("; one part with the base the drive is bolted down by, on the "
+                f"end of the boss - {2 * s.housing_outer_radius:.1f} dia x "
+                f"{s.plate_thickness:g} mm" if s.mount_base_fitted else "")))
 
     items.append(BomItem(
         part="Eccentric input shaft", quantity=1, material=s.shaft_material,
@@ -145,15 +155,27 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
             note=f"through both end plates into the barrel, on a "
                  f"{2 * s.housing_bolt_radius:.1f} mm circle"))
 
+    if s.mount_base_fitted and s.output_bolt_count:
+        items.append(BomItem(
+            part="Output bolt", quantity=s.output_bolt_count,
+            material=s.pin_material,
+            size=f"{s.output_bolt_diameter:g} mm clearance",
+            mass_each_g=0.0, source="buy",
+            note=f"what the driven machine attaches to, through the input end "
+                 f"plate on a {2 * s.output_face_bolt_radius:.1f} mm circle - "
+                 f"the tie bolts' own circle, half a pitch round from them"))
+
     if s.has_motor_face:
         frame = s.motor
         pattern = (f"{frame.bolt_span:g} mm square" if frame.square
                    else f"{frame.bolt_span:g} mm circle")
+        face = ("the carrier's base" if s.motor_mounts_on_carrier
+                else "the input end plate")
         items.append(BomItem(
             part="Motor bolt", quantity=frame.bolt_count, material=s.pin_material,
             size=f"{frame.bolt_diameter:g} mm clearance",
             mass_each_g=0.0, source="buy",
-            note=f"{frame.name} pattern, {pattern}, into the input end plate"))
+            note=f"{frame.name} pattern, {pattern}, into {face}"))
 
     # ---- bearings -----------------------------------------------------------
     for choice in a.bearings:

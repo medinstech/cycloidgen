@@ -64,11 +64,15 @@ def _cross(msp, c: tuple[float, float], size: float = 2.0) -> None:
     msp.add_line((c[0], c[1] - size), (c[0], c[1] + size), dxfattribs={"layer": "PITCH"})
 
 
-def _polar(radius: float, count: int) -> list[tuple[float, float]]:
-    """``count`` points on ``radius``, starting at zero - the way every array in
-    this app is built, so a DXF cannot land the pattern the solid does not."""
-    return [(radius * np.cos(2.0 * np.pi * k / count),
-             radius * np.sin(2.0 * np.pi * k / count)) for k in range(count)]
+def _polar(radius: float, count: int,
+           phase: float = 0.0) -> list[tuple[float, float]]:
+    """``count`` points on ``radius``, starting at ``phase`` - zero the way
+    every array in this app is built, so a DXF cannot land the pattern the solid
+    does not.  The one pattern that is not at zero is the output face's bolts,
+    which are half a tie-bolt pitch round so the two circles interleave."""
+    return [(radius * np.cos(phase + 2.0 * np.pi * k / count),
+             radius * np.sin(phase + 2.0 * np.pi * k / count))
+            for k in range(count)]
 
 
 def _end_plate(spec: GearSpec, directory: Path, name: str, bore: float,
@@ -101,7 +105,19 @@ def _end_plate(spec: GearSpec, directory: Path, name: str, bore: float,
         note += (f"  |  {spec.housing_bolt_count} x {spec.housing_bolt_diameter:g} "
                  f"tie on BC {2 * spec.housing_bolt_radius:g}")
 
-    if motor_face and spec.has_motor_face:
+    # ``motor_face`` marks the input-side plate rather than promising a motor.
+    # On a ring-output drive that face turns, so the motor has moved to the
+    # carrier's base and this is what the driven machine bolts to instead.
+    if motor_face and spec.mount_base_fitted and spec.output_bolt_count:
+        for c in _polar(spec.output_face_bolt_radius, spec.output_bolt_count,
+                        spec.output_bolt_phase):
+            msp.add_circle(c, spec.output_bolt_diameter / 2.0,
+                           dxfattribs={"layer": "MOTOR"})
+            _cross(msp, c)
+        note += (f"  |  {spec.output_bolt_count} x {spec.output_bolt_diameter:g} "
+                 f"output on BC {2 * spec.output_face_bolt_radius:g}, "
+                 f"{np.degrees(spec.output_bolt_phase):.1f} deg off the tie bolts")
+    elif motor_face and spec.has_motor_face:
         frame = spec.motor
         if frame.pilot_diameter > bore:
             msp.add_circle((0, 0), frame.pilot_diameter / 2.0,

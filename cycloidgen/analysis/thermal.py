@@ -156,6 +156,11 @@ def analyse_thermal(spec: GearSpec, efficiency: EfficiencyResult | None = None,
     """Worst-case PV at both sliding interfaces, plus the steady temperature."""
     eff = efficiency if efficiency is not None else analyse_efficiency(spec, steps)
     omega_in = spec.input_rpm * 2.0 * np.pi / 60.0
+    # Crank angle rate, and the rate the disc moves against the crank: the two
+    # that every rubbing speed in here is built from.  Both come off the spec so
+    # that grounding the carrier instead of the ring moves them together.
+    omega_crank = omega_in * spec.crank_rate
+    omega_rel = omega_in * spec.crank_relative_rate
     torque_per_disc = spec.output_torque_Nm * 1000.0 / spec.disc_count
     length = spec.disc_thickness
 
@@ -175,7 +180,7 @@ def analyse_thermal(spec: GearSpec, efficiency: EfficiencyResult | None = None,
         if not live.any():
             continue
         p = f[live] / max(projected, 1e-9)              # MPa
-        v = cs.sliding_speed[live] * omega_in / 1000.0  # m/s
+        v = cs.sliding_speed[live] * omega_crank / 1000.0  # m/s
         pv = float((p * v).max())
         if pv > peak_pv:
             peak_pv = pv
@@ -187,7 +192,7 @@ def analyse_thermal(spec: GearSpec, efficiency: EfficiencyResult | None = None,
 
     # ---- output pin contact -------------------------------------------------
     # the disc translates on a circle of radius E relative to the carrier
-    v_out = spec.eccentricity * omega_in * (1.0 - 1.0 / spec.ratio) / 1000.0
+    v_out = spec.eccentricity * omega_rel / 1000.0
     projected_out = spec.output_pin_diameter * length
     peak_out_f = 0.0
     for phi in output_sweep_angles(spec.lobes, spec.output_pin_count, steps):
@@ -202,15 +207,15 @@ def analyse_thermal(spec: GearSpec, efficiency: EfficiencyResult | None = None,
     # ---- cam journal --------------------------------------------------------
     # Only when there is no bearing there.  A plain cam is the classic
     # PV-limited contact of this whole drive: the largest single force in it,
-    # rubbing at nearly the input speed, usually with the disc material on one
+    # rubbing at the input speed or a little over it - the disc turns against
+    # the crank, so their rates add - usually with the disc material on one
     # side.  Left unchecked, a drive can pass every stress test in the app and
     # still wear its own bore oval in an afternoon.
     if spec.cam_bearing_fitted:
         p_cam = v_cam = pv_cam = 0.0
     else:
         p_cam = peak_cam_f / max(spec.cam_diameter * length, 1e-9)
-        v_cam = (omega_in * (1.0 - 1.0 / spec.ratio)
-                 * spec.cam_diameter / 2.0 / 1000.0)
+        v_cam = omega_rel * spec.cam_diameter / 2.0 / 1000.0
         pv_cam = p_cam * v_cam
     limit_cam = min(spec.disc_mat.pv_limit_MPa_m_s, spec.shaft_mat.pv_limit_MPa_m_s)
 

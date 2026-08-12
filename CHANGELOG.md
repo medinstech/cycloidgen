@@ -5,6 +5,120 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 7.3.0
+
+**Numbers**
+
+- **The disc turns against the crank, and the app had them subtracting.** Every
+  speed measured between the disc and the crank was computed as
+  `input_rpm * (1 - 1/i)`. It is `1 + 1/i`: the disc rotates the *opposite* way
+  from the crank — that is what a fixed-ring cycloidal drive is — so the two
+  rates add rather than cancel.
+
+  Three places carried it. The **eccentric cam bearing**, which separates those
+  two bodies and so turns at their difference; the **output pin** rubbing speed,
+  which is the disc walking round the carrier at that same rate; and the
+  **output stage's sweep period**, derived from how fast the eccentricity
+  direction runs round as seen from the carrier.
+
+  What gave it away was the pin-in-hole constraint. Relative to the carrier the
+  disc translates on a circle of radius `E`, so at every crank angle each output
+  pin has to sit *exactly* `E` from its hole centre — and it does, only with the
+  carrier turning at `+phi/N`. Put that rate in and the eccentricity direction
+  seen from the carrier advances at `(N+1)/N`, not `(N-1)/N`. The two stage
+  periods then agree for the first time: the output period comes out as the ring
+  period divided by the output pin count, which is what a pattern of `n` repeats
+  in one turn of the ring pattern has to be. They were derived independently and
+  only the correct rate makes them meet.
+
+  Measured over the presets:
+
+  | Quantity | 10:1 | 21:1 | 59:1 |
+  |---|---|---|---|
+  | Cam bearing speed, output PV, output sliding speed | **+22.2%** | +10.0% | +3.5% |
+  | Cam bearing L10 life | −11% | −9.1% | −3.3% |
+  | Input shaft support speed | +10.0% | +4.8% | +1.7% |
+  | Running temperature | +4.2% | +1.7% | +0.3% |
+  | Input torque for the rated output | +1.7% | +1.0% | +0.4% |
+  | Efficiency | −1.2 pt | −0.7 pt | −0.3 pt |
+  | Torsional stiffness | +2.6% | +4.5% | +5.6% |
+
+  It is worst where it matters most — a low ratio is where that bearing is
+  fastest — and everything on the ring side is unchanged, which is the expected
+  result rather than a reassuring one: nothing about the ring contact was ever
+  measured against the crank.
+
+- **The two input shaft supports do not turn at the same speed**, and both were
+  quoted at the input speed. One sits in an end plate and one in the carrier's
+  boss, and those two bodies move differently. The schedule still carries one
+  row — the seats are the same size, so one part number does for both — but it
+  is sized on the faster of the two and prints both.
+
+- **The output pin rollers were sized against the input speed**, which is
+  neither the speed of anything at that contact nor the frequency of anything.
+  They are now counted on the rate the hole walks round the pin, which is the
+  cycle they are actually loaded on.
+
+**Which member is the output**
+
+- **Either of the two slow members can now be the output.** A cycloidal drive is
+  a three-shaft machine: the crank is the input, and the ring and the carrier are
+  interchangeable. Ground the ring and the carrier turns at `N:1`, reversed —
+  which is what the app has always built. Ground the carrier and the *housing*
+  turns, at `N+1:1`, in the same direction as the input. Same parts, one more
+  tooth of reduction, and it is what most printed micro drives are.
+
+  `output_member` selects it, and everything downstream follows rather than
+  being told twice:
+
+  - The reduction and the direction come off the two members' rotation rates, so
+    `ratio` cannot disagree with the picture drawn from the same numbers.
+  - Every rate in the app is now stated per unit *input* speed rather than per
+    unit crank angle, because those part company here: with the carrier
+    grounded the crank runs at `(N+1)/N` of the input. Relative speeds inside
+    the drive are unchanged by the choice, which they must be — grounding a
+    member adds one rigid rotation to all of it at once.
+  - The motor moves to whichever member stands still. On a ring-output drive
+    the carrier grows a base at the end of its boss, carrying the motor's
+    pattern and register; the input end plate loses them and gains an output
+    bolt circle for the driven machine instead, on the tie bolts' own circle
+    and half a pitch round from them.
+  - The 3D view, the 2D mechanism view and the exported animation turn the part
+    that actually turns. One rigid frame rotation applied to the whole assembly,
+    not a second set of motion laws to keep in step with the first.
+  - The design search knows the difference between a reduction and a lobe count:
+    a 30:1 off the ring is a twenty-nine lobe disc.
+
+- **`OUTPUT_BOLT_CLASH`**, a new check. The output face's bolts share a circle
+  with the tie bolts, because that is the one radius on that plate with barrel
+  wall behind it to thread into. Equal counts interleave exactly; seven against
+  six leaves 0.12 mm of metal; twelve against six lands one hole on another.
+  Fifty-six checks.
+
+**Fixed**
+
+- **A face with two bolt circles in it could come back triangulated wrong**, and
+  the check that was meant to catch it could not see the failure. Faces are
+  filled by `vtkContourTriangulator` and verified against the area they should
+  have — but a plate carrying fourteen loops came back with its area exact to
+  rounding and a triangle missing, because the triangulator had also emitted a
+  different one twice and the two errors cancelled in a sum of absolute areas.
+  The acceptance test now asks the topology directly: every edge either on a
+  loop or shared by exactly two triangles. Four more retry angles came out of a
+  search over every distinct multi-hole face the app can draw.
+
+- **The motor's register left a wall inside the input end plate.** Where a
+  spigot is wider than the bore under it the plate is built as two prisms, and
+  both were capped on the face where they meet — so the plate had a full annular
+  wall buried in it, every bolt hole crossing that wall was non-manifold, and
+  the section plane could not cap the one part a motor bolts to. Only the step
+  between the two bores is exposed, and only that is emitted now. It affected
+  any frame piloting wider than the shaft support seat, which is a NEMA 23 or 34
+  on a default drive.
+
+- **The carrier's base is weighed.** A made part the mass model has not been
+  told about is a gearbox that weighs less on paper than in your hand.
+
 ## 7.2.0
 
 **Numbers**

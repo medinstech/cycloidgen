@@ -24,6 +24,7 @@ from reportlab.platypus import (
 
 from .. import __version__
 from ..analysis import DesignAnalysis
+from ..core.spec import OutputMember
 from ..core.validate import Severity
 from . import plots
 
@@ -59,6 +60,8 @@ def report_dict(a: DesignAnalysis) -> dict:
         "spec": json.loads(s.model_dump_json()),
         "derived": {
             "ratio": s.ratio,
+            "output_member": s.output_member.value,
+            "output_reverses": s.output_reverses,
             "pin_count": s.pin_count,
             "K1": s.K1,
             "output_hole_diameter_mm": s.output_hole_diameter,
@@ -341,7 +344,12 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
     geo = [
         ["Parameter", "Value", "Parameter", "Value"],
         ["Pin circle radius R", f"{s.pin_circle_radius:g} mm",
-         "Ratio", f"{s.ratio}:1"],
+         "Ratio", f"{s.ratio}:1 "
+                  + ("reversed" if s.output_reverses else "same sense")],
+        ["Output taken from", s.output_member.value,
+         "Bolted down by", ("the ring housing"
+                            if s.output_member is OutputMember.CARRIER
+                            else "the carrier's base")],
         ["Pin radius Rr", f"{s.pin_radius:g} mm",
          "Lobes / pins", f"{s.lobes} / {s.pin_count}"],
         ["Eccentricity E", f"{s.eccentricity:g} mm", "K1", f"{s.K1:.4f}"],
@@ -721,6 +729,17 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
             "output pins must sit inside their holes on <i>every</i> disc "
             "simultaneously. If one disc binds while another is free, its hole "
             "pattern is at the wrong angle - see the note above.")
+    steps.append(
+        "Bolt the drive down by its housing and take the output off the "
+        "carrier's boss - it turns against the input, one turn for every "
+        f"{s.ratio} of the shaft."
+        if s.output_member is OutputMember.CARRIER else
+        "Bolt the drive down by the carrier's base - that is the plate the "
+        "motor is on, and it is the member that must not turn. The output is "
+        "the housing itself, so the load goes on the "
+        f"{s.output_bolt_count} bolts through the input end plate, and it "
+        f"turns <i>with</i> the input, one turn for every {s.ratio}. Leave the "
+        "housing free: anything clamping the barrel is clamping the output.")
     steps.append(
         "Turn the input by hand through a full revolution before powering it. "
         "It should feel uniform. A tight spot once per disc revolution means "

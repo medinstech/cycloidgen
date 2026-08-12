@@ -33,6 +33,26 @@ spec.disc_count = 2
 spec.lubricant = "Grease NLGI 2 (EP, moly)"
 ```
 
+One of those fifty decides more than the rest: **which member the output comes
+off**. The crank is always the input, but the ring and the carrier are
+interchangeable — ground either one and the other is the output — and that sets
+the reduction, the direction, and which end of the drive the motor bolts to.
+
+```python
+from cycloidgen.core.spec import OutputMember
+
+spec.output_member = OutputMember.RING     # bolt the carrier down instead
+spec.ratio                                 # 22, not 21 - the pin count
+spec.output_reverses                       # False: it turns with the input
+spec.crank_relative_rate                   # 1.0: the cam bearing runs at input speed
+```
+
+Every rate on `GearSpec` is stated **per unit input speed**, which is not the
+same as per unit crank angle once the carrier can be the grounded member — the
+crank then runs at `(N+1)/N` of the input. `crank_rate` is the conversion, and
+`frame_spin` is the single rigid rotation that turns the model's frame into the
+one the grounded member sits still in.
+
 Assignment is validated, so a value outside a field's bounds raises there and
 then rather than three functions later:
 

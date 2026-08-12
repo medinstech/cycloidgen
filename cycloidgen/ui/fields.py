@@ -15,6 +15,7 @@ from ..core.spec import (
     MATERIALS,
     MOTOR_FRAMES,
     OffsetMode,
+    OutputMember,
     Process,
 )
 
@@ -73,6 +74,13 @@ GROUPS: list[tuple[str, list[Field]]] = [
               suffix=" mm"),
     ]),
     ("Output mechanism", [
+        Field("output_member", "Output from", "choice",
+              choices=tuple(m.value for m in OutputMember),
+              tip="Which member turns the load, and so which one is bolted "
+                  "down. Off the carrier the reduction is the lobe count and "
+                  "the output turns backwards; off the ring housing it is the "
+                  "pin count - one more - and the output turns with the input. "
+                  "It also moves the motor face to the other end of the drive."),
         Field("output_pin_count", "Pin count", "int", 3, 24, 1),
         Field("output_pin_diameter", "Pin diameter", "float", 1, 60, 0.5, decimals=2,
               suffix=" mm"),
@@ -143,8 +151,10 @@ GROUPS: list[tuple[str, list[Field]]] = [
     ]),
     ("Mounting", [
         Field("motor_frame", "Motor", "choice", choices=tuple(MOTOR_FRAMES),
-              tip="Bolt pattern, register and shaft of the motor on the input "
-                  "end plate. 'None' leaves a plain plate."),
+              tip="Bolt pattern, register and shaft of the motor. It goes on "
+                  "whichever member does not turn: the input end plate with "
+                  "the carrier as the output, the carrier's own base with the "
+                  "ring housing as the output. 'None' leaves a plain plate."),
         Field("motor_drives_the_shaft", "Motor turns the cam", "bool",
               tip="On, the motor's own shaft is the input shaft. Off, there is "
                   "a separate shaft and a coupling between them."),
@@ -154,8 +164,16 @@ GROUPS: list[tuple[str, list[Field]]] = [
               decimals=2, suffix=" mm"),
         Field("output_boss_protrusion", "Boss stands out", "float", 0, 100, 1,
               decimals=2, suffix=" mm",
-              tip="How far the output boss stands past the end plate, for a "
-                  "coupling to grip. 0 leaves it flush and ungrippable."),
+              tip="How far the output boss stands past the end plate. With the "
+                  "carrier as the output that is grip length for a coupling. "
+                  "With the ring housing as the output it is the standoff "
+                  "between the turning plate and the base under it."),
+        Field("output_bolt_count", "Output bolts", "int", 0, 24, 1,
+              tip="Ring output only: what a driven machine bolts to on the "
+                  "turning end plate. They share the tie bolts' circle and "
+                  "interleave with them, so equal counts is the safe answer."),
+        Field("output_bolt_diameter", "Output bolt", "float", 1, 20, 0.5,
+              decimals=2, suffix=" mm"),
     ]),
     ("Bearings", [
         Field("cam_bearing_fitted", "Cam bearing", "bool",
@@ -253,6 +271,8 @@ CODE_FIELDS: dict[str, tuple[str, ...]] = {
                              "motor_drives_the_shaft"),
     "HOUSING_BOLT_CLASH": ("housing_bolt_diameter", "housing_bolt_count",
                            "housing_wall", "pin_radius"),
+    "OUTPUT_BOLT_CLASH": ("output_bolt_count", "output_bolt_diameter",
+                          "housing_bolt_count", "housing_wall"),
     "MOTOR_FACE_CLASH": ("motor_frame", "housing_wall", "output_hub_diameter"),
     "MOTOR_RADIAL_LOAD": ("motor_frame", "shaft_bearings_fitted", "output_torque_Nm"),
     "BEARING_DOES_NOT_FIT": ("cam_bearing", "shaft_bearing", "output_bearing",
