@@ -5,6 +5,28 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 7.3.2
+
+**Numbers** — none.
+
+**Fixed**
+
+- **The housing bore was drawn with two of every junction point**, and on VTK
+  9.3 that was still a hole in the housing for every ring pin. 7.3.1 replaced
+  the triangulation that could not be trusted across builds, and every face it
+  cuts is checked - but the *mesh* was handing it a loop with edges of no length
+  in it: the bore arc and the pocket arc meet at the intersection, and each
+  computed that point for itself, agreeing to fourteen decimal places and not to
+  the fifteenth. Forty-four of them on a 21:1.
+
+  Geometrically they cost nothing, which is why they went unnoticed for so long.
+  What they cost is edges. A segment with no length has no direction, so the
+  wall standing on it is a quad with no area, and whether any of that survives
+  being merged back into a closed surface is up to the mesh library: VTK 9.6
+  keeps the two points apart, VTK 9.3 does not, and the one that does not leaves
+  the wall and the cap disagreeing about where the boundary is. Two points that
+  are the same point are one point now.
+
 ## 7.3.1
 
 **Numbers** — none. Nothing computed moves in this release: it is the 3D view's

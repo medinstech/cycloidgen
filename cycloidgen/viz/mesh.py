@@ -208,7 +208,36 @@ def pocketed_bore(R: float, Rr: float, count: int, *,
 
         span = np.linspace(a + beta, a + pitch - beta, bore_segments)
         pieces.append(R * np.column_stack([np.cos(span), np.sin(span)]))
-    return np.vstack(pieces)
+    return _without_repeats(np.vstack(pieces))
+
+
+def _without_repeats(loop: np.ndarray, snap: float = 1e-9) -> np.ndarray:
+    """Drop a point that stands where the one before it already stands.
+
+    The pocket arc and the bore arc meet at the intersection, and each computes
+    that point for itself: the same point to fourteen decimal places and not to
+    the fifteenth.  Twice per pin, so a 21:1 bore carried forty-four of them.
+
+    Geometrically they cost nothing, which is why they went unnoticed.  What
+    they cost is *edges*: a segment with no length has no direction, so the wall
+    above it is a quad of no area and the cap's boundary runs through a corner
+    that is not one.  Whether that survives being merged back together is then
+    up to whoever built the mesh library - VTK 9.6 keeps the two points apart
+    and 9.3 does not, and the second one leaves a hole in the housing for every
+    pin.  Two points that are the same point should be one point.
+    """
+    keep = np.ones(len(loop), dtype=bool)
+    previous = 0
+    for i in range(1, len(loop)):
+        if abs(loop[i, 0] - loop[previous, 0]) < snap \
+                and abs(loop[i, 1] - loop[previous, 1]) < snap:
+            keep[i] = False
+        else:
+            previous = i
+    if len(loop) > 1 and abs(loop[previous, 0] - loop[0, 0]) < snap \
+            and abs(loop[previous, 1] - loop[0, 1]) < snap:
+        keep[previous] = False              # and where the loop closes
+    return loop[keep]
 
 
 # ---------------------------------------------------------------------- mesh --
