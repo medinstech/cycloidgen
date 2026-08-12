@@ -5,6 +5,64 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 7.3.1
+
+**Numbers** — none. Nothing computed moves in this release: it is the 3D view's
+geometry and the interpreters the package will install on.
+
+**Fixed**
+
+- **Parts in the 3D view were not watertight on macOS or on VTK 9.3**, so a
+  section cut through them read as a hollow shell rather than as solid
+  material — the exact fault 7.2.0 said it had fixed, on the two platforms it
+  had not been run on.
+
+  The cause is worth stating plainly, because it is a lesson rather than a
+  slip. Faces with holes in them were filled by `vtkContourTriangulator`, which
+  gives up part way on some inputs and reports nothing about it. 7.2.0 added a
+  check for that and a list of angles to turn the face by and try again — a
+  list searched, on one machine, for the smallest set that cleared every face
+  this app can draw. But *which* inputs defeat that filter is a property of the
+  build, not of the geometry: the same list left the housing full of holes on
+  VTK 9.3 (which is what Python 3.10 gets) and the end cap full of holes on
+  macOS arm64 at the very version it was developed on. Neither reproduces here.
+
+  So the face is cut here now, in `viz/tessellate.py`, by the textbook method
+  for a polygon with holes: a sweep adds the diagonals that leave nothing but
+  monotone pieces, the pieces are traced out of the loops and those diagonals
+  together, and each is triangulated by the stack walk. Every step is
+  comparisons and cross products in a fixed order, so two machines get the same
+  triangles — and the suite checks all of it directly: the whole area, no
+  directed edge twice, and a boundary exactly as long as the loops.
+
+  It is also **faster**, and by more than the algorithm: the triangles come back
+  as indices into the mesh's own vertices, so a cap shares its corners with the
+  walls that meet it and there is nothing to append and merge afterwards, and
+  the cutting is remembered per mesh rather than repeated for each of the two
+  surfaces every part needs. A full rebuild of the 21:1 view went from 0.18 s to
+  0.11 s, and rebuilding a mesh already seen from 0.18 s to 0.02 s.
+
+  Two things came out of writing it. **Nothing in the suite had asked that a
+  face's triangles all be wound the same way** — and the area cannot see it, so
+  a face covered twice over and once backwards passes on the sum. And the
+  housing's bore is drawn as a bore arc and a pocket arc per pin, meeting at a
+  point each of them computes for itself: the same point to fourteen decimal
+  places, which is an edge of no length to a sweep and cannot simply be dropped,
+  because the wall below the cap keeps that edge and a boundary only one of them
+  keeps is a hole.
+
+**Changed**
+
+- **Python 3.13 and 3.14.** `requires-python` said `<3.13` on a tree whose whole
+  suite passes on 3.14, so `pip install` refused an interpreter the code was
+  fine on. The bound is `<3.15` now. An upper bound is still stated rather than
+  dropped — this depends on OCCT, VTK and Qt through binary wheels, and an
+  interpreter no wheel exists for is a failed install however permissive the
+  metadata is — and it moved to where there is a run behind it: 3.13 and 3.14 on
+  Linux, and 3.14 on Windows as well, because those wheels are built per
+  interpreter *and* per platform. 3.12 stays the version every bundle is frozen
+  on.
+
 ## 7.3.0
 
 **Numbers**

@@ -17,14 +17,15 @@ stays on the card.
 """
 from __future__ import annotations
 
+import weakref
+
 import numpy as np
-from vtkmodules.util.numpy_support import vtk_to_numpy
-from vtkmodules.vtkCommonCore import vtkIdList, vtkPoints
+from vtkmodules.vtkCommonCore import vtkPoints
 from vtkmodules.vtkCommonDataModel import vtkCellArray, vtkPolyData
 from vtkmodules.vtkCommonExecutionModel import vtkAlgorithm
 from vtkmodules.vtkFiltersCore import vtkCleanPolyData, vtkPolyDataNormals
-from vtkmodules.vtkFiltersGeneral import vtkContourTriangulator
 
+from . import tessellate
 from .mesh import Mesh, Part
 
 #: VTK stores points as 32-bit floats unless told otherwise.  At 50 mm that is
@@ -46,179 +47,37 @@ __all__ = ["FEATURE_ANGLE", "closed_polydata", "feature_edges", "local_plane",
 FEATURE_ANGLE = 30.0
 
 
-#: Angles to try the triangulator at, in degrees, when it comes out wrong at
-#: the one it was given.  The failure is numerical rather than geometric - the
-#: same disc succeeds on one hole phase and fails on the next - so turning the
-#: face in its own plane is enough to clear it, and *which* angle clears it
-#: differs per face.  Nothing here is special; they are spread and not multiples
-#: of one another, so a case that is degenerate at one is unlikely to be at the
-#: rest.
+#: Cut faces, per mesh, keyed on the face's index in it.
 #:
-#: The last five came out of a search rather than off a hat: every distinct
-#: multi-hole face this app can draw - six ratios, both output members, every
-#: motor frame, three tie-bolt counts - was triangulated at every angle on a
-#: 0.7-degree grid, and these are the smallest set that covers all of them.
-#: The six before them are kept in front so that a face which already worked
-#: goes on being triangulated the way it was.
+#: A rebuild asks for each part twice - once closed, for the section and the
+#: topology, and once split, for the shading - and the second ask would
+#: otherwise cut every cap again.  Keyed on the mesh *object*, which
+#: :func:`~cycloidgen.viz.mesh.mesh_for_spec` already returns unchanged when the
+#: geometry has not changed, so dragging a field that is not geometry costs
+#: nothing here either.  Weak, so a mesh that has been dropped takes its
+#: triangles with it.
 #:
-#: A handful of faces have no clean angle at any rotation, and all of them are
-#: the same thing: a small motor's bolt pattern overlapping the shaft-support
-#: bore, so the loops genuinely cross and there is no face to fill.  Those
-#: designs are already an export-blocking ``MOTOR_FACE_CLASH`` error.
-_RETRY_ANGLES = (3.1, 11.3, 37.0, 61.7, 83.3, 127.9,
-                 7.7, 118.3, 133.7, 135.1, 21.7)
-
-#: How much of a face's area may go missing before it is treated as a failure.
-#: A correct triangulation matches the shoelace area to rounding; the failures
-#: seen lose or double tenths of a percent, so anything in between is noise.
-_AREA_TOLERANCE = 1e-6
+#: A mesh holds arrays and so cannot be a dictionary key itself.  It is keyed by
+#: identity instead, and the weak reference beside each entry is what makes that
+#: safe: ``id`` is reused the moment an object is collected, so the entry is
+#: kept only while the mesh it was cut from is still the mesh at that address.
+_CUT: dict[int, tuple[weakref.ref, dict[int, list[tuple[int, int, int]]]]] = {}
 
 
-def _polygon_area(points: np.ndarray) -> float:
-    """Shoelace area of one closed loop, projected on XY."""
-    x, y = points[:, 0], points[:, 1]
-    return 0.5 * abs(float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))))
-
-
-def _triangulate_at(coords: np.ndarray, sizes: list[int]) -> vtkPolyData | None:
-    """Run the triangulator over loops laid end to end in ``coords``."""
-    pts = vtkPoints()
-    pts.SetDataTypeToDouble()
-    lines = vtkCellArray()
-    start = 0
-    for size in sizes:
-        ids = [pts.InsertNextPoint(*coords[start + k]) for k in range(size)]
-        lines.InsertNextCell(len(ids) + 1)
-        for i in ids:
-            lines.InsertCellPoint(i)
-        lines.InsertCellPoint(ids[0])          # closed
-        start += size
-
-    contour = vtkPolyData()
-    contour.SetPoints(pts)
-    contour.SetLines(lines)
-    # No output-precision knob on this one; it reuses the contour's own points,
-    # which is why they are made double above rather than here.
-    triangulator = vtkContourTriangulator()
-    triangulator.SetInputData(contour)
-    triangulator.Update()
-    out = triangulator.GetOutput()
-    return out if out.GetNumberOfCells() else None
-
-
-def _measure(out: vtkPolyData) -> tuple[float, int, int]:
-    """One pass over a triangulation: ``(area, boundary edges, over-shared)``.
-
-    The area says whether the triangulator covered the face.  The edge counts
-    say whether it covered it *once* and left the boundary where the loops put
-    it - and those are not the same question, which is the whole reason this
-    returns three numbers instead of one.  A face can come back with its area
-    exactly right and a triangle missing, if the triangulator has also emitted
-    another one twice; the area cancels and the hole does not.
-    """
-    area = 0.0
-    edges: dict[tuple[int, int], int] = {}
-    polys, ids = out.GetPolys(), vtkIdList()
-    polys.InitTraversal()
-    verts = vtk_to_numpy(out.GetPoints().GetData())
-    while polys.GetNextCell(ids):
-        n = ids.GetNumberOfIds()
-        pid = [ids.GetId(k) for k in range(n)]
-        area += _polygon_area(np.array([verts[i] for i in pid]))
-        for k in range(n):
-            a, b = pid[k], pid[(k + 1) % n]
-            key = (a, b) if a < b else (b, a)
-            edges[key] = edges.get(key, 0) + 1
-    boundary = sum(1 for count in edges.values() if count == 1)
-    over = sum(1 for count in edges.values() if count > 2)
-    return area, boundary, over
-
-
-def _triangulated(points: np.ndarray, loops) -> vtkPolyData | None:
-    """Triangulate one planar face, holes and all.
-
-    VTK has no polygon-with-holes cell - ``vtkPolygon`` is a simple polygon -
-    so a disc end face, which is a lobed outline with a bore and six output
-    holes in it, cannot be handed over as one cell.  ``vtkContourTriangulator``
-    is the tool for exactly this: closed contours in, triangles out, inner
-    loops cut away by the even-odd rule.
-
-    It also gives up part way on some inputs, and says nothing about it.  This
-    used to be accepted as long as it produced *any* triangles: one disc's top
-    face came out 0.93% short - a hole in the surface, four boundary edges
-    wide, on a part the section then could not cap - while the same disc's
-    bottom face and the other disc were perfect.  So the result is checked
-    against the loops it was built from, and a face that fails is tried again
-    with the plane turned.
-
-    Checked two ways, because the area alone is not enough.  A plate carrying
-    two bolt circles and a bore - fourteen loops in one face - came back with
-    its area exact to rounding and a triangle missing all the same: the
-    triangulator had emitted a different one twice, and the two errors cancelled
-    in a sum of absolute areas.  What that face is *for* is being closed, so the
-    second test asks the topology directly - every edge either on a loop or
-    shared by exactly two triangles - which is the same statement the watertight
-    test makes about the finished part, made early enough to retry.
-
-    The retry keeps the *connectivity* and throws the rotated coordinates away:
-    the points come back from the original array, bit for bit, because they
-    have to merge exactly with the wall vertices that share them.
-    """
-    sizes = [len(lp) for lp in loops]
-    original = np.vstack([points[list(lp)] for lp in loops])
-    perimeter = sum(sizes)
-
-    want = _polygon_area(points[list(loops[0])])
-    for loop in loops[1:]:
-        want -= _polygon_area(points[list(loop)])
-
-    best: vtkPolyData | None = None
-    for angle in (0.0, *_RETRY_ANGLES):
-        if angle:
-            a = np.radians(angle)
-            c, s = np.cos(a), np.sin(a)
-            coords = original.copy()
-            coords[:, 0] = original[:, 0] * c - original[:, 1] * s
-            coords[:, 1] = original[:, 0] * s + original[:, 1] * c
-        else:
-            coords = original
-
-        out = _triangulate_at(coords, sizes)
-        if out is None:
-            continue
-        best = best or out
-
-        got, boundary, over = _measure(out)
-        if boundary != perimeter or over:
-            continue
-        if want <= 0.0 or abs(want - got) / want <= _AREA_TOLERANCE:
-            return _with_points(out, original)
-
-    # Every angle came up short.  The best of them is still a face, and a
-    # missing sliver is better than a missing surface - but it leaves the part
-    # unwatertight, which ``tests/test_viz.py`` asserts against so that this
-    # cannot go unnoticed the way it did before.
-    return _with_points(best, original) if best is not None else None
-
-
-def _with_points(out: vtkPolyData, original: np.ndarray) -> vtkPolyData:
-    """``out``'s triangles, over the coordinates they were built from.
-
-    ``vtkContourTriangulator`` hands back the points it was given, in the order
-    it was given them - asserted in ``tests/test_viz.py``, because the retry
-    above depends on it to undo a rotation without touching a coordinate.
-    """
-    if out.GetNumberOfPoints() != len(original):
-        return out                       # not the mapping we assumed; leave it
-    pts = vtkPoints()
-    pts.SetDataTypeToDouble()
-    pts.SetNumberOfPoints(len(original))
-    for i, (x, y, z) in enumerate(original):
-        pts.SetPoint(i, x, y, z)
-    rebuilt = vtkPolyData()
-    rebuilt.SetPoints(pts)
-    rebuilt.SetPolys(out.GetPolys())
-    return rebuilt
+def _faces(mesh: Mesh, index: int) -> list[tuple[int, int, int]]:
+    """The triangles of one face, cut once and remembered."""
+    entry = _CUT.get(id(mesh))
+    if entry is None or entry[0]() is not mesh:
+        if len(_CUT) > 8:
+            for key in [k for k, (ref, _) in _CUT.items() if ref() is None]:
+                del _CUT[key]
+        entry = _CUT[id(mesh)] = (weakref.ref(mesh), {})
+    cache = entry[1]
+    triangles = cache.get(index)
+    if triangles is None:
+        triangles = cache[index] = tessellate.triangulate(mesh.vertices,
+                                                          mesh.loops[index])
+    return triangles
 
 
 def _surface(mesh: Mesh, part: Part) -> vtkPolyData:
@@ -233,35 +92,29 @@ def _surface(mesh: Mesh, part: Part) -> vtkPolyData:
         points.SetPoint(i, x, y, z)
 
     polys = vtkCellArray()
-    extra: list[vtkPolyData] = []
     for index in range(part.facets.start, part.facets.stop):
         loops = mesh.loops[index]
         if len(loops) == 1 and len(loops[0]) <= 4:
             # Side walls: planar quads, and convex, so VTK renders them
-            # directly.  This is most of the mesh and skipping the triangulator
-            # for it is most of the build time.
+            # directly.  This is most of the mesh and not cutting it up is most
+            # of the build time.
             polys.InsertNextCell(len(loops[0]))
             for vertex in loops[0]:
                 polys.InsertCellPoint(int(vertex) - start)
             continue
-        piece = _triangulated(mesh.vertices, loops)
-        if piece is not None:
-            extra.append(piece)
+        # Everything else - the caps, with their bores and bolt circles - is
+        # cut in `viz.tessellate`, which hands back indices into the mesh's own
+        # vertices.  So the triangles go into the same cell array as the walls
+        # and share their corners with them: there is no second copy of a
+        # boundary here to append and merge afterwards.
+        for triangle in _faces(mesh, index):
+            polys.InsertNextCell(3)
+            for vertex in triangle:
+                polys.InsertCellPoint(vertex - start)
 
     surface = vtkPolyData()
     surface.SetPoints(points)
     surface.SetPolys(polys)
-
-    if extra:
-        from vtkmodules.vtkFiltersCore import vtkAppendPolyData
-        append = vtkAppendPolyData()
-        append.SetOutputPointsPrecision(_DOUBLE)
-        append.AddInputData(surface)
-        for piece in extra:
-            append.AddInputData(piece)
-        append.Update()
-        surface = append.GetOutput()
-
     return surface
 
 

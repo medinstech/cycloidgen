@@ -634,6 +634,12 @@ def test_the_vtk_pose_is_the_same_motion_law_as_the_mesh(spec, mesh):
 WATERTIGHT_CASES = [10, 15, 21, 29, 39, 59]
 
 
+def _loop_area(points: np.ndarray) -> float:
+    """Shoelace area of one closed loop, projected on XY."""
+    x, y = points[:, 0], points[:, 1]
+    return 0.5 * abs(float(np.sum(x * np.roll(y, -1) - y * np.roll(x, -1))))
+
+
 def _edge_counts(polydata) -> tuple[int, int]:
     """``(holes, non-manifold edges)`` in one part."""
     from vtkmodules.vtkFiltersCore import vtkFeatureEdges, vtkTriangleFilter
@@ -679,63 +685,55 @@ def test_every_part_is_watertight_once_built_for_vtk(ratio):
 
 
 @pytest.mark.parametrize("ratio", [15, 21, 29])
-def test_a_face_is_triangulated_to_its_whole_area(ratio):
-    """The check the triangulator does not do for itself.
+def test_a_face_is_cut_into_triangles_that_cover_it_exactly(ratio):
+    """The check the old triangulator did not do for itself.
 
-    ``vtkContourTriangulator`` can stop part way and report nothing about it,
-    and the old code accepted any output with triangles in it.  One disc's top
-    face came back 0.93% short that way, on the phase where its holes happened
-    to defeat it, while the same face on the other disc was exact.
+    ``vtkContourTriangulator`` could stop part way and report nothing about it,
+    and one disc's top face came back 0.93% short that way while the same face
+    on the other disc was exact. The cutting is ours now and this asks it the
+    same three questions the suite asks of a finished part: the whole area, no
+    triangle laid on another, and a boundary exactly as long as the loops.
     """
-    from cycloidgen.viz.vtkbridge import _polygon_area, _triangulated
+    from cycloidgen.viz.tessellate import triangulate
 
     mesh = build_mesh(preset(ratio))
     for index, loops in enumerate(mesh.loops):
         if len(loops) == 1 and len(loops[0]) <= 4:
             continue                      # a side-wall quad, handed over whole
-        want = _polygon_area(mesh.vertices[list(loops[0])])
+        want = _loop_area(mesh.vertices[list(loops[0])])
         for loop in loops[1:]:
-            want -= _polygon_area(mesh.vertices[list(loop)])
+            want -= _loop_area(mesh.vertices[list(loop)])
         if want <= 0.0:
             continue
 
-        out = _triangulated(mesh.vertices, loops)
-        assert out is not None, f"facet {index} produced no triangles"
-        points = np.array([out.GetPoint(i)
-                           for i in range(out.GetNumberOfPoints())])
-        got = 0.0
-        for cell in range(out.GetNumberOfCells()):
-            ids = out.GetCell(cell).GetPointIds()
-            got += _polygon_area(
-                np.array([points[ids.GetId(k)]
-                          for k in range(ids.GetNumberOfIds())]))
-        assert got == pytest.approx(want, rel=1e-6), \
-            f"facet {index} lost {100 * (want - got) / want:.3f}% of its area"
+        triangles = triangulate(mesh.vertices, loops)
+        got = sum(_loop_area(mesh.vertices[list(t)]) for t in triangles)
+        assert got == pytest.approx(want, rel=1e-9),             f"facet {index} lost {100 * (want - got) / want:.3f}% of its area"
+
+        directed = [e for a, b, c in triangles
+                    for e in ((a, b), (b, c), (c, a))]
+        assert len(set(directed)) == len(directed), f"facet {index} folds"
+        boundary = [e for e in directed if (e[1], e[0]) not in set(directed)]
+        assert len(boundary) == sum(len(loop) for loop in loops)
 
 
-def test_the_triangulator_hands_back_the_points_it_was_given():
-    """What the retry stands on.
+def test_the_triangles_are_the_mesh_s_own_vertices():
+    """What lets a cap share its corners with the walls that meet it.
 
-    A face that defeats the triangulator is tried again with the plane turned,
-    and the rotation is undone by taking the *connectivity* and dropping the
-    rotated coordinates - which only works while the output points are the
-    input points, in order.  Rotating and unrotating instead would move every
-    coordinate by a rounding error, and these points have to merge exactly with
-    the wall vertices that share them.
+    The face is cut as *indices*, so a corner of a triangle is the same vertex
+    the wall below it uses rather than a copy of it that has to be merged back
+    afterwards - and no coordinate is rotated, written out and read back on the
+    way, which is where a face would pick up a rounding error and stop merging.
     """
-    from cycloidgen.viz.vtkbridge import _triangulate_at
+    from cycloidgen.viz.tessellate import triangulate
 
     mesh = build_mesh(preset(21))
     for loops in mesh.loops:
         if len(loops) == 1 and len(loops[0]) <= 4:
             continue
-        source = np.vstack([mesh.vertices[list(lp)] for lp in loops])
-        out = _triangulate_at(source, [len(lp) for lp in loops])
-        assert out is not None
-        points = np.array([out.GetPoint(i)
-                           for i in range(out.GetNumberOfPoints())])
-        assert np.array_equal(points, source)
-        return                            # one face is enough to hold the rule
+        allowed = {int(v) for loop in loops for v in loop}
+        for triangle in triangulate(mesh.vertices, loops):
+            assert set(triangle) <= allowed
 
 
 # ------------------------------------------------------------- integral pins
