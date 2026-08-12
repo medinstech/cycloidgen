@@ -99,10 +99,17 @@ def test_the_release_notes_are_built_on_an_unhelpful_stdout():
     with tempfile.TemporaryDirectory() as tmp:
         runner = pathlib.Path(tmp) / "notes_step.py"
         runner.write_text(script, encoding="utf-8")
-        # The runner's environment, with only the encoding forced: replacing
-        # it wholesale is how a test starts failing on the platform it was not
-        # written on.
-        env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+        # The runner's environment, with only two things added: replacing it
+        # wholesale is how a test starts failing on the platform it was not
+        # written on.  The encoding is the thing under test.  The path is not -
+        # the script runs from a temporary directory, so `sys.path[0]` is that
+        # directory rather than `cwd`, and its `import cycloidgen` finds nothing
+        # unless the checkout has been pip-installed.  The runner has been; a
+        # plain checkout has not, and there this failed for a reason that has
+        # nothing to do with what it is checking.
+        env = {**os.environ, "PYTHONIOENCODING": "cp1252",
+               "PYTHONPATH": os.pathsep.join(
+                   [str(ROOT), os.environ.get("PYTHONPATH", "")]).rstrip(os.pathsep)}
         result = subprocess.run(
             [sys.executable, str(runner)], cwd=ROOT, capture_output=True,
             text=True, env=env)
