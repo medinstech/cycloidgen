@@ -54,7 +54,7 @@ FEATURE_ANGLE = 30.0
 #: of one another, so a case that is degenerate at one is unlikely to be at the
 #: rest.
 #:
-#: The last four came out of a search rather than off a hat: every distinct
+#: The last five came out of a search rather than off a hat: every distinct
 #: multi-hole face this app can draw - six ratios, both output members, every
 #: motor frame, three tie-bolt counts - was triangulated at every angle on a
 #: 0.7-degree grid, and these are the smallest set that covers all of them.
@@ -65,7 +65,8 @@ FEATURE_ANGLE = 30.0
 #: the same thing: a small motor's bolt pattern overlapping the shaft-support
 #: bore, so the loops genuinely cross and there is no face to fill.  Those
 #: designs are already an export-blocking ``MOTOR_FACE_CLASH`` error.
-_RETRY_ANGLES = (3.1, 11.3, 37.0, 61.7, 83.3, 127.9, 7.7, 118.3, 133.7, 135.1)
+_RETRY_ANGLES = (3.1, 11.3, 37.0, 61.7, 83.3, 127.9,
+                 7.7, 118.3, 133.7, 135.1, 21.7)
 
 #: How much of a face's area may go missing before it is treated as a failure.
 #: A correct triangulation matches the shoelace area to rounding; the failures

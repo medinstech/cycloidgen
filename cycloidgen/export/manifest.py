@@ -74,9 +74,17 @@ def disc_names(spec: GearSpec) -> list[str]:
 
 
 def part_names(spec: GearSpec) -> list[str]:
-    """Every distinct part, in the order :func:`export.solid.parts` builds them."""
-    return ["housing", "ring_pins", "eccentric_shaft", "output_flange",
-            "input_end_plate", "output_end_plate", *disc_names(spec)]
+    """Every distinct part, in the order :func:`export.solid.parts` builds them.
+
+    The end cap is on the list only when there is one: it is the far end of the
+    output pins on a ring-output drive and does not exist on the other, so a
+    fixed list would put a file in the manifest that never lands on disk.
+    """
+    names = ["housing", "ring_pins", "eccentric_shaft", "output_flange",
+             "input_end_plate", "output_end_plate"]
+    if spec.ground_frame_fitted:
+        names.append("end_cap")
+    return [*names, *disc_names(spec)]
 
 
 @dataclass(frozen=True)

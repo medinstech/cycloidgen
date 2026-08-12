@@ -45,6 +45,11 @@ class MassResult:
     pins_mass_g: float
     shaft_mass_g: float
     flange_mass_g: float
+    #: The end cap, on a ring-output drive; zero on the other, where there
+    #: is no such part.  Its own line rather than folded into the carrier's:
+    #: it is a separate thing to make, and a made part quoting zero grams on
+    #: the bill of materials is a part the mass model has not been told about.
+    end_cap_mass_g: float
 
     disc_inertia_kg_mm2: float         # about its own centre
     reflected_inertia_kg_mm2: float    # whole stack, seen at the input shaft
@@ -153,7 +158,7 @@ def analyse_mass(spec: GearSpec) -> MassResult:
     # the whole gearbox is bolted down by.  It is housing-sized and as thick as
     # an end plate, so on a small drive it is a fifth of the assembled mass;
     # leaving it out would report a gearbox lighter than the one exported.
-    if spec.mount_base_fitted:
+    if spec.ground_frame_fitted:
         flange_volume += math.pi * (spec.housing_outer_radius ** 2
                                     - (spec.hub_bore / 2.0) ** 2) * spec.plate_thickness
         if spec.has_motor_face:
@@ -162,6 +167,21 @@ def analyse_mass(spec: GearSpec) -> MassResult:
                               * (frame.bolt_diameter / 2.0) ** 2
                               * spec.plate_thickness)
     flange_mass = max(flange_volume, 0.0) * _MM3_TO_CM3 * rho_house
+
+    # The end cap at the far end of the pins: the carrier's mirror image, and
+    # a part of its own to make.  Plate less its pin clearance holes and its
+    # bore, plus the boss the input-side output bearing rides on.
+    cap_volume = 0.0
+    if spec.ground_frame_fitted:
+        pin_hole_r = (output_pin_d + spec.hole_clearance) / 2.0
+        cap_volume = ((math.pi * plate_r ** 2
+                       - math.pi * (spec.hub_bore / 2.0) ** 2
+                       - spec.output_pin_count * math.pi * pin_hole_r ** 2)
+                      * spec.output_flange_thickness
+                      + math.pi * ((spec.hub_diameter / 2.0) ** 2
+                                   - (spec.hub_bore / 2.0) ** 2)
+                      * spec.plate_thickness)
+    cap_mass = max(cap_volume, 0.0) * _MM3_TO_CM3 * rho_house
 
     # The two plates that close the housing.  They are part of the gearbox and
     # were simply not weighed: on the 21:1 preset they are a third of it.
@@ -174,7 +194,7 @@ def analyse_mass(spec: GearSpec) -> MassResult:
     # same accounting the tie bolts get for going through both.
     output_bolt_area = (spec.output_bolt_count * math.pi
                         * (spec.output_bolt_diameter / 2.0) ** 2
-                        if spec.mount_base_fitted else 0.0)
+                        if spec.ground_frame_fitted else 0.0)
     plates_volume = (2.0 * outer_area
                      - math.pi * (spec.hub_bore / 2.0) ** 2
                      - math.pi * (spec.output_bearing_seat_diameter / 2.0) ** 2
@@ -184,7 +204,7 @@ def analyse_mass(spec: GearSpec) -> MassResult:
     plates_mass = max(plates_volume, 0.0) * _MM3_TO_CM3 * rho_house
 
     total = (n * disc_mass + housing_mass + plates_mass + pins_mass
-             + shaft_mass + flange_mass)
+             + shaft_mass + flange_mass + cap_mass)
 
     # ---- inertia ------------------------------------------------------------
     # kg*mm^2:  g/cm^3 * mm^4 * 1e-3 (cm^3/mm^3) / 1e3 (kg/g) = 1e-6
@@ -245,6 +265,7 @@ def analyse_mass(spec: GearSpec) -> MassResult:
         pins_mass_g=pins_mass,
         shaft_mass_g=shaft_mass,
         flange_mass_g=flange_mass,
+        end_cap_mass_g=cap_mass,
         disc_inertia_kg_mm2=disc_inertia,
         reflected_inertia_kg_mm2=reflected,
         unbalance_force_N=force,

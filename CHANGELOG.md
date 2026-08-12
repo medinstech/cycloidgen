@@ -89,6 +89,44 @@ design somebody already built.
   - The design search knows the difference between a reduction and a lobe count:
     a 30:1 off the ring is a twenty-nine lobe disc.
 
+- **A ring-output drive is a frame, not a plate.** The grounded member cannot be
+  a carrier hanging on six cantilevered pins with a barrel swinging off one
+  bearing, and the reference builds are not: the pins land in an **end cap** at
+  their far end and become the frame's own fasteners, so the carrier, the pins
+  and the cap are one rigid cage that the housing turns inside. That is a new
+  made part, `end_cap`, with its own STEP, STL and line on the bill of
+  materials, and it changes two numbers that matter.
+
+  **The output pins are beams.** A pin built into one plate carries `F*L`; the
+  same pin caught at both ends carries `F*a*b/L`. On the 21:1 preset with two
+  discs that is 45.3 MPa of fully reversed bending against 19.9 MPa. Their
+  *stiffness* moves the other way and the app says so - the span is now the
+  whole pin rather than half a stack, so the structure comes out slightly softer
+  (7.26 to 6.57 Nm/arcmin) even though the case is stiffer.
+
+  **The housing is carried at both ends.** One bearing locates a barrel and does
+  not hold one against a moment, which is exactly what a wheel or a pulley on a
+  turning barrel applies. There is a main output bearing on each of the frame's
+  two bosses now, and both shaft supports move inside those bosses - the one
+  that used to sit in the input end plate had to, because that plate turns.
+
+  It costs length: the barrel has to cover the cap, so the 21:1 preset goes from
+  40 mm to 63 mm and from 781 g to 1033 g.
+
+- **The output pin's bending arm starts at the carrier's face**, which is a
+  carrier drop below the first disc, and it was being measured from the disc.
+  Small - one millimetre on a moment arm - but it is a moment arm, and it pushed
+  a 16 mm disc stack on the 15:1 preset from just inside the output pin's
+  fatigue limit to just outside it. `FATIGUE_LIFE` says so now. Carrier-output
+  drives are affected, which is all of the ones that existed before this
+  release.
+
+- **The carrier's base was drawn one millimetre off the boss it stands on.**
+  Introduced with the base itself, earlier in this release, and never shipped:
+  the part is modelled in its own frame and an assembled height was used in it
+  without the carrier drop, so the exported solid was in two pieces. The volume
+  was right, which is why nothing caught it - a printer would have made both.
+
 - **`OUTPUT_BOLT_CLASH`**, a new check. The output face's bolts share a circle
   with the tie bolts, because that is the one radius on that plate with barrel
   wall behind it to thread into. Equal counts interleave exactly; seven against

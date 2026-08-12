@@ -518,7 +518,7 @@ def output_face_bolt_holes(spec: GearSpec) -> list[np.ndarray]:
     Empty unless the ring is the output member: on a carrier-output drive the
     interface is the boss on the axis and this face carries the motor instead.
     """
-    if not spec.mount_base_fitted or not spec.output_bolt_count:
+    if not spec.ground_frame_fitted or not spec.output_bolt_count:
         return []
     r = spec.output_bolt_diameter / 2.0
     return [_circle(spec.output_face_bolt_radius * math.cos(a),
@@ -538,7 +538,7 @@ def _plate_bolt_holes(spec: GearSpec, motor_face: bool) -> list[np.ndarray]:
     holes = tie_bolt_holes(spec)
     if not motor_face:
         return holes
-    if spec.mount_base_fitted:
+    if spec.ground_frame_fitted:
         return holes + output_face_bolt_holes(spec)
     return holes + motor_bolt_holes(spec)
 
@@ -577,15 +577,17 @@ def build_mesh(spec: GearSpec,
 
     with b.part("housing", "Ring housing", "housing", PART_COLOURS["housing"]):
         # Down past the disc stack to cover the carrier and land on the output
-        # end plate: the barrel is what the two plates bolt to, so it has to
-        # reach both of them.  The pockets run its whole length, which is what a
-        # bore broached in one setup looks like and is why this is one prism.
+        # end plate, and up past it to cover the end cap where there is one:
+        # the barrel is what the two plates bolt to, so it has to reach both of
+        # them, and it is what the frame turns inside.  The pockets run its
+        # whole length, which is what a bore broached in one setup looks like
+        # and is why this is one prism.
         b.prism(_circle(0.0, 0.0, spec.housing_outer_radius, 96),
                 (pocketed_bore(spec.pin_circle_radius, spec.pin_radius,
                                spec.pin_count,
                                integral=spec.ring_pins_integral),
                  *tie_bolt_holes(spec)),
-                spec.barrel_bottom, stack)
+                spec.barrel_bottom, spec.barrel_top)
 
     # A pin carrying a roller loses its outside to it - drawn at full size it
     # would be inside its own sleeve.
@@ -606,7 +608,8 @@ def build_mesh(spec: GearSpec,
                 a = 2.0 * np.pi * k / spec.pin_count
                 b.cylinder(spec.pin_circle_radius * math.cos(a),
                            spec.pin_circle_radius * math.sin(a),
-                           pin_r, spec.barrel_bottom, stack, pin_segments)
+                           pin_r, spec.barrel_bottom, spec.barrel_top,
+                           pin_segments)
 
     outline = prof.profile_from_spec(spec, n=_profile_segments(spec)).points
     bore_r = (spec.center_bore_diameter + spec.hole_clearance) / 2.0
@@ -687,8 +690,8 @@ def build_mesh(spec: GearSpec,
         boss_bottom = spec.boss_bottom
         b.prism(_circle(0.0, 0.0, hub_r, 40), (_circle(0.0, 0.0, bore_r, 28),),
                 boss_bottom, plate_bottom, cap_top=False,
-                cap_bottom=not spec.mount_base_fitted)
-        if spec.mount_base_fitted:
+                cap_bottom=not spec.ground_frame_fitted)
+        if spec.ground_frame_fitted:
             # The base the gearbox is bolted down by, on the end of the boss.
             # Housing-sized, because it is the face of the machine at that end
             # and because a NEMA pattern needs the width.
@@ -720,18 +723,48 @@ def build_mesh(spec: GearSpec,
                                    spec.output_pin_diameter)
         # Up to the top of the stack, not up by the height of it: the pin leaves
         # the carrier face a drop below the first disc, so a stack-high pin stops
-        # a drop short of the last one.
+        # a drop short of the last one.  With a frame it carries on through the
+        # end cap, which is what makes it a beam.
         for k in range(spec.output_pin_count):
             a = 2.0 * np.pi * k / spec.output_pin_count
             b.cylinder(spec.output_bolt_circle_radius * math.cos(a),
                        spec.output_bolt_circle_radius * math.sin(a),
                        shank / 2.0, -drop, -drop + spec.output_pin_length, 20)
 
+    # The end cap: the carrier's mirror image at the far end of those pins, and
+    # the reason they are pins in a frame rather than a cantilever.  Its own
+    # part, because it comes off in an exploded view the way the carrier does -
+    # and off the *other* way, since that is the direction it is assembled from.
+    if spec.ground_frame_fitted:
+        cap_r = plate_r
+        cap_hub_r = spec.hub_diameter / 2.0
+        cap_bore = _circle(0.0, 0.0, bore_r, 28)
+        pin_holes = [
+            _circle(spec.output_bolt_circle_radius * math.cos(a),
+                    spec.output_bolt_circle_radius * math.sin(a),
+                    (shank + spec.hole_clearance) / 2.0, 20)
+            for a in (2.0 * np.pi * k / spec.output_pin_count
+                      for k in range(spec.output_pin_count))]
+        with b.part("end_cap", "End cap", "carrier",
+                    _tint(PART_COLOURS["carrier"], 0.86),
+                    explode=-_EXPLODE["carrier"],
+                    spin=1.0 / spec.lobes):
+            b.prism(_circle(0.0, 0.0, cap_r, 72), (cap_bore, *pin_holes),
+                    spec.end_cap_bottom, spec.end_cap_top, cap_top=False)
+            # The boss stands on it, so only the ring outside the boss is a
+            # surface of this plate - and the pin holes are open through it.
+            b.cap(_circle(0.0, 0.0, cap_r, 72),
+                  (_circle(0.0, 0.0, cap_hub_r, 40), *pin_holes),
+                  spec.end_cap_top, up=True)
+            b.prism(_circle(0.0, 0.0, cap_hub_r, 40), (cap_bore,),
+                    spec.end_cap_top, spec.cap_boss_top, cap_bottom=False)
+
     # The two plates that close the housing.  They do not move, they are the
     # same colour as the barrel they bolt to, and they are why the shaft
     # supports and the output bearing have somewhere to be.
     for name, label, bore, z0, apart, motor in (
-            ("input_end_plate", "Input end plate", spec.hub_bore, stack, 2.0, True),
+            ("input_end_plate", "Input end plate", spec.input_plate_bore,
+             spec.barrel_top, 2.0, True),
             ("output_end_plate", "Output end plate",
              spec.output_bearing_seat_diameter,
              plate_bottom - spec.plate_thickness, -1.6, False)):
@@ -745,7 +778,7 @@ def build_mesh(spec: GearSpec,
             top = z0 + spec.plate_thickness
             bore_loop = _circle(0.0, 0.0, max(bore, 1e-3) / 2.0, 48)
             recess = (_pilot_recess(spec, bore)
-                      if motor and not spec.mount_base_fitted else 0.0)
+                      if motor and not spec.ground_frame_fitted else 0.0)
             if recess:
                 # A register is a step, not a hole: the outer face is bored to
                 # the motor's spigot for the first couple of millimetres and to
@@ -833,6 +866,8 @@ def mesh_fingerprint(spec: GearSpec,
         spec.housing_outer_radius, spec.input_shaft_diameter, spec.cam_diameter,
         spec.plate_thickness, spec.hub_diameter, spec.hub_bore,
         spec.output_bearing_seat_diameter, spec.output_boss_protrusion,
+        spec.input_plate_bore, spec.barrel_top, spec.output_pin_length,
+        spec.end_cap_bottom, spec.end_cap_top, spec.cap_boss_top,
         spec.shaft_overhang, spec.housing_bolt_count, spec.housing_bolt_diameter,
         spec.housing_bolt_radius, spec.motor_frame,
         # Decides both the bore's shape and whether there is a pins part at all.
@@ -840,7 +875,7 @@ def mesh_fingerprint(spec: GearSpec,
         # Which member turns: it moves the motor pattern off one part and onto
         # another, grows the carrier a base, and sets the whole assembly
         # spinning the other way - so it changes the mesh three times over.
-        spec.output_member, spec.frame_spin,
+        spec.output_member, spec.frame_spin, spec.ground_frame_fitted,
         spec.output_bolt_count, spec.output_bolt_diameter,
         tuple(placements),
     )

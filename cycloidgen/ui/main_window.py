@@ -2054,8 +2054,9 @@ class MainWindow(QMainWindow):
                 ("Outer diameter", self._length(2 * s.housing_outer_radius), ""),
                 ("Overall length", self._length(s.envelope_length),
                  "barrel and both end plates"
-                 + (", plus the base it is bolted down by"
-                    if s.mount_base_fitted else "")),
+                 + (", plus the base it is bolted down by - and the barrel is "
+                    "longer, because the end cap is inside it"
+                    if s.ground_frame_fitted else "")),
                 ("Output speed", f"{s.output_rpm:.1f} rpm",
                  f"at {s.input_rpm:g} rpm in, turning "
                  + ("the other way" if s.output_reverses else "the same way")),

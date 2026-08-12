@@ -55,7 +55,7 @@
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
   a shortlist that passes every check, with the trade-offs side by side.
-- **Nothing is asserted that is not verified.** 913 tests, and where two parts
+- **Nothing is asserted that is not verified.** 921 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -294,19 +294,41 @@ downstream follows.
 | | **Carrier output** (`output pin carrier`) | **Ring output** (`ring housing`) |
 |---|---|---|
 | Epicyclic name | planetary | star |
-| Bolted down | ring housing and both end plates | carrier, output pins and its base |
+| Bolted down | ring housing and both end plates | the frame: base, carrier, pins, end cap |
 | Turns | carrier, pins and boss | housing barrel and both end plates |
 | Reduction | `N` (the lobe count) | `Np = N+1` (the pin count) |
 | Direction | against the input | with the input |
 | Motor bolts to | the input end plate | the carrier's base |
 | Load attaches to | the boss on the axis | bolts through the input end plate |
+| Output pins | cantilevers off one plate | beams between two |
+| Housing carried by | — (it is the ground) | a bearing at each end of the frame |
 | Cam bearing speed | `(N+1)/N ×` input | exactly the input speed |
 | Disc rotation in the ground frame | `1/N` of the input | none — it only orbits |
 
 The extra tooth of reduction is free: the *same parts*, bolted down at the other
 end. What it costs is the shaft end — a turning barrel has nowhere to grip, so
-the load bolts to a face, and the drive is carried by the one bearing on the
-grounded carrier's boss rather than by a coupling.
+the load bolts to a face.
+
+**The frame.** With the ring as the output the grounded member is not a plate
+but a cage, and it has to be: the pins standing on the carrier need something to
+land in, and the barrel turning around them needs to be held at both ends. So
+the carrier grows a base on the outside and an **end cap** on the far end of the
+pins, and those pins become the frame's own fasteners — which is exactly how the
+printed micro drives of this kind are built. Two things fall out of it and
+neither is cosmetic:
+
+- **The output pins stop being cantilevers.** A pin built into one plate carries
+  `F·L`; the same pin caught at both ends carries about `F·a·b/L`. On the 21:1
+  preset with two discs that is 45.3 MPa of fully-reversed bending against
+  19.9 MPa — a factor of 2.3 on the part whose fatigue check is usually the
+  first thing to fail.
+- **The housing is carried rather than hung.** One bearing locates a barrel; it
+  does not hold one against a moment, and a wheel or a pulley on a turning
+  barrel is exactly a moment. There is a main output bearing on each of the
+  frame's two bosses, and the two shaft supports move inside them.
+
+It costs length — the barrel has to cover the cap, so a 21:1 goes from 40 mm to
+63 mm — and it costs the end cap itself.
 
 Two things follow from grounding the other member and are worth stating because
 they are easy to get wrong. First, every relative motion inside the drive is
@@ -710,7 +732,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          913 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          921 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 

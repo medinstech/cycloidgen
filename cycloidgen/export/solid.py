@@ -26,6 +26,7 @@ __all__ = [
     "build_assembly",
     "disc_solid",
     "eccentric_shaft",
+    "end_cap",
     "output_flange",
     "parts",
     "ring_housing",
@@ -203,8 +204,15 @@ def output_flange(spec: GearSpec,
             .extrude(spec.output_pin_length))
     body = plate.union(hub).union(pins)
 
-    if spec.mount_base_fitted:
-        base = (cq.Workplane("XY").workplane(offset=spec.base_plate_bottom)
+    if spec.ground_frame_fitted:
+        # This part is modelled in its *own* frame, with the carrier's top face
+        # at zero - the assembly then drops it by the carrier drop.  So an
+        # assembled height has to be lifted by that drop to be used here, and
+        # the base was not: it came out one millimetre below the boss it stands
+        # on, which is a part in two pieces.  The volume was right, which is why
+        # nothing caught it, and a printer would have made two.
+        base = (cq.Workplane("XY")
+                .workplane(offset=spec.base_plate_bottom + CARRIER_DROP)
                 .circle(spec.housing_outer_radius)
                 .extrude(spec.plate_thickness))
         if spec.has_motor_face:
@@ -226,6 +234,53 @@ def output_flange(spec: GearSpec,
     return (body.faces("<Z").workplane()
             .circle(spec.hub_bore / 2.0)
             .cutThruAll())
+
+
+def end_cap(spec: GearSpec, placements: Sequence[BearingPlacement] = ()) -> cq.Workplane:
+    """The carrier's mirror image at the far end of the output pins.
+
+    It exists only on a ring-output drive, and it is what makes that drive a
+    frame rather than a cantilever.  Three things come out of putting a second
+    plate on the far end of the pins:
+
+    * the pins are supported at both ends, so they carry ``F*L/4`` instead of
+      ``F*L`` - the single biggest structural change in this app;
+    * the housing gets a second bearing, so it can take a moment instead of
+      hanging off one;
+    * the pins become the frame's own fasteners, threaded into the carrier and
+      headed on the outside of this plate, so there is nothing else to hold the
+      two grounded plates together.
+
+    Same plate radius as the carrier, because it is the same plate seen from the
+    other end - and that radius is comfortably inside the barrel bore, which it
+    has to be: this part lives *inside* the housing that turns around it.
+    """
+    plate_r = spec.output_bolt_circle_radius + spec.output_pin_diameter
+    shank = pin_shank_diameter(placements, "bearing_output_pins",
+                               spec.output_pin_diameter)
+    plate = (cq.Workplane("XY").workplane(offset=spec.end_cap_bottom)
+             .circle(plate_r)
+             .extrude(spec.output_flange_thickness))
+    # The boss the second output bearing rides on, and the outboard shaft
+    # support sits in.  It reaches exactly through the input end plate and stops
+    # flush with it: nothing grips this one, unlike the carrier's.
+    boss = (cq.Workplane("XY").workplane(offset=spec.end_cap_top)
+            .circle(spec.hub_diameter / 2.0)
+            .extrude(spec.cap_boss_top - spec.end_cap_top))
+    # Clearance for the pins, not a press fit: they are located by the carrier
+    # at the other end, and a plate pressed onto six pins cannot be assembled.
+    # Cut as explicit cylinders rather than drilled from a selected face - the
+    # highest face of this part is the top of the boss, and a pattern drilled
+    # from there at the bolt circle radius starts outside the metal.
+    pins = (cq.Workplane("XY").workplane(offset=spec.end_cap_bottom)
+            .polarArray(spec.output_bolt_circle_radius, 0, 360,
+                        spec.output_pin_count)
+            .circle((shank + spec.hole_clearance) / 2.0)
+            .extrude(spec.output_flange_thickness))
+    bore = (cq.Workplane("XY").workplane(offset=spec.end_cap_bottom)
+            .circle(spec.hub_bore / 2.0)
+            .extrude(spec.cap_boss_top - spec.end_cap_bottom))
+    return plate.union(boss).cut(pins).cut(bore)
 
 
 def housing_end_plate(spec: GearSpec, bore: float,
@@ -255,7 +310,7 @@ def housing_end_plate(spec: GearSpec, bore: float,
                              spec.housing_bolt_count)
                  .hole(spec.housing_bolt_diameter))
 
-    if motor_face and spec.mount_base_fitted:
+    if motor_face and spec.ground_frame_fitted:
         if spec.output_bolt_count:
             plate = (plate.faces(">Z").workplane()
                      .polarArray(spec.output_face_bolt_radius,
@@ -368,12 +423,21 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
              color=_colour("carrier"))
     planar["eccentric_shaft"] = planar["output_flange"] = identity
 
+    # The end cap, on a ring-output drive: the far end of the output pins, and
+    # the second thing the housing turns on.  Built at its assembled height, so
+    # it needs no placement of its own.
+    if spec.ground_frame_fitted:
+        assy.add(end_cap(spec, placements), name="end_cap",
+                 color=_colour("carrier"))
+        planar["end_cap"] = identity
+
     # The plates close the housing, one on each face.  The output one sits
     # outboard of the carrier, so the boss passes through it and the pins stay
-    # inside; the input one sits straight on top of the barrel.
-    assy.add(housing_end_plate(spec, spec.hub_bore, motor_face=True),
+    # inside; the input one sits straight on top of the barrel - which reaches
+    # past the discs to cover the end cap when there is one.
+    assy.add(housing_end_plate(spec, spec.input_plate_bore, motor_face=True),
              name="input_end_plate",
-             loc=cq.Location(cq.Vector(0, 0, spec.stack_height)),
+             loc=cq.Location(cq.Vector(0, 0, spec.barrel_top)),
              color=_colour("end_plates"))
     assy.add(housing_end_plate(spec, spec.output_bearing_seat_diameter),
              name="output_end_plate",
@@ -415,11 +479,13 @@ def parts(spec: GearSpec) -> dict[str, cq.Workplane]:
         "housing": ring_housing(spec),
         "eccentric_shaft": eccentric_shaft(spec),
         "output_flange": output_flange(spec, placements),
-        "input_end_plate": housing_end_plate(spec, spec.hub_bore,
+        "input_end_plate": housing_end_plate(spec, spec.input_plate_bore,
                                              motor_face=True),
         "output_end_plate": housing_end_plate(
             spec, spec.output_bearing_seat_diameter),
     }
+    if spec.ground_frame_fitted:
+        out["end_cap"] = end_cap(spec, placements)
     # Integral pins are not a part, so there is no file for them.  The bundle
     # is declared from this dict, so leaving an empty one in would put a solid
     # in the manifest that the housing already contains.

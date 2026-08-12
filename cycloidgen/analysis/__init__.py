@@ -406,7 +406,7 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     # that is the one radius on that plate with barrel wall behind it to thread
     # into - so the two patterns are kept apart by angle, and whether that
     # actually works depends on two counts the user sets independently.
-    if spec.mount_base_fitted and spec.output_bolt_count:
+    if spec.ground_frame_fitted and spec.output_bolt_count:
         if spec.output_bolt_diameter >= spec.housing_wall:
             rep.add(Severity.ERROR, "OUTPUT_BOLT_CLASH",
                     f"A {spec.output_bolt_diameter:g} mm output bolt does not fit "

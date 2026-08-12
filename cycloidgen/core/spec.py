@@ -780,9 +780,25 @@ class GearSpec(BaseModel):
         return -(CARRIER_DROP + self.output_flange_thickness)
 
     @property
+    def barrel_top(self) -> float:
+        """Where the ring housing stops.
+
+        The top of the disc stack, unless there is a frame - and then the same
+        allowance the carrier gets at the other end, because the end cap is the
+        carrier's mirror image and has to fit inside the barrel exactly as the
+        carrier does.  A barrel that stopped at the discs would leave the cap
+        standing proud of the housing it is meant to be inside, which is the
+        same fault the carrier had before the barrel was lengthened for it.
+        """
+        if not self.ground_frame_fitted:
+            return self.stack_height
+        return self.stack_height + CARRIER_DROP + self.output_flange_thickness
+
+    @property
     def barrel_height(self) -> float:
-        """Length of the ring housing: the discs *and* the carrier under them."""
-        return self.stack_height - self.barrel_bottom
+        """Length of the ring housing: the discs, and whatever is inside it at
+        each end."""
+        return self.barrel_top - self.barrel_bottom
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -891,21 +907,69 @@ class GearSpec(BaseModel):
                 - self.output_boss_protrusion)
 
     @property
-    def mount_base_fitted(self) -> bool:
-        """Whether the carrier grows a base plate to be bolted down by.
+    def ground_frame_fitted(self) -> bool:
+        """Whether the drive carries a frame the housing turns *inside*.
 
-        Only when it is the grounded member.  A motor cannot bolt to a plate
-        that turns, and with the ring as the output every plate on the housing
-        does - so the motor face has to come off the input end plate and go
-        somewhere that stands still, and the only thing that does is the
-        carrier.
+        Only when the ring is the output member, and then it is not an option
+        but the shape of the machine.  A motor cannot bolt to a plate that
+        turns, and with the ring as the output every plate on the housing does -
+        so the grounded member has to become something you can bolt a motor to
+        and hang a gearbox off, at both ends.
+
+        What that frame is: the carrier plate, the output pins standing on it,
+        an **end cap** the far end of those pins lands in, a boss on each of the
+        two plates, and a base on the outside of the lower one.  It is one rigid
+        body and the pins are what holds it together - which is the arrangement
+        every printed micro drive of this kind uses, and it buys two things that
+        are not cosmetic.  The housing is carried at *both* ends instead of
+        hanging off one bearing, so it can take a moment.  And the output pins
+        are beams rather than cantilevers, which is a factor of four off their
+        bending stress.
         """
         return self.output_member is OutputMember.RING
 
     @property
+    def end_cap_bottom(self) -> float:
+        """Inner face of the end cap: a drop above the last disc.
+
+        The same drop the carrier keeps below the first one, and for the same
+        reason - two surfaces at one height is a fight the renderer cannot win -
+        so the two plates are mirror images about the stack.
+        """
+        return self.stack_height + CARRIER_DROP
+
+    @property
+    def end_cap_top(self) -> float:
+        """Outer face of the end cap, which is where the barrel ends."""
+        return self.end_cap_bottom + self.output_flange_thickness
+
+    @property
+    def cap_boss_top(self) -> float:
+        """The far end of the end cap's boss.
+
+        Flush with the input end plate's outer face.  It does not stand proud
+        the way the carrier's does: nothing grips this one, it is inside the
+        frame, and its whole job is to hold the output bearing on its outside
+        and the shaft support in its bore.
+        """
+        return self.barrel_top + self.plate_thickness
+
+    @property
     def base_plate_bottom(self) -> float:
-        """Outer face of that base: the face the motor bolts to."""
+        """Outer face of the base: the face the motor bolts to."""
         return self.boss_bottom - self.plate_thickness
+
+    @property
+    def output_pins_are_supported_at_both_ends(self) -> bool:
+        """Whether an output pin is a beam or a cantilever.
+
+        A beam once there is an end cap for the far end of it to land in, which
+        is the single biggest thing the frame buys: a pin loaded at mid-span
+        carries ``F*L/4`` rather than the ``F*L`` of a cantilever off one plate.
+        Everything that bends a pin reads this rather than assuming, because
+        the assumption used to be wired in.
+        """
+        return self.ground_frame_fitted
 
     @property
     def output_face_bolt_radius(self) -> float:
@@ -946,7 +1010,7 @@ class GearSpec(BaseModel):
     def motor_mounts_on_carrier(self) -> bool:
         """Whether the motor face is cut into the carrier's base instead of the
         input end plate.  It goes on whichever member does not turn."""
-        return self.has_motor_face and self.mount_base_fitted
+        return self.has_motor_face and self.ground_frame_fitted
 
     @property
     def grounded_part(self) -> str:
@@ -1014,8 +1078,31 @@ class GearSpec(BaseModel):
         it.  On a two-disc drive that is the last disc driven over seven of its
         eight millimetres - and the bearing stress this app reports for that hole
         is computed over all eight.
+
+        With a frame it crosses a second drop at the far end and goes *through*
+        the end cap, which is what turns it from a cantilever into a beam and
+        what holds the frame together: these are the drive's own tie bolts in
+        that configuration, threaded into the carrier and headed on the outside
+        of the cap.  The extra few millimetres of pin is the cheapest structure
+        in the drive.
         """
-        return self.stack_height + CARRIER_DROP
+        span = self.stack_height + CARRIER_DROP
+        if self.ground_frame_fitted:
+            span += CARRIER_DROP + self.output_flange_thickness
+        return span
+
+    @property
+    def input_plate_bore(self) -> float:
+        """The hole in the input end plate.
+
+        The shaft support's seat normally.  With a frame it is the *output
+        bearing's* seat instead: the end cap's boss comes up through this plate,
+        the second main bearing rides on it, and the shaft support moves inside
+        that boss - which is exactly what happens at the other end, one plate
+        further out.  Two ends of one symmetrical frame.
+        """
+        return (self.output_bearing_seat_diameter if self.ground_frame_fitted
+                else self.hub_bore)
 
     @property
     def output_bearing_seat_diameter(self) -> float:
@@ -1111,14 +1198,15 @@ class GearSpec(BaseModel):
         not fill.
 
         A ring-output drive is longer by its base and the standoff the base
-        needs.  The boss protrusion is not a face of the gearbox when the
-        carrier is the output - it is a shaft end, and nobody counts a shaft
-        end in a gearbox's length - but when the carrier is the *ground* that
-        same protrusion is structure between two faces of the machine, with the
+        needs - and the barrel itself is longer, because the end cap lives
+        inside it.  The boss protrusion is not a face of the gearbox when the
+        carrier is the output: it is a shaft end, and nobody counts a shaft
+        end in a gearbox's length.  When the carrier is the *ground* that same
+        protrusion is structure between two faces of the machine, with the
         plate you bolt it down by on the end of it.
         """
         length = self.barrel_height + 2.0 * self.plate_thickness
-        if self.mount_base_fitted:
+        if self.ground_frame_fitted:
             length += self.output_boss_protrusion + self.plate_thickness
         return length
 

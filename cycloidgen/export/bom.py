@@ -89,7 +89,7 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
              f"side {s.output_bearing_seat_diameter:.1f} for the output bearing "
              f"- they are not interchangeable"
              + (f"; the input side also carries the {s.output_bolt_count} "
-                f"output bolts the load hangs on" if s.mount_base_fitted
+                f"output bolts the load hangs on" if s.ground_frame_fitted
                 and s.output_bolt_count else "")))
 
     items.append(BomItem(
@@ -101,7 +101,19 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
              f"{2 * s.output_bolt_circle_radius:g} mm circle"
              + ("; one part with the base the drive is bolted down by, on the "
                 f"end of the boss - {2 * s.housing_outer_radius:.1f} dia x "
-                f"{s.plate_thickness:g} mm" if s.mount_base_fitted else "")))
+                f"{s.plate_thickness:g} mm" if s.ground_frame_fitted else "")))
+
+    if s.ground_frame_fitted:
+        items.append(BomItem(
+            part="End cap", quantity=1, material=s.housing_material,
+            size=f"{2 * (s.output_bolt_circle_radius + s.output_pin_diameter):.1f} "
+                 f"dia x {s.output_flange_thickness:g} mm",
+            mass_each_g=m.end_cap_mass_g, source="make",
+            note=f"the far end of the output pins - clearance holes, not press "
+                 f"fits, on the same {2 * s.output_bolt_circle_radius:g} mm "
+                 f"circle, plus a {s.hub_diameter:.1f} mm boss for the "
+                 f"input-side output bearing. It goes inside the barrel, so it "
+                 f"is fitted before the housing"))
 
     items.append(BomItem(
         part="Eccentric input shaft", quantity=1, material=s.shaft_material,
@@ -155,7 +167,7 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
             note=f"through both end plates into the barrel, on a "
                  f"{2 * s.housing_bolt_radius:.1f} mm circle"))
 
-    if s.mount_base_fitted and s.output_bolt_count:
+    if s.ground_frame_fitted and s.output_bolt_count:
         items.append(BomItem(
             part="Output bolt", quantity=s.output_bolt_count,
             material=s.pin_material,

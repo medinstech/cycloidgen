@@ -108,7 +108,7 @@ def _end_plate(spec: GearSpec, directory: Path, name: str, bore: float,
     # ``motor_face`` marks the input-side plate rather than promising a motor.
     # On a ring-output drive that face turns, so the motor has moved to the
     # carrier's base and this is what the driven machine bolts to instead.
-    if motor_face and spec.mount_base_fitted and spec.output_bolt_count:
+    if motor_face and spec.ground_frame_fitted and spec.output_bolt_count:
         for c in _polar(spec.output_face_bolt_radius, spec.output_bolt_count,
                         spec.output_bolt_phase):
             msp.add_circle(c, spec.output_bolt_diameter / 2.0,

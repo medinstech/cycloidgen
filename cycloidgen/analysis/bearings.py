@@ -477,14 +477,20 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
                        spec.output_bearing, spec.bearing_min_life_hours)
         b3, why3 = output.bearing, output.problem
         out.append(BearingChoice(
-            role="Main output bearing", count=1,
+            role="Main output bearing",
+            # One at each end of the frame, on the two grounded bosses, so the
+            # housing is located rather than merely hung.
+            count=2 if spec.ground_frame_fitted else 1,
             bearing=b3, load_N=radial, speed_rpm=spec.output_rpm,
             life_hours=_life_hours(b3, radial, spec.output_rpm) if b3 else 0.0,
-            carries=f"whatever the machine hangs on the {turning}",
-            seat=f"on the {spec.hub_diameter:.1f} mm carrier boss, in the "
-                 f"{spec.output_bearing_seat_diameter:.1f} mm bore of the output "
-                 f"end plate - the boss is held by {held} and the plate turns"
-                 if spec.output_member is OutputMember.RING else
+            carries=f"whatever the machine hangs on the {turning}"
+                    + (", and the moment it applies - which is what having two "
+                       "of them is for" if spec.ground_frame_fitted else ""),
+            seat=f"one on each {spec.hub_diameter:.1f} mm boss of the frame, in "
+                 f"the {spec.output_bearing_seat_diameter:.1f} mm bores of the "
+                 f"two end plates - the bosses are held by {held} and the "
+                 f"plates turn"
+                 if spec.ground_frame_fitted else
                  f"on the {spec.hub_diameter:.1f} mm carrier boss, in the "
                  f"{spec.output_bearing_seat_diameter:.1f} mm bore of the output "
                  f"end plate",
@@ -735,6 +741,18 @@ def bearing_placements(spec: GearSpec,
              _span(outboard - spec.plate_thickness, outboard, width),
              "output_flange"),
         )
+        if spec.ground_frame_fitted:
+            # Both supports move into the frame's two bosses.  The input-side
+            # one was in the end plate, and that plate turns now - a bearing
+            # with a turning outer ring and a turning inner one is not a shaft
+            # support, it is a second output bearing nobody asked for.
+            seats = (
+                ("bearing_shaft_input", "Input shaft support, input side",
+                 _span(spec.end_cap_top, spec.cap_boss_top, width), "end_cap"),
+                ("bearing_shaft_output", "Input shaft support, output side",
+                 _span(outboard - spec.plate_thickness, outboard, width),
+                 "output_flange"),
+            )
         for name, label, (z0, z1), host in seats:
             if not (reach[0] <= z0 and z1 <= reach[1]):
                 continue
@@ -747,14 +765,30 @@ def bearing_placements(spec: GearSpec,
     # 5. Main output bearing.  It has a seat now: on the carrier's boss, inside
     # the output end plate.  Hosted on the plate, because that is what holds its
     # outer ring - so it stays put while the carrier turns and pulls away.
+    #
+    # Two of them once there is a frame, one on each of its bosses, and that is
+    # the point of the frame: a housing hanging off a single bearing takes no
+    # moment at all, and whatever is bolted to a turning barrel is exactly the
+    # kind of load that applies one.  Each is placed in its own end plate, so
+    # each stays with the plate that holds its outer ring.
     main = by_role.get("Main output bearing")
     if main is not None and main.bearing is not None:
         top = -CARRIER_DROP - spec.output_flange_thickness
         z0, z1 = _span(top - spec.plate_thickness, top, main.bearing.width)
-        out.append(BearingPlacement(
-            name="bearing_output_main", label="Main output bearing",
-            role=main.role, catalogue=main.bearing.designation,
-            bore=main.bearing.bore, outer=main.bearing.outer,
-            rings=(BearingRing(0.0, 0.0, z0, z1),), host="output_end_plate"))
+        seats = [("bearing_output_main", "Main output bearing",
+                  (z0, z1), "output_end_plate")]
+        if spec.ground_frame_fitted:
+            seats[0] = ("bearing_output_main", "Main output bearing, output side",
+                        (z0, z1), "output_end_plate")
+            seats.append((
+                "bearing_output_input", "Main output bearing, input side",
+                _span(spec.barrel_top, spec.cap_boss_top, main.bearing.width),
+                "input_end_plate"))
+        for name, label, (a, bz), host in seats:
+            out.append(BearingPlacement(
+                name=name, label=label,
+                role=main.role, catalogue=main.bearing.designation,
+                bore=main.bearing.bore, outer=main.bearing.outer,
+                rings=(BearingRing(0.0, 0.0, a, bz),), host=host))
 
     return out

@@ -23,7 +23,7 @@ import pytest
 
 from cycloidgen.analysis import analyse
 from cycloidgen.core import kinematics as kin
-from cycloidgen.core.spec import OutputMember, preset
+from cycloidgen.core.spec import CARRIER_DROP, OutputMember, preset
 
 RATIOS = [10, 15, 21, 29, 39, 59]
 
@@ -245,9 +245,11 @@ def test_the_motor_bolts_to_the_member_that_stands_still():
     assert with_motor < plain                       # four holes taken out of it
 
     # And on the ring-output drive the motor's holes are in the carrier instead.
+    # The carrier is modelled in its own frame, with its top face at zero, so an
+    # assembled height reads a carrier drop higher here.
     flange = solid.output_flange(ring).val()
     box = flange.BoundingBox()
-    assert box.zmin == pytest.approx(ring.base_plate_bottom)
+    assert box.zmin == pytest.approx(ring.base_plate_bottom + CARRIER_DROP)
     half = ring.motor.bolt_span / 2.0
     reach = math.hypot(half, half) + ring.motor.bolt_diameter / 2.0
     assert box.xlen / 2.0 == pytest.approx(ring.housing_outer_radius, rel=1e-3)
@@ -260,12 +262,14 @@ def test_the_base_is_only_there_when_the_carrier_is_the_ground():
     from cycloidgen.export import solid
 
     carrier, ring = _spec(21, OutputMember.CARRIER), _spec(21, OutputMember.RING)
-    assert not carrier.mount_base_fitted and ring.mount_base_fitted
+    assert not carrier.ground_frame_fitted and ring.ground_frame_fitted
     assert (solid.output_flange(ring).val().Volume()
             > solid.output_flange(carrier).val().Volume())
-    # The envelope grows by the base and the standoff it needs, and says so.
+    # The envelope grows by the base and the standoff it needs - and by the
+    # barrel's own growth, because the end cap lives inside it.
     assert (ring.envelope_length - carrier.envelope_length
-            == pytest.approx(ring.plate_thickness + ring.output_boss_protrusion))
+            == pytest.approx(ring.plate_thickness + ring.output_boss_protrusion
+                             + CARRIER_DROP + ring.output_flange_thickness))
 
 
 def test_the_mass_model_weighs_the_base_it_exported():
@@ -309,6 +313,170 @@ def test_the_turning_housing_gets_a_face_to_bolt_a_load_to():
             .val().Volume()
             == pytest.approx(solid.housing_end_plate(none, none.hub_bore)
                              .val().Volume()))
+
+
+# ---------------------------------------------------------------- the frame
+
+
+def test_the_output_pins_land_in_something_at_the_far_end():
+    """The reference drive's whole structure, in one assertion.
+
+    A carrier-output drive extrudes its pins from one plate and nothing catches
+    them; a ring-output drive lands them in an end cap and the two grounded
+    plates are held together *by the pins*.  Everything structural about this
+    configuration follows from that, so it is checked on the geometry rather
+    than on the flag.
+    """
+    from cycloidgen.export import solid
+
+    carrier, ring = _spec(21, OutputMember.CARRIER), _spec(21, OutputMember.RING)
+    assert not carrier.output_pins_are_supported_at_both_ends
+    assert ring.output_pins_are_supported_at_both_ends
+
+    # The pin reaches through the cap, because it is also the bolt holding it on.
+    reach = -CARRIER_DROP + ring.output_pin_length
+    assert reach == pytest.approx(ring.end_cap_top)
+    # ...and the cap is a drop clear of the last disc, mirroring the carrier.
+    assert ring.end_cap_bottom == pytest.approx(ring.stack_height + CARRIER_DROP)
+
+    cap = solid.end_cap(ring).val()
+    box = cap.BoundingBox()
+    assert box.zmin == pytest.approx(ring.end_cap_bottom)
+    assert box.zmax == pytest.approx(ring.cap_boss_top)
+    # It lives inside the barrel it is turning inside, so it has to clear the
+    # ring pins - which is the constraint that decides it can exist at all.
+    assert box.xlen / 2.0 < ring.pin_circle_radius - ring.pin_radius
+
+
+def test_the_barrel_covers_the_cap_it_turns_around():
+    """A barrel that stopped at the discs would leave the cap standing out of
+    the housing - the same fault the carrier had before the barrel was
+    lengthened for it, at the other end."""
+    ring = _spec(21, OutputMember.RING)
+    assert ring.barrel_top == pytest.approx(ring.end_cap_top)
+    assert ring.barrel_bottom < -CARRIER_DROP
+    # And the ring pins run the barrel's whole length, so they grew with it.
+    assert ring.ring_pin_length == pytest.approx(ring.barrel_height)
+    carrier = _spec(21, OutputMember.CARRIER)
+    assert carrier.barrel_top == pytest.approx(carrier.stack_height)
+
+
+def test_a_beam_is_not_a_cantilever():
+    """The factor the end cap buys, measured rather than asserted.
+
+    Both the bending moment and the pin's own stiffness change, and they change
+    in *opposite* directions - the moment falls by more than half, the stiffness
+    falls too because the span is now the whole pin rather than half a stack.
+    Both are real and the app should report both, so both are pinned here.
+    """
+    from cycloidgen.analysis.fatigue import output_pin_bending_moment_Nmm
+
+    carrier, ring = _spec(21, OutputMember.CARRIER), _spec(21, OutputMember.RING)
+    for spec in (carrier, ring):
+        spec.disc_count = 2
+    cantilever = output_pin_bending_moment_Nmm(carrier, 100.0)
+    beam = output_pin_bending_moment_Nmm(ring, 100.0)
+    assert beam < cantilever / 2.0
+
+    pin_a = next(p for p in analyse(carrier).fatigue.parts
+                 if p.part == "output pin")
+    pin_b = next(p for p in analyse(ring).fatigue.parts
+                 if p.part == "output pin")
+    assert pin_b.alternating_MPa < pin_a.alternating_MPa / 2.0
+
+
+def test_a_single_disc_beam_is_the_textbook_case():
+    """One central load on two supports is ``F*L/4``.
+
+    The general expression this uses has to collapse to that, or the stack case
+    it was written for is being trusted on nothing.
+    """
+    from cycloidgen.analysis.fatigue import output_pin_bending_moment_Nmm
+
+    spec = _spec(21, OutputMember.RING, disc_count=1)
+    span = spec.output_pin_length
+    a = CARRIER_DROP + spec.stack_height / 2.0
+    b = span - a
+    assert output_pin_bending_moment_Nmm(spec, 100.0) == pytest.approx(
+        100.0 * a * b / span)
+
+
+def test_the_housing_is_carried_at_both_ends():
+    """One bearing locates a housing; it does not hold one against a moment.
+
+    Two, one on each of the frame's bosses, is what the end cap makes possible -
+    and it is the difference between a drive you can hang a wheel on and one you
+    can only couple to.
+    """
+    from cycloidgen.analysis.bearings import placements_for_spec
+
+    carrier, ring = _spec(21, OutputMember.CARRIER), _spec(21, OutputMember.RING)
+    main = next(c for c in analyse(ring).bearings
+                if c.role == "Main output bearing")
+    assert main.count == 2
+    assert next(c for c in analyse(carrier).bearings
+                if c.role == "Main output bearing").count == 1
+
+    placed = {p.name: p for p in placements_for_spec(ring)}
+    assert {"bearing_output_main", "bearing_output_input"} <= set(placed)
+    # One in each end plate, so each stays with the plate holding its outer ring.
+    assert placed["bearing_output_main"].host == "output_end_plate"
+    assert placed["bearing_output_input"].host == "input_end_plate"
+    # And they are at opposite ends of the drive, which is the point.
+    assert placed["bearing_output_main"].rings[0].z0 < 0.0
+    assert placed["bearing_output_input"].rings[0].z0 > ring.stack_height
+
+
+def test_the_shaft_supports_move_into_the_grounded_bosses():
+    """A support whose outer ring turns is not a shaft support.
+
+    With a frame the input end plate turns, so the seat that used to be in it
+    moves into the end cap's boss - which mirrors the carrier's boss at the
+    other end and is the same part number in both.
+    """
+    from cycloidgen.analysis.bearings import placements_for_spec
+
+    placed = {p.name: p.host for p in placements_for_spec(_spec(21, OutputMember.RING))}
+    assert placed["bearing_shaft_input"] == "end_cap"
+    assert placed["bearing_shaft_output"] == "output_flange"
+
+    plain = {p.name: p.host
+             for p in placements_for_spec(_spec(21, OutputMember.CARRIER))}
+    assert plain["bearing_shaft_input"] == "input_end_plate"
+
+
+def test_the_end_cap_is_a_part_you_can_order_and_make():
+    """It reaches the manifest, the per-part exports and the bill of materials -
+    and it weighs something, which is the check that catches a made part the
+    mass model has never been told about."""
+    from cycloidgen.export import solid
+    from cycloidgen.export.bom import bom_items
+    from cycloidgen.export.manifest import part_names
+
+    ring = _spec(21, OutputMember.RING)
+    assert "end_cap" in part_names(ring)
+    assert "end_cap" in solid.parts(ring)
+    assert "end_cap" not in part_names(_spec(21, OutputMember.CARRIER))
+    assert "end_cap" not in solid.parts(_spec(21, OutputMember.CARRIER))
+
+    line = next(i for i in bom_items(analyse(ring)) if i.part == "End cap")
+    assert line.source == "make" and line.mass_each_g > 0.0
+
+    rho = ring.housing_mat.density_g_cm3
+    assert analyse(ring).mass.end_cap_mass_g / rho * 1000.0 == pytest.approx(
+        solid.end_cap(ring).val().Volume(), rel=0.02)
+
+
+def test_the_carrier_is_one_solid_and_not_two():
+    """The base is built in assembled coordinates inside a part-local frame, so
+    it has to be lifted by the carrier drop to land on the boss.  It was not,
+    and the part came out in two pieces - with the right total volume, which is
+    why nothing caught it and a printer would have made both."""
+    from cycloidgen.export import solid
+
+    for member in OutputMember:
+        flange = solid.output_flange(_spec(21, member))
+        assert len(flange.solids().vals()) == 1, member
 
 
 @pytest.mark.parametrize("counts,severity", [

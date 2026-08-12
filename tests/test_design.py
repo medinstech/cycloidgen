@@ -160,8 +160,16 @@ def test_a_sweep_walks_the_parameter_and_keeps_the_blocked_points():
 
 
 def test_a_sweep_actually_changes_the_answer():
+    """Both ends have to be designs that pass, or this measures nothing.
+
+    16 mm used to be one and is not any more: the output pin's bending arm is
+    measured from the carrier's face, which is a drop below the first disc, and
+    counting that drop pushed a 16 mm stack just over the pin's fatigue limit.
+    The point of this test is that a thicker disc carries more, so it wants two
+    thicknesses that both hold - not the thickest one that used to.
+    """
     spec = preset(15)
-    result = sweep_parameter(spec, "disc_thickness", [4.0, 16.0])
+    result = sweep_parameter(spec, "disc_thickness", [4.0, 10.0])
     caps = [p.capacity_Nm for p in result.points if p.ok]
     assert len(caps) == 2
     assert caps[1] > caps[0]            # a thicker disc carries more

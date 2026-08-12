@@ -22,7 +22,8 @@ that path is a spring in series:
 Part             Modelled as
 ===============  ===========================================================
 Carrier plate    an annulus in in-plane torsion, bolt circle to rim
-Output pins      cantilevers off the plate, in bending and in shear
+Output pins      cantilevers off the plate, or beams between the plate and the
+                 end cap where there is one; bending and shear either way
 Disc body        an annulus in in-plane torsion, holes out to the rim
 Housing          a barrel in torsion, picking the load up along the stack
 Input shaft      a bar in torsion, divided by the square of the ratio
@@ -68,6 +69,7 @@ __all__ = [
     "cantilever_stiffness",
     "series_stiffness",
     "shear_modulus",
+    "simply_supported_stiffness",
 ]
 
 
@@ -141,6 +143,44 @@ def cantilever_stiffness(E_MPa: float, nu: float, diameter_mm: float,
     kappa = 6.0 * (1.0 + nu) / (7.0 + 6.0 * nu)
     flexibility = (length_mm ** 3 / (3.0 * E_MPa * second_moment)
                    + length_mm / (kappa * G * area))
+    return 1.0 / flexibility if flexibility > 0.0 else math.inf
+
+
+def simply_supported_stiffness(E_MPa: float, nu: float, diameter_mm: float,
+                               span_mm: float, at_mm: float | None = None) -> float:
+    """Stiffness of a round beam on two supports at the point it is loaded, N/mm.
+
+    The same pin as :func:`cantilever_stiffness` with something catching its far
+    end, which is what a drive with an end cap has.
+
+    ``at_mm`` is where the load lands, measured from the near support; it
+    defaults to mid-span.  It is worth taking rather than assuming, because on
+    this drive the load is *not* central - the pin starts a carrier drop below
+    the first disc and carries on through the end cap, so the disc stack sits
+    nearer one end.  Off-centre is stiffer, and by a lot on a short stack in a
+    long pin, so mid-span would be a needless derating.
+
+    Bending gives ``3*E*I*L/(a^2*b^2)``, which collapses to the familiar
+    ``48EI/L^3`` when ``a = b``.  Shear again, and for the same reason as the
+    cantilever: at these aspect ratios it is not a refinement.
+
+    Note that a longer span can be *softer* than the cantilever it replaces even
+    though the case is stiffer, because the two lengths are not the same thing -
+    the cantilever reaches half the stack and the beam spans the whole pin.  The
+    honest comparison is between the two numbers rather than between the
+    formulas, which is why both are here.
+    """
+    if diameter_mm <= 0.0 or E_MPa <= 0.0 or span_mm <= 0.0:
+        return math.inf
+    a = span_mm / 2.0 if at_mm is None else min(max(at_mm, 1e-9), span_mm - 1e-9)
+    b = span_mm - a
+    r = diameter_mm / 2.0
+    area = math.pi * r * r
+    second_moment = 0.25 * math.pi * r ** 4
+    G = E_MPa / (2.0 * (1.0 + nu))
+    kappa = 6.0 * (1.0 + nu) / (7.0 + 6.0 * nu)
+    flexibility = ((a * b) ** 2 / (3.0 * E_MPa * second_moment * span_mm)
+                   + a * b / (kappa * G * area * span_mm))
     return 1.0 / flexibility if flexibility > 0.0 else math.inf
 
 
@@ -245,9 +285,24 @@ def analyse_parts(spec: GearSpec) -> PartStiffness:
     shaft *= float(spec.ratio) ** 2
 
     # ---- carrier pins -------------------------------------------------------
-    pin = cantilever_stiffness(spec.pin_mat.E_GPa * 1000.0, spec.pin_mat.nu,
-                               spec.output_pin_diameter,
-                               max(spec.stack_height / 2.0, 1e-9))
+    # Cantilever off the carrier, or a beam between the carrier and the end cap
+    # when the drive has a frame.  Which one is geometry, not a modelling
+    # choice: the second plate either exists in the exported part or it does
+    # not, and this is the softest thing in the structure either way, so it is
+    # worth reading rather than assuming.
+    if spec.output_pins_are_supported_at_both_ends:
+        from ..core.spec import CARRIER_DROP
+        pin = simply_supported_stiffness(
+            spec.pin_mat.E_GPa * 1000.0, spec.pin_mat.nu,
+            spec.output_pin_diameter, max(spec.output_pin_length, 1e-9),
+            # The stack's centroid, measured from the carrier's face - the same
+            # place the cantilever case takes the load at, so the two answers
+            # differ by the support condition and nothing else.
+            at_mm=CARRIER_DROP + spec.stack_height / 2.0)
+    else:
+        pin = cantilever_stiffness(spec.pin_mat.E_GPa * 1000.0, spec.pin_mat.nu,
+                                   spec.output_pin_diameter,
+                                   max(spec.stack_height / 2.0, 1e-9))
 
     return PartStiffness(housing_Nmm_per_rad=housing,
                          disc_body_Nmm_per_rad=disc_body,

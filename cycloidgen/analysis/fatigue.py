@@ -59,13 +59,14 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from ..core.spec import GearSpec, Process
+from ..core.spec import CARRIER_DROP, GearSpec, Process
 
 __all__ = [
     "FatigueResult",
     "PartFatigue",
     "analyse_fatigue",
     "endurance_limit",
+    "output_pin_bending_moment_Nmm",
     "output_pin_fatigue",
     "size_factor",
     "surface_factor",
@@ -224,19 +225,49 @@ def _peak_output_pin_force(spec: GearSpec) -> float:
     return peak
 
 
+def output_pin_bending_moment_Nmm(spec: GearSpec, force_per_disc: float) -> float:
+    """Worst bending moment in one output pin, Nmm.
+
+    Which case applies is read off the geometry rather than assumed, because
+    both are parts this app now exports.  A carrier-output drive extrudes the
+    pins from one plate and nothing catches their free ends, so it is a
+    **cantilever** and the moment is the sum of ``F*a`` over the discs - not one
+    disc's force at the middle of the stack, since with three discs the
+    outermost has five times the arm of the innermost.
+
+    A ring-output drive lands the far end of every pin in the end cap, so it is
+    a **simply supported beam**.  For a single central load that is ``F*L/4``
+    against the cantilever's ``F*L``: a factor of four, and it is the largest
+    single structural difference between the two drives this app can build.
+    With a stack, each disc contributes ``F*a*(L-a)/L`` at its own station, and
+    the worst section is found by evaluating the moment at each of them rather
+    than by assuming the middle one - which is only the worst when the stack is
+    symmetric about mid-span, and it is not.
+    """
+    pitch = spec.disc_thickness + spec.disc_gap
+    # Measured from the carrier's face, which is where the pin starts.
+    arms = [CARRIER_DROP + i * pitch + 0.5 * spec.disc_thickness
+            for i in range(spec.disc_count)]
+    if not spec.output_pins_are_supported_at_both_ends:
+        return force_per_disc * sum(arms)
+
+    span = spec.output_pin_length
+    # Reaction at the near support, then the moment at each loaded station.
+    near = sum(force_per_disc * (span - a) for a in arms) / span
+    worst = 0.0
+    for station in arms:
+        moment = near * station - sum(force_per_disc * (station - a)
+                                      for a in arms if a < station)
+        worst = max(worst, abs(moment))
+    return worst
+
+
 def output_pin_fatigue(spec: GearSpec, temperature_C: float) -> PartFatigue:
     """Rotating bending on one output pin.
 
-    A cantilever, and not by assumption: :func:`cycloidgen.export.solid.output_flange`
-    extrudes the pins from one plate and nothing catches their free ends, so that
-    is the part this app tells you to make.  A design that captures them in a
-    second plate is a different and much better part, and this does not know
-    about it.
-
-    Every disc in the stack pushes the same pin at its own plane, so the root
-    moment is the sum of those and not one disc's force at the middle of the
-    stack: with three discs the outermost has five times the arm of the innermost
-    and the total is nowhere near the average.
+    Cantilever or beam according to whether there is an end cap to catch the far
+    end - see :func:`output_pin_bending_moment_Nmm`, which is where that choice
+    lives so that nothing here has to restate it.
 
     Separate from :func:`analyse_fatigue` because the design search screens on
     it, and screening on the whole fatigue result would mean sampling the disc
@@ -244,11 +275,10 @@ def output_pin_fatigue(spec: GearSpec, temperature_C: float) -> PartFatigue:
     """
     pin_mat = spec.pin_mat
     force_per_disc = _peak_output_pin_force(spec)
-    pitch = spec.disc_thickness + spec.disc_gap
-    arms = [i * pitch + 0.5 * spec.disc_thickness for i in range(spec.disc_count)]
     diameter = spec.output_pin_diameter
     section_modulus = math.pi * diameter ** 3 / 32.0
-    bending = force_per_disc * sum(arms) / max(section_modulus, 1e-9)
+    bending = (output_pin_bending_moment_Nmm(spec, force_per_disc)
+               / max(section_modulus, 1e-9))
     return PartFatigue(
         part="output pin",
         alternating_MPa=bending,

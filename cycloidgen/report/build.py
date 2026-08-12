@@ -723,6 +723,14 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
         f"Fit the eccentric bearings onto the {s.cam_diameter:g} mm cams, then "
         f"drop each disc over its own cam.",
     ]
+    if s.ground_frame_fitted:
+        steps.append(
+            f"Put the end cap on the far ends of those pins - clearance holes, "
+            f"not press fits - and bolt it down to the carrier through them. "
+            f"That closes the frame: the carrier, the {s.output_pin_count} pins "
+            f"and the cap are one rigid body, and it is what the housing turns "
+            f"around. Do it before the housing goes on, because the cap lives "
+            f"inside the barrel.")
     if s.disc_count > 1:
         steps.append(
             "Check the phasing before closing it up: at any crank angle the "
@@ -739,7 +747,7 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
         "the housing itself, so the load goes on the "
         f"{s.output_bolt_count} bolts through the input end plate, and it "
         f"turns <i>with</i> the input, one turn for every {s.ratio}. Leave the "
-        "housing free: anything clamping the barrel is clamping the output.")
+        "barrel free: anything clamping it is clamping the output.")
     steps.append(
         "Turn the input by hand through a full revolution before powering it. "
         "It should feel uniform. A tight spot once per disc revolution means "
