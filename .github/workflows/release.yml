@@ -75,7 +75,20 @@ jobs:
           ./dist/cycloidgen/cycloidgen-cli.exe --ratio 21 --list-outputs > /dev/null
 
       - name: Install NSIS
-        run: choco install nsis --no-progress -y
+        shell: pwsh
+        # Chocolatey's community feed answers 503 often enough to have taken a
+        # release down: it did on 7.3.2, in this step, after the bundle and
+        # every other platform's build had already succeeded.  Nothing about
+        # that failure is ours and nothing about it is worth a person's
+        # attention, so it is retried rather than reported.
+        run: |
+          foreach ($attempt in 1..4) {
+            choco install nsis --no-progress -y
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            Write-Host "chocolatey exited $LASTEXITCODE on attempt $attempt"
+            Start-Sleep -Seconds (20 * $attempt)
+          }
+          throw "NSIS would not install in four attempts"
 
       # In pwsh, and not in bash, because NSIS takes `/FLAG` options and MSYS
       # rewrites anything shaped like a Unix path: `/INPUTCHARSET` arrives as

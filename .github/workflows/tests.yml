@@ -103,7 +103,21 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
-      - run: choco install nsis --no-progress -y
+      - name: Install NSIS
+        shell: pwsh
+        # Chocolatey's community feed answers 503 often enough to have taken a
+        # release down: it did on 7.3.2, in this step, after the bundle and
+        # every other platform's build had already succeeded.  Nothing about
+        # that failure is ours and nothing about it is worth a person's
+        # attention, so it is retried rather than reported.
+        run: |
+          foreach ($attempt in 1..4) {
+            choco install nsis --no-progress -y
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            Write-Host "chocolatey exited $LASTEXITCODE on attempt $attempt"
+            Start-Sleep -Seconds (20 * $attempt)
+          }
+          throw "NSIS would not install in four attempts"
       - name: Compile against a stub bundle
         shell: pwsh
         run: |
