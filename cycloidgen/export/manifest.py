@@ -23,6 +23,7 @@ __all__ = [
     "MANIFEST",
     "Group",
     "Output",
+    "always_written",
     "disc_names",
     "group_keys",
     "outputs_for",
@@ -105,6 +106,11 @@ class Output:
     #: Names inside the folder, for the folder entries.  A plain file needs no
     #: such function, and asking one for it is a bug rather than an empty list.
     contents: Callable[[GearSpec], list[str]] | None = field(default=None, repr=False)
+    #: Written whatever is selected, and not offered as a choice.  There is one
+    #: of these and it is the notice: a folder of parts that says what it is not
+    #: is worth having whichever half of the bundle somebody asked for, and it
+    #: is the only thing here that is worse for being optional.
+    always: bool = False
 
     @property
     def is_folder(self) -> bool:
@@ -119,6 +125,14 @@ class Output:
 
 
 MANIFEST: tuple[Output, ...] = (
+    Output("notice", "NOTICE.txt", "data", "TXT",
+           "What these files are not",
+           "The one file in here that is not geometry: these numbers are "
+           "estimates from stated models and this geometry has not been "
+           "proven against a made part. Written into every bundle, whichever "
+           "groups are selected, because it is the sheet that travels with a "
+           "STEP file to somebody who did not run the app.",
+           always=True),
     Output("assembly_dxf", "disc.dxf", "drawings", "DXF",
            "Assembly drawing",
            "Every part of the drive on its own layer: the disc profile as a "
@@ -210,11 +224,31 @@ def resolve_groups(include_solids: bool = True,
 
 
 def outputs_for(groups: Collection[str]) -> list[Output]:
-    return [o for o in MANIFEST if o.group in groups]
+    """The outputs a group contains - the always-written ones are not in it.
+
+    Group membership is what the Outputs tab draws its tree from, one group at
+    a time, so an entry that belongs to every bundle cannot answer here without
+    appearing under each of them.  :func:`always_written` is where it is, and
+    :func:`planned_files` puts the two together.
+    """
+    return [o for o in MANIFEST if o.group in groups and not o.always]
+
+
+def always_written() -> list[Output]:
+    """Everything a bundle gets whichever groups were asked for."""
+    return [o for o in MANIFEST if o.always]
 
 
 def planned_files(spec: GearSpec,
                   groups: Iterable[str] | None = None) -> list[tuple[Output, str]]:
-    """Every file an export of ``spec`` would write, in bundle order."""
+    """Every file an export of ``spec`` would write, in bundle order.
+
+    Empty means empty: asking for no groups writes nothing at all, notice
+    included.  What it must not do is write a notice and nothing to put it
+    beside.
+    """
     chosen = set(groups) if groups is not None else set(group_keys())
-    return [(out, name) for out in outputs_for(chosen) for name in out.files(spec)]
+    outputs = [o for o in MANIFEST
+               if (o.group in chosen and not o.always)
+               or (o.always and any(g.key in chosen for g in GROUPS))]
+    return [(out, name) for out in outputs for name in out.files(spec)]

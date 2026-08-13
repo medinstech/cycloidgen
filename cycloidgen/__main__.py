@@ -13,6 +13,8 @@ import argparse
 import sys
 from pathlib import Path
 
+from . import notice
+
 
 def _spec_from_args(args):
     """The design a headless run works on: a saved file if given, else a preset."""
@@ -74,10 +76,14 @@ def _list_outputs(spec, groups: set[str]) -> int:
     Straight off the manifest, which is also what ``write_bundle`` walks, so
     this is a promise the exporter keeps rather than a table someone wrote once.
     """
-    from .export.manifest import GROUPS, outputs_for
+    from .export.manifest import GROUPS, always_written, outputs_for
 
     print(f"An export of this {spec.ratio}:1 design writes:\n")
     total = 0
+    for out in always_written():
+        print("[x] Always  -  written whichever groups are selected")
+        print(f"      {out.fmt:<5} {out.where:<16} {out.title}\n")
+        total += len(out.files(spec)) if groups else 0
     for group in GROUPS:
         mark = "x" if group.key in groups else " "
         print(f"[{mark}] {group.title}  -  {group.note}")
@@ -364,6 +370,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\nwrote {len(files)} files to {out}")
         for f in files:
             print(f"  {f.relative_to(out)}")
+        # The same sentence the window puts in front of an export, on the route
+        # that has no window.  It is in `NOTICE.txt` beside the parts as well,
+        # which is the copy that survives being emailed to a shop.
+        print(f"\n{notice.HEADLINE}: {notice.SHORT}")
         return 0
 
     from .ui.app import main as gui_main

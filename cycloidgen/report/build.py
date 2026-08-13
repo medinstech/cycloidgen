@@ -22,7 +22,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-from .. import __version__
+from .. import __version__, notice
 from ..analysis import DesignAnalysis
 from ..core.spec import OutputMember
 from ..core.validate import Severity
@@ -33,6 +33,8 @@ __all__ = ["report_dict", "write_json", "write_pdf"]
 _INK = colors.HexColor("#0b0b0b")
 _INK2 = colors.HexColor("#52514e")
 _GRID = colors.HexColor("#e6e5e1")
+#: The amber the checks list and the window's notice strip both use.
+_WARNING = colors.HexColor("#eda100")
 _SEV = {
     Severity.ERROR: colors.HexColor("#e34948"),
     Severity.WARNING: colors.HexColor("#eda100"),
@@ -323,6 +325,24 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
                 _fig_png(plots.assembly_figure(s, Figure(figsize=(5.4, 5.4), dpi=110)),
                          83)]],
               colWidths=[86 * mm, 86 * mm], hAlign="LEFT"),
+    ]
+
+    # --- what this is not ----------------------------------------------------
+    # On the first page, above the verdict, and boxed.  This is the sheet that
+    # gets printed and handed across a desk, and the verdict directly under it
+    # says READY TO EXPORT in capitals - which is a statement about the checks
+    # and reads, on its own, like a statement about the design.
+    story += [
+        Spacer(1, 4),
+        Table([[Paragraph(
+            f"<b>{notice.HEADLINE}.</b> "
+            f"{notice.FULL.replace(chr(10) + chr(10), '<br/><br/>')}", body)]],
+            colWidths=[172 * mm], hAlign="LEFT",
+            style=TableStyle([("BOX", (0, 0), (-1, -1), 0.6, _WARNING),
+                              ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                              ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                              ("TOPPADDING", (0, 0), (-1, -1), 5),
+                              ("BOTTOMPADDING", (0, 0), (-1, -1), 5)])),
     ]
 
     # --- verdict -------------------------------------------------------------

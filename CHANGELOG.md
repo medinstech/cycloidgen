@@ -5,6 +5,48 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 7.4.0
+
+**Numbers** — none.
+
+**Added**
+
+- **The app says what its output is not, where the output is made.** It said it
+  before, in Help ▸ About, which is a dialog nobody opens - the least-read place
+  in the application for the one paragraph in it that carries a consequence. It
+  is in three more places now, and they are the three that matter:
+
+  - **A strip under the export buttons**, in the window, always. Not
+    dismissible: a disclaimer with a close button is a disclaimer that is shown
+    once. Quiet on purpose - a hairline, the warning ink, one line - because it
+    has to still be legible on the hundredth session and a banner that shouts is
+    read as decoration by the second.
+  - **A box before an export is written**, every time, with no "do not show
+    again". Before rather than after, because after is a notification and this
+    is a decision: the files are the thing that leaves the app, gets emailed to
+    a shop and outlives the session that made them.
+  - **`NOTICE.txt`, in the folder with the parts** — and in the PDF dossier, on
+    the first page, above the verdict. That last position is deliberate: the
+    verdict says **READY TO EXPORT** in capitals, which is a statement about the
+    checks and reads, on its own, like a statement about the design.
+
+  The notice is written into *every* bundle whichever groups were selected,
+  because somebody exporting drawings only is exactly the person taking a DXF
+  straight to a laser cutter. It is the first entry in the export manifest and
+  the first row in the README's table of outputs, and it is not a group anyone
+  can untick. Asking for no groups still writes nothing at all.
+
+  All five copies read `cycloidgen.notice`. The risk with a disclaimer in five
+  places is not that one disappears - somebody would notice - but that one
+  *softens*, and the weakest copy is the one that will be quoted back. A test
+  holds them to the same string.
+
+  What it says is also wider than what About used to say. It named the numbers;
+  it names the geometry too. Profiles, fits and clearances come out of the same
+  idealised model as the analysis, no tolerance stack has been proven, and a
+  STEP file that looks finished is the easiest thing here to mistake for a
+  drawing that has been checked.
+
 ## 7.3.2
 
 **Numbers** — none.

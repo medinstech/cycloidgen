@@ -304,9 +304,14 @@ def test_the_outputs_tab_lists_what_an_export_would_write(app):
         expected = len(planned_files(w.spec, outputs.selected_groups()))
         leaves = 0
         for i in range(outputs.tree.topLevelItemCount()):
-            group = outputs.tree.topLevelItem(i)
-            for j in range(group.childCount()):
-                entry = group.child(j)
+            top = outputs.tree.topLevelItem(i)
+            if not top.childCount():
+                # A file of its own at the top of the tree: the notice, which
+                # belongs to no group because it is written whatever is ticked.
+                leaves += 1
+                continue
+            for j in range(top.childCount()):
+                entry = top.child(j)
                 leaves += entry.childCount() or 1
         assert leaves == len(planned_files(w.spec))
         assert expected > 0

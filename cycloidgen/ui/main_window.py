@@ -45,7 +45,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import __version__
+from .. import __version__, notice
 from ..analysis import DesignAnalysis, analyse
 from ..core.designfile import (
     design_dict,
@@ -879,7 +879,27 @@ class MainWindow(QMainWindow):
         self._pin_btn.clicked.connect(self._pin_reference)
         row.addWidget(self._pin_btn)
         layout.addLayout(row)
+        layout.addWidget(self._build_notice_strip())
         return panel
+
+    def _build_notice_strip(self) -> QWidget:
+        """What this tool does not claim, under the buttons that produce it.
+
+        It used to be in Help ▸ About only, which is a dialog nobody opens and
+        the wrong place for the one paragraph here that carries a consequence.
+        Under the export buttons it is in front of the person about to press
+        one, and it is not dismissible: a disclaimer with a close button is a
+        disclaimer that is shown once.
+
+        Deliberately quiet - a hairline, the warning ink, one line of text.  A
+        banner that shouts gets read as decoration by the second session, and
+        this has to still be legible on the hundredth.
+        """
+        strip = QLabel(f"{notice.HEADLINE.upper()}  ·  {notice.SHORT}")
+        strip.setObjectName("NoticeStrip")
+        strip.setWordWrap(True)
+        strip.setToolTip(notice.FULL.replace("\n\n", "\n\n"))
+        return strip
 
     def _build_crank_bar(self) -> QWidget:
         """Crank angle, playback and speed - shared by the drawing and the 3D view."""
@@ -1197,16 +1217,9 @@ class MainWindow(QMainWindow):
             f"<table cellpadding='8' cellspacing='0' width='100%' "
             f"style='border:1px solid {p.warning}'>"
             f"<tr><td style='border:1px solid {p.warning}'>"
-            f"<b style='color:{p.warning}'>Not verified output.</b> "
-            f"<span style='color:{p.ink}'>The numbers are preliminary sizing "
-            f"estimates from stated models with stated limits, not a "
-            f"certification &mdash; and the exported geometry is not a checked "
-            f"drawing. Profiles, fits and clearances come out of the same "
-            f"idealised model as the analysis: no tolerance stack has been "
-            f"proven, and nothing here has been calibrated against measured "
-            f"hardware. Treat every part as a starting point to review, and "
-            f"validate against a physical prototype before anything "
-            f"load-bearing depends on it.</span>"
+            f"<b style='color:{p.warning}'>{notice.HEADLINE}.</b> "
+            f"<span style='color:{p.ink}'>"
+            f"{notice.FULL.replace(chr(10) + chr(10), ' ')}</span>"
             f"</td></tr></table>")
         box.setInformativeText(
             f"<p>A <a href='{branding.COMPANY_URL}' style='color:{p.accent}'>"
@@ -2311,6 +2324,8 @@ class MainWindow(QMainWindow):
             return
         if not groups:
             return
+        if not self._notice_accepted(target):
+            return
 
         self._export_target = Path(target)
         self._progress = QProgressDialog("Generating files...", "", 0, 0, self)
@@ -2323,6 +2338,36 @@ class MainWindow(QMainWindow):
         self._worker.done.connect(self._export_done)
         self._worker.failed.connect(self._export_failed)
         self._worker.start()
+
+    def _notice_accepted(self, target: Path) -> bool:
+        """Ask before writing, and say what is being written.
+
+        Before rather than after, because after is a notification and this is a
+        decision: the files are the thing that leaves the app, gets emailed to
+        a shop and outlives the session that made them.  Every export, with no
+        "do not show again" - the box is one keystroke and the day it stops
+        appearing is the day it stops being true that somebody was told.
+
+        The same words are on the strip under the buttons, in `NOTICE.txt`
+        beside the parts, and on the terminal after a headless run.  All four
+        read `cycloidgen.notice`.
+        """
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Export")
+        box.setText(f"<b>{notice.HEADLINE}</b>")
+        box.setInformativeText(
+            notice.FULL.replace("\n\n", "<br><br>")
+            + f"<br><br>Writing to <code>{target}</code>.")
+        box.setTextFormat(Qt.RichText)
+        write = box.addButton("Export", QMessageBox.AcceptRole)
+        box.addButton("Cancel", QMessageBox.RejectRole)
+        box.setDefaultButton(write)
+        box.exec()
+        if box.clickedButton() is not write:
+            self._say("export cancelled")
+            return False
+        return True
 
     def _export_done(self, files: list[str]) -> None:
         self._progress.close()

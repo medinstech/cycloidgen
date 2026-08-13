@@ -142,6 +142,13 @@ are: `stl/`, one file per part, and `assembly.3mf`, which is the same triangles
 placed as they assemble with each part's colour and material on it. Both are
 tessellated at `spec.stl_linear_tolerance`.
 
+One file is not in any group and is written whichever groups are asked for:
+`NOTICE.txt`, which says what the numbers and the geometry in the folder are
+not. The text is `cycloidgen.notice`, and it is the same text the window shows
+under its export buttons and in the box it asks with before writing. Asking for
+no groups still writes nothing at all - a notice with no parts beside it is not
+a bundle.
+
 ### 4. Sweep one parameter
 
 Four metrics against one parameter, which is what a chart can carry:

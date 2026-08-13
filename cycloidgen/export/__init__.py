@@ -39,6 +39,14 @@ def _write(out: Output, spec: GearSpec, directory: Path, analysis) -> list[Path]
     bundle has to stay cheap enough to do before deciding to write one.
     """
     target = directory / out.where.rstrip("/")
+    if out.key == "notice":
+        from .. import notice
+        target.write_text(
+            notice.file_text(f"Cycloidal drive, {spec.ratio}:1, "
+                             f"{2 * spec.housing_outer_radius:.0f} mm outside "
+                             f"diameter."),
+            encoding="utf-8")
+        return [target]
     if out.key == "assembly_dxf":
         return [dxf.write_dxf(spec, target)]
     if out.key == "assembly_svg":
@@ -90,6 +98,6 @@ def write_bundle(spec: GearSpec, directory: str | Path,
     analysis = analyse(spec) if "data" in chosen else None
     written: list[Path] = []
     for out in MANIFEST:
-        if out.group in chosen:
+        if out.group in chosen or (out.always and chosen):
             written.extend(_write(out, spec, directory, analysis))
     return written

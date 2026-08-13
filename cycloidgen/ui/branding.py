@@ -361,6 +361,17 @@ def stylesheet(mode: str = "light") -> str:
        rather than set on the widget so it follows the theme with everything
        else. */
     #StatRule {{ background: {p.line}; }}
+    /* The strip under the export buttons that says what this output is not.
+       Amber ink on a hairline of the same colour, no fill: it has to be read
+       on the hundredth session as well as the first, and a filled banner is
+       decoration by the second.  It is also the one warning here that is not
+       about a number crossing a limit, which is why it does not look like
+       one. */
+    #NoticeStrip {{
+        color: {p.warning}; font-size: 10px;
+        border: 1px solid {p.warning}; border-radius: 3px;
+        padding: 5px 8px;
+    }}
     #BrandFlag {{ color: {p.error}; font-size: 11px; font-weight: 700; }}
 
     /* Grouping: a card with its heading in the margin above it, rather than a

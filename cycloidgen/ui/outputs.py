@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.spec import GearSpec
-from ..export.manifest import GROUPS, outputs_for
+from ..export.manifest import GROUPS, always_written, outputs_for
 from . import branding
 from .settings import app_settings
 from .tables import WrappingColumn
@@ -173,6 +173,22 @@ class OutputsTab(QWidget):
 
         chosen = self.selected_groups()
         total = 0
+        # The notice, above the groups and outside them: it is written whatever
+        # is ticked, so a toggle beside it would be a lie and putting it under
+        # one group would make it look like that group's file.
+        for out in always_written():
+            written = bool(chosen)
+            row = QTreeWidgetItem([out.where, out.fmt,
+                                   self._size_text([out.where]) if written else "",
+                                   f"{out.title} - {out.description}"])
+            row.setFont(0, self._mono)
+            row.setToolTip(3, out.description)
+            row.setTextAlignment(2, Qt.AlignRight | Qt.AlignVCenter)
+            row.setData(0, Qt.UserRole, out.where)
+            row.setDisabled(not written)
+            self.tree.addTopLevelItem(row)
+            total += 1 if written else 0
+
         for group in GROUPS:
             outputs = outputs_for({group.key})
             included = group.key in chosen

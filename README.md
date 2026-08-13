@@ -210,6 +210,7 @@ the command line with `--only`, or with the two quick export buttons.
 
 | File | Group | Contents |
 |---|---|---|
+| `NOTICE.txt` | always | What these files are not: preliminary sizing from stated models, geometry that has not been proven against a made part. Written into every bundle whichever groups are selected, because it is the sheet that travels with a STEP file to somebody who never ran the app |
 | `disc.dxf` | drawings | Drawing of the whole drive: disc profile as a closed LWPOLYLINE sampled to the chord tolerance, plus bore, output holes, ring pins and housing, on separate layers |
 | `disc.svg` | drawings | Same drawing, 1 unit = 1 mm |
 | `dxf/` | drawings | One cutting file per part — each disc on its own, the ring plate, a carrier drilling template drilled for the *press fit* rather than for the disc's running hole, and the two end plates with their tie-bolt circle and motor pattern |
