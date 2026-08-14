@@ -7,15 +7,21 @@ MUI2 draws both from fixed-size controls, so the dimensions are not a choice:
 alpha channel - NSIS will not composite one, and a PNG with transparency arrives
 as a black rectangle.
 
-The sources are the brand assets already committed under
-``cycloidgen/ui/assets``, not the 6000 px masters, so this needs nothing outside
-the repository.  The results are committed too, which is what lets ``makensis``
-run on a machine with no Python.
+The sources are the wordmark already committed under ``cycloidgen/ui/assets``,
+not the 6000 px masters, and the application icon, which is drawn here at the
+exact size each control shows it at - so this needs nothing outside the
+repository.  The results are committed too, which is what lets ``makensis`` run
+on a machine with no Python.
+
+What the panels show is the *product*: the icon somebody is about to get a
+shortcut to, at the two places this wizard has a picture.  The Medinstech
+wordmark stays on the welcome band, where it says who publishes it.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
+from make_icon import render as render_icon
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -49,9 +55,23 @@ def _fit(im: Image.Image, width: int, height: int) -> Image.Image:
                       max(1, round(im.height * scale))), Image.LANCZOS)
 
 
+def _icon(size: int) -> Image.Image:
+    """The application icon at exactly ``size``, on the paper.
+
+    Drawn rather than scaled from the committed 256: the icon is graded by size
+    - fewer lobes and no output holes as it gets smaller - and 40 px of a 256 px
+    disc is the soup that grading exists to avoid.  BMP has nowhere to put an
+    alpha channel, so the tile's rounded corners are composited here.
+    """
+    icon = render_icon(size)
+    flat = Image.new("RGB", icon.size, PAPER)
+    flat.paste(icon, mask=icon.split()[3])
+    return flat
+
+
 def _header() -> Image.Image:
     canvas = Image.new("RGB", HEADER, PAPER)
-    mark = _fit(_flatten(ASSETS / "mark-blue.png"), 40, 40)
+    mark = _icon(40)
     # Right-aligned, because MUI_HEADERIMAGE_RIGHT puts the control on the right
     # and the page title runs along the left.
     canvas.paste(mark, (HEADER[0] - mark.width - 10,
@@ -80,7 +100,7 @@ def _wizard() -> Image.Image:
     source = source.resize(wordmark.size, Image.LANCZOS)
     canvas.paste(source, ((WIZARD[0] - source.width) // 2, 62), mask=source)
 
-    mark = _fit(_flatten(ASSETS / "mark-blue.png"), 96, 96)
+    mark = _icon(96)
     canvas.paste(mark, ((WIZARD[0] - mark.width) // 2, 200))
     return canvas
 

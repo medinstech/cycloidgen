@@ -39,9 +39,10 @@ cp -a "$BUILD_DIR/." "$appdir/usr/bin/"
 
 # The icon has to be a PNG - the runtime and every desktop that reads the
 # `.desktop` file want one, and the .ico the Windows build uses is not it.  The
-# brand mark is already the right size, so it is copied rather than converted:
-# a conversion step is a thing that can silently produce a blank square.
-cp cycloidgen/ui/assets/mark-blue.png "$appdir/cycloidgen.png"
+# committed icon is already 256, which is the size the hicolor directory below
+# declares, so it is copied rather than converted: a conversion step is a thing
+# that can silently produce a blank square.
+cp cycloidgen/ui/assets/icon-256.png "$appdir/cycloidgen.png"
 cp "$appdir/cycloidgen.png" "$appdir/usr/share/icons/hicolor/256x256/apps/cycloidgen.png"
 
 # `StartupWMClass` is what pairs the running window with this launcher, so the

@@ -193,18 +193,28 @@ if sys.platform == "darwin":
     import subprocess
 
     # The icon has to be an .icns, and .icns is a container of sizes rather than
-    # an image.  `iconutil` builds one from a folder of exact squares; the mark
-    # is committed at 256, so what goes in is every size at or below it and
-    # nothing above.  Upscaling would fill the two largest slots with a blurred
-    # 256 and Finder would show exactly that.  256 is what the Dock asks for on
-    # a Retina display, which is where an application icon is actually looked
-    # at - the missing 512 and 1024 are Finder's largest icon view alone.
+    # an image.  `iconutil` builds one from a folder of exact squares, and the
+    # squares are *drawn* rather than resampled: `tools/make_icon.py` renders
+    # the disc at each size with the lobe count and the holes graded for it, so
+    # the 16 in the menu bar is a shape and not a 1024 reduced to soup.  Falls
+    # back to resampling the committed 1024 master if the tool cannot be
+    # imported - a Mac build should not fail over an icon.
     _icns = None
-    _mark = Path("cycloidgen/ui/assets/mark-blue.png")
-    if _mark.exists():
+    _master_png = Path("cycloidgen/ui/assets/icon-1024.png")
+    if _master_png.exists():
         from PIL import Image
 
-        _master = Image.open(_mark).convert("RGBA")
+        try:
+            # The tool is not part of the package, and the package it imports is
+            # only on the path here because the build runs from the root.
+            sys.path[:0] = [str(Path("tools").resolve()), str(Path.cwd())]
+            from make_icon import render as _draw_icon
+        except Exception:                       # numpy, Pillow, anything
+            _big = Image.open(_master_png).convert("RGBA")
+
+            def _draw_icon(size):
+                return _big.resize((size, size), Image.LANCZOS)
+
         # Emptied rather than topped up: `iconutil` refuses an iconset with a
         # name in it that it does not recognise, so one file left behind by a
         # build against a different master fails every build after it.
@@ -213,14 +223,14 @@ if sys.platform == "darwin":
         _iconset = Path("build/cycloidgen.iconset")
         shutil.rmtree(_iconset, ignore_errors=True)
         _iconset.mkdir(parents=True)
-        #: (point size, scale) -> pixels, keeping only what the master can fill.
+        #: (point size, scale); @2x is the same points at twice the pixels, and
+        #: every slot is filled - 1024 is Finder's largest icon view and the
+        #: only place an empty slot shows as a blur.
         for _points, _scale in ((16, 1), (16, 2), (32, 1), (32, 2),
-                                (128, 1), (128, 2), (256, 1)):
-            _pixels = _points * _scale
-            if _pixels > _master.width:
-                continue
+                                (128, 1), (128, 2), (256, 1), (256, 2),
+                                (512, 1), (512, 2)):
             _suffix = "" if _scale == 1 else "@2x"
-            _master.resize((_pixels, _pixels), Image.LANCZOS).save(
+            _draw_icon(_points * _scale).save(
                 _iconset / f"icon_{_points}x{_points}{_suffix}.png")
         _icns = "build/cycloidgen.icns"
         subprocess.run(["iconutil", "-c", "icns", str(_iconset), "-o", _icns],

@@ -161,14 +161,23 @@ def test_an_unknown_mode_is_refused():
 def test_the_shipped_assets_are_present():
     from cycloidgen.ui.branding import asset
     for name in ("mark-blue.png", "mark-white.png", "wordmark-blue.png",
-                 "wordmark-white.png", "cycloidgen.ico"):
+                 "wordmark-white.png", "cycloidgen.ico", "icon-256.png"):
         assert asset(name).stat().st_size > 0
 
 
 def test_a_missing_asset_says_how_to_regenerate_it():
+    """And says which of the two generators writes it.
+
+    They are not interchangeable: the brand assets are trimmed from masters
+    that are not in this tree, the icon is drawn from the profile equations.
+    Naming the wrong one sends whoever hit this looking for logos they were
+    never given - see `tests/test_icon.py` for what the icon is.
+    """
     from cycloidgen.ui.branding import asset
     with pytest.raises(FileNotFoundError, match="make_assets"):
         asset("no-such-logo.png")
+    with pytest.raises(FileNotFoundError, match="make_icon"):
+        asset("icon-512.png")
 
 
 # ----------------------------------------------------------------------- type

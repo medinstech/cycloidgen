@@ -20,3 +20,9 @@ If you fork or redistribute a modified cycloidgen, replace those assets with
 your own.  The code paths that load them are isolated in cycloidgen/ui/branding.py
 precisely so that this is a single, obvious change rather than an archaeology
 exercise.
+
+The application icon is not one of them.  cycloidgen.ico and icon-*.png are a
+cycloidal disc, drawn from the profile equations in this repository by
+tools/make_icon.py; they carry no name, mark or wordmark of Medinstech, and they
+are covered by Apache-2.0 like the rest of the source.  A fork may keep the
+icon, and re-running that tool reproduces it from nothing but the code.

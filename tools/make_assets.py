@@ -11,6 +11,10 @@ Run it when the brand refreshes, not on every build - the results are committed
 so that neither the application nor CI depends on assets living outside the
 repository.  The masters are trademarks and are not distributed with it (see
 NOTICE), so there is no default path to give: say where they are.
+
+The application *icon* is not one of these.  It is a cycloidal disc drawn from
+the profile equations, it needs no masters, and it lives in
+``tools/make_icon.py``.
 """
 from __future__ import annotations
 
@@ -23,11 +27,6 @@ from PIL import Image
 #: Where the masters live, if you would rather not pass it every time.
 SOURCE_ENV = "MEDINSTECH_LOGOS"
 TARGET = Path(__file__).resolve().parent.parent / "cycloidgen" / "ui" / "assets"
-
-#: Window and executable icon sizes.  16 and 32 are what Windows actually shows
-#: in the title bar and the task bar; the rest are for high-DPI and the shell's
-#: larger views.
-ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
 
 
 def _trim(path: Path) -> Image.Image:
@@ -124,11 +123,12 @@ def main() -> int:
         save(_chevron(28, rgb), f"chevron-down-{tint}.png")
         save(_chevron(28, rgb, up=True), f"chevron-up-{tint}.png")
 
-    # Multi-resolution icon for the window and the PyInstaller build
-    mark = _trim(args.source / "mdns-logo-blue@2x.png")
-    icon = _square(mark, 256)
-    icon.save(TARGET / "cycloidgen.ico", sizes=[(s, s) for s in ICON_SIZES])
-    written.append(TARGET / "cycloidgen.ico")
+    # The application icon is *not* written here.  It used to be - the mark, at
+    # icon sizes - and an icon that is the company logo says who wrote the
+    # program and nothing about what it does.  It is a cycloidal disc now, drawn
+    # from the profile equations by `tools/make_icon.py`, which needs none of
+    # these masters and is not run from here so that a brand refresh cannot
+    # quietly put the logo back.
 
     for path in written:
         print(f"  {path.relative_to(TARGET.parent.parent.parent)}  "

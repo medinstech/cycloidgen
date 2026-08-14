@@ -113,10 +113,18 @@ Two rules about that layout are worth knowing because breaking them is easy:
 
 ## Brand assets
 
-`cycloidgen/ui/assets/` and the Medinstech name are trademarks and are **not**
-covered by the Apache-2.0 licence — see [NOTICE](NOTICE). Do not add, alter or
-re-use them. If you are forking, replacing them is a single change confined to
-`cycloidgen/ui/branding.py`, which is why that module exists.
+The marks and wordmarks under `cycloidgen/ui/assets/`, and the Medinstech name,
+are trademarks and are **not** covered by the Apache-2.0 licence — see
+[NOTICE](NOTICE). Do not add, alter or re-use them. If you are forking,
+replacing them is a single change confined to `cycloidgen/ui/branding.py`, which
+is why that module exists.
+
+The application icon in the same folder — `cycloidgen.ico`, `icon-*.png` — is
+not brand. It is a cycloidal disc that `tools/make_icon.py` draws from
+`cycloidgen/core/profile.py`, so it is Apache-2.0 with the rest of the source
+and a fork may keep it. Change it by changing the tool and re-running it, never
+by editing a PNG: `tests/test_icon.py` compares the committed images against
+what the tool draws today, and a hand-edited one fails.
 
 ## Reporting a bug
 

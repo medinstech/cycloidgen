@@ -5,6 +5,8 @@
 
 *.png binary
 *.gif binary
+*.ico binary
+*.bmp binary
 *.dxf text eol=lf
 *.svg text eol=lf
 *.bat text eol=crlf

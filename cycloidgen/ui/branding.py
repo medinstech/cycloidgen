@@ -216,8 +216,17 @@ def palette(mode: str) -> Palette:
 def asset(name: str) -> Path:
     path = _ASSETS / name
     if not path.exists():
-        raise FileNotFoundError(f"missing brand asset {name!r}; run tools/make_assets.py")
+        # Two generators write into this folder and they are not interchangeable:
+        # the brand assets are trimmed from masters that are not in the tree,
+        # the icon is drawn from the profile equations.  Naming the wrong one
+        # sends whoever hit this looking for logos they were never given.
+        tool = "make_icon" if _is_app_icon(name) else "make_assets"
+        raise FileNotFoundError(f"missing asset {name!r}; run tools/{tool}.py")
     return path
+
+
+def _is_app_icon(name: str) -> bool:
+    return name.startswith("icon-") or name.endswith(".ico")
 
 
 #: Monospace families in preference order, first one present wins.  Numbers in
@@ -249,8 +258,16 @@ def mono_font(point_size: int | None = None) -> QFont:
 
 @lru_cache(maxsize=8)
 def window_icon() -> QIcon:
+    """The application's own icon: the disc, not the company mark.
+
+    A cycloidal disc drawn from :func:`cycloidgen.core.profile.disc_profile` by
+    ``tools/make_icon.py`` - the program's subject rather than its author, which
+    is what someone scanning a task bar for this window is looking for.  The
+    .ico carries a separately drawn image per size and Qt picks between them;
+    the PNG is the fallback for a build where the .ico did not ship.
+    """
     icon = QIcon()
-    for name in ("cycloidgen.ico", "mark-blue.png"):
+    for name in ("cycloidgen.ico", "icon-256.png"):
         candidate = _ASSETS / name
         if candidate.exists():
             icon.addFile(str(candidate))

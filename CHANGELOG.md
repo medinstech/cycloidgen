@@ -5,6 +5,57 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 7.5.0
+
+**Numbers** — none.
+
+**Changed**
+
+- **The application icon is the disc it cuts, not the company logo.** Every
+  window, task bar button, Start menu entry, installer page, Dock tile and
+  desktop launcher showed the Medinstech mark — which says who wrote the
+  program and nothing whatever about what it does. Somebody scanning a task bar
+  full of windows is looking for *this* application, and a vendor logo is the
+  one thing on it that is also on everything else the vendor ships.
+
+  It is a cycloidal disc now, and not a drawing of one: `tools/make_icon.py`
+  renders the outline through
+  [`disc_profile()`](https://github.com/medinstech/cycloidgen/blob/main/cycloidgen/core/profile.py),
+  the same call the STEP export cuts the part with, with the pin radius taken
+  as a fraction of `critical_radius()` so the lobes are a disc that could
+  actually be manufactured rather than a flower. The icon cannot drift from the
+  geometry: change the profile and it changes with it. `tests/test_icon.py`
+  measures the committed images back against the equation — every point of the
+  outline sits at exactly the pin radius from the pin-centre locus — and against
+  what the tool draws today, so a hand-edited PNG fails.
+
+  **Each size is drawn at that size.** A 256 px disc with eight lobes and six
+  output holes *resampled* to 16 px is grey soup, so it is graded like an
+  optical size instead: fewer lobes, deeper, and the holes come out, until at
+  16 px it is six lobes and a bore. The `.ico` carries seven separately drawn
+  images and Windows picks between them; the macOS `.icns` is built the same way
+  at package time and now fills every slot up to 1024, where before it stopped
+  at 256 and left Finder's largest view to blur one.
+
+  The disc is cut out of a brand-blue tile, which is what lets one asset be
+  legible on a light task bar and a dark one — the bare mark was the brand
+  colour against whatever the desktop happened to be, and on a dark task bar
+  that is 2.8:1.
+
+  **The installer's two panels show it too**, drawn at the exact 40 px and 96 px
+  those controls display rather than scaled down from the 256. The Medinstech
+  wordmark stays on the welcome band, where it says who publishes this; the
+  picture beside it is now the icon the shortcut will get, which is what
+  somebody halfway through a setup wizard is being told about.
+
+  **It is not a trademark.** `cycloidgen.ico` and `icon-*.png` carry no name or
+  mark of Medinstech, they are Apache-2.0 with the rest of the source, and a
+  fork may keep them — see [NOTICE](https://github.com/medinstech/cycloidgen/blob/main/NOTICE). The brand assets beside
+  them are unchanged and still are not. The two generators are kept apart on
+  purpose: `tools/make_assets.py` needs masters that are not in this repository
+  and no longer writes the icon, so a brand refresh cannot quietly put the logo
+  back.
+
 ## 7.4.0
 
 **Numbers** — none.

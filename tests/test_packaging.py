@@ -199,7 +199,7 @@ def test_the_appimage_names_the_same_binary_in_all_three_places():
     assert "Exec=cycloidgen %f" in script
     # ...and `Icon=` has to match the icon's basename, or the launcher is blank.
     assert "Icon=cycloidgen" in script
-    assert 'cp cycloidgen/ui/assets/mark-blue.png "$appdir/cycloidgen.png"' in script
+    assert 'cp cycloidgen/ui/assets/icon-256.png "$appdir/cycloidgen.png"' in script
     assert "test -x ./dist/cycloidgen/cycloidgen" in RELEASE_YML.read_text(encoding="utf-8")
 
 

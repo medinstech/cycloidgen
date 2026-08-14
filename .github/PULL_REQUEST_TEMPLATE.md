@@ -32,4 +32,6 @@
 - [ ] Comments explain *why*, and the hand-aligned style of the file is intact
 - [ ] If a file was added to an export bundle, it is declared in
       `cycloidgen/export/manifest.py`
-- [ ] No change to `cycloidgen/ui/assets/` or the Medinstech name (see NOTICE)
+- [ ] No change to the brand assets in `cycloidgen/ui/assets/` or the Medinstech
+      name (see NOTICE). The app icon there is not brand — change it by
+      re-running `tools/make_icon.py`, not by editing a PNG

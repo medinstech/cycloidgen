@@ -988,7 +988,9 @@ Apache-2.0. Copyright 2026 Medinstech. See [LICENSE](https://github.com/medinste
 The Medinstech name and logos under `cycloidgen/ui/assets/` are trademarks and
 are **not** covered by that licence — see [NOTICE](https://github.com/medinstech/cycloidgen/blob/main/NOTICE). They load through a
 single module (`cycloidgen/ui/branding.py`) so that replacing them in a fork is
-one obvious change.
+one obvious change. The application icon is not one of them: it is a cycloidal
+disc drawn from the profile equations by `tools/make_icon.py`, it is Apache-2.0
+like the rest of the source, and a fork may keep it.
 
 The numbers this produces are preliminary sizing estimates, not a certification —
 see *How far to trust the analysis* above. Apache-2.0 disclaims warranty for a
