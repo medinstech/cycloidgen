@@ -175,6 +175,11 @@ def style_axes(ax, *, grid: bool = True) -> None:
 #: crank 1800, rounded opposite ways.
 _CONTACT_FLOOR = 1e-9
 
+#: Point size of the two caption lines under the drawing.  Named because the
+#: strip reserved for them is computed from it, and a size changed in one place
+#: and not the other is a caption that overlaps the thing it describes again.
+_CAPTION_PT = 8.5
+
 
 def _circle(x, y, r, color, lw, dashed: bool = False, alpha: float = 1.0) -> Circle:
     return Circle((x, y), r, fill=False, edgecolor=color, linewidth=lw,
@@ -232,9 +237,33 @@ class ProfileView:
         # the animation does not cause any.
         self.figure.canvas.mpl_connect("resize_event", self._on_resize)
 
+    def _caption_band(self) -> float:
+        """Fraction of the figure height the two caption lines need.
+
+        Computed rather than fixed, because the fraction that reserves the right
+        number of pixels is a different fraction on every panel size this figure
+        is drawn at - the same reason ``tight_layout`` is re-solved on resize
+        below.  Capped, so a letterbox panel gives up a third of itself at worst
+        rather than all of it.
+        """
+        height = max(self.figure.get_size_inches()[1] * self.figure.dpi, 1.0)
+        return min((2 * _CAPTION_PT * self.figure.dpi / 72.0 * 1.7 + 6) / height,
+                   0.35)
+
+    def _layout(self) -> None:
+        """Fit the drawing, leaving the caption band under it untouched."""
+        self.figure.tight_layout(rect=(0.0, self._caption_band(), 1.0, 1.0))
+
+    def _place_caption(self) -> None:
+        """Put the two caption lines inside the band, wherever it now is."""
+        band = self._caption_band()
+        self._speed.set_y(0.52 * band)
+        self._readout.set_y(0.08 * band)
+
     def _on_resize(self, _event) -> None:
         if self._spec is not None:
-            self.figure.tight_layout()
+            self._layout()
+            self._place_caption()
 
     # ----------------------------------------------------------------- design
     def set_design(self, spec: GearSpec, *, reference: GearSpec | None = None,
@@ -364,35 +393,45 @@ class ProfileView:
         # drawing knew and never said - with the ring fixed the output turns
         # against the input.
         #
-        # One line above the readout, in the corner the housing circle leaves
-        # empty - the same reasoning that put the readout where it is.  Not a
-        # second title line, which is clipped at the app's canvas aspect, and
-        # not the opposite corner either: `set_aspect("equal")` shrinks the axes
-        # box to a square in the middle of a wide canvas, so axes-fraction 0 and
-        # 1 are much closer together than the panel looks and the two lines
-        # collide.
+        # Both caption lines live in *figure* coordinates, under the drawing,
+        # in a strip `tight_layout` is told to keep off.
+        #
+        # They used to sit in the bottom-left corner of the axes, on the
+        # argument that the housing circle leaves that corner empty.  The corner
+        # is empty and the argument was still wrong: neither line is short
+        # enough to stay in a corner.  `set_aspect("equal")` makes the axes a
+        # square in the middle of a wide panel, the circle is inscribed in it,
+        # and a full line of monospace starting at the left edge runs straight
+        # under the circle and out the other side - across the disc at 1560 px
+        # and across the whole gearbox at 1180.  A corner is a place for a word,
+        # not for a sentence.
+        #
+        # Reserving the strip rather than nudging the text is what makes this
+        # hold everywhere.  The same figure is drawn on the app's letterbox
+        # panel, on the PDF's square, and on the animation's small canvas, and
+        # anything positioned relative to the *drawing* has a different amount
+        # of room on each.
         held = "ring fixed" if spec.output_member is OutputMember.CARRIER \
             else "carrier fixed"
-        speed = ax.text(0.005, 0.05,
-                        f"{held} - in {spec.input_rpm:g} rpm, "
-                        f"out {spec.output_rpm:.1f} rpm"
-                        f"{' reversed' if spec.output_reverses else ''}",
-                        transform=ax.transAxes, ha="left", va="bottom",
-                        color=t["ink2"], fontsize=8.5, family="monospace")
-        # Kept out of the layout, which is the only reason the readout below has
-        # never needed the same: it is built empty and filled after
-        # `tight_layout` has run.  This one has its text at build time, and on
-        # the animation's small canvas asking tight_layout to find room for it
-        # fails outright - the margins cannot grow that far, the layout is
-        # abandoned, and the frame's white border goes with it.
-        speed.set_in_layout(False)
-        # Inside the axes, in the corner the housing circle leaves empty.  Below
-        # it, `tight_layout` does not reserve room for a text in axes
-        # coordinates and the line is cropped by the figure edge.
-        self._readout = ax.text(0.005, 0.005, "", transform=ax.transAxes,
-                                ha="left", va="bottom", color=t["ink2"],
-                                fontsize=8.5, family="monospace")
-        fig.tight_layout()
+        self._speed = fig.text(
+            0.012, 0.0,
+            f"{held} - in {spec.input_rpm:g} rpm, "
+            f"out {spec.output_rpm:.1f} rpm"
+            f"{' reversed' if spec.output_reverses else ''}",
+            ha="left", va="bottom", color=t["ink2"], fontsize=_CAPTION_PT,
+            family="monospace")
+        self._readout = fig.text(
+            0.012, 0.0, "", ha="left", va="bottom", color=t["ink2"],
+            fontsize=_CAPTION_PT, family="monospace")
+        # Out of the layout: `tight_layout` sizes itself around axes decorations
+        # and a figure text is not one, so asking it to find room for these
+        # fails on the animation's small canvas - the margins cannot grow that
+        # far, the layout is abandoned, and the frame's white border goes with
+        # it.  The `rect` in `_layout` is what actually keeps the room.
+        self._speed.set_in_layout(False)
+        self._readout.set_in_layout(False)
+        self._layout()
+        self._place_caption()
 
     def _build_overlays(self, ax, t, series) -> None:
         spec = self._spec

@@ -59,7 +59,7 @@
   what motor you have and let it pick the reduction: a motor is a torque-speed
   curve, not the number on its label, and what it can turn is what the drive is
   worth.
-- **Nothing is asserted that is not verified.** 1,039 tests, and where two parts
+- **Nothing is asserted that is not verified.** 1,049 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -760,7 +760,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          1,039 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          1,049 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -776,7 +776,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-1,039 tests, about 880 s. Most of that is CadQuery writing solids; the pure
+1,049 tests, about 1200 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

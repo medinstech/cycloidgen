@@ -567,7 +567,35 @@ class VtkAssemblyView(QWidget):
             self._render()
             return
         lo, hi = self._mesh.bounds(self._explode)
-        self._renderer.ResetCamera(lo[0], hi[0], lo[1], hi[1], lo[2], hi[2])
+
+        # Framed by the same rule the software renderer uses, and not by
+        # `ResetCamera`.  VTK fits a *sphere* around the bounding box, which is
+        # sized by a diagonal nothing can be seen across - and a cycloidal drive
+        # is a flat cylinder, so that diagonal is most of a diameter longer than
+        # anything on screen.  The gearbox came out about a third of the height
+        # of its own viewport, in the middle of a panel of background, which is
+        # the state the view opens in and therefore the one people judge it by.
+        #
+        # `Camera.framing` projects the vertices themselves onto the screen axes
+        # and asks how far back it has to be to hold *those*.  It costs a
+        # millisecond, once, when the design changes, and it is what the two
+        # renderers now have in common: the same design has to look the same
+        # size whether or not the machine has a usable GPU.
+        camera = self._renderer.GetActiveCamera()
+        current = self.camera
+        framed = Camera.framing(self._mesh, explode=self._explode,
+                                azimuth=current.azimuth,
+                                elevation=current.elevation)
+        # The angle has to be shared as well as the distance: a distance solved
+        # against one field of view and rendered through another is the same
+        # mis-framing in a subtler form.  VTK measures its view angle
+        # vertically, which is what `framing` solves against.
+        camera.SetViewAngle(framed.fov_deg)
+        camera.SetFocalPoint(*framed.target)
+        camera.SetPosition(*framed.eye())
+        camera.SetViewUp(0.0, 0.0, 1.0)
+        self._renderer.ResetCameraClippingRange(
+            lo[0], hi[0], lo[1], hi[1], lo[2], hi[2])
 
         # Screen-space ambient occlusion, with its radius set from the drive
         # rather than left at the default.  It is what makes a pin look like it

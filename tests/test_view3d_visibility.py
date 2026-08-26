@@ -228,3 +228,48 @@ def test_taking_the_plates_back_off_hidden_survives_a_restart(app, tmp_path,
     other = Assembly3DTab()
     other.restore_state()
     assert all(other._groups[g].isChecked() for g in _HIDDEN_BY_DEFAULT)
+
+
+# --------------------------------------------------- what the view opens on
+
+def test_the_framing_holds_the_drive_and_not_a_sphere_around_it():
+    """A cycloidal drive is a flat cylinder, and that is the shape a bounding
+    sphere is worst at: the sphere is sized by a diagonal nothing can be seen
+    across, so fitting one puts the camera most of a diameter too far back and
+    the gearbox opens as a small object in an empty room."""
+    mesh = mesh_for_spec(preset(21))
+    lo, hi = mesh.bounds(0.0)
+    camera = Camera.framing(mesh)
+
+    half_fov = math.radians(camera.fov_deg) / 2.0
+    sphere_radius = float(math.dist(lo, hi)) / 2.0
+    sphere_fit = sphere_radius / math.sin(half_fov)
+    assert camera.distance < 0.75 * sphere_fit
+
+    # And it does hold the whole drive: every vertex inside the view cone.
+    points = mesh.sample_world(0.0) - camera.target
+    right, up, forward = camera.basis()
+    depth = camera.distance + points @ forward
+    for axis in (right, up):
+        assert (abs(points @ axis) <= depth * math.tan(half_fov) + 1e-6).all()
+
+
+def test_the_gpu_view_frames_by_the_same_rule_as_the_software_one():
+    """The two renderers have to agree about how big a design looks.
+
+    Read out of the source because a VTK view needs a GL context this suite has
+    no business requiring.  ``ResetCamera`` is what VTK offers and what the view
+    used to call, and it is the sphere fit above - so its absence is the thing
+    worth holding.  ``ResetCameraClippingRange`` is a different call and is
+    fine: near and far planes are not framing.
+    """
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "cycloidgen" / "ui"
+              / "view3d_vtk.py").read_text(encoding="utf-8")
+    framing_calls = [line for line in source.splitlines()
+                     if "ResetCamera(" in line]
+    assert not framing_calls, (
+        "the GPU view is framing with VTK's bounding-sphere fit again: "
+        + "; ".join(line.strip() for line in framing_calls))
+    assert "Camera.framing(" in source

@@ -434,7 +434,11 @@ EXPLANATIONS: dict[str, Explanation] = {
         "slow down - it loses synchronism and stops dead, which is a lost "
         "position rather than a slow one.",
         "Gear it down further, raise the bus voltage - which moves the whole "
-        "curve, not just the top end - or fit a bigger motor. Rolling ring pins "
+        "curve, not just the top end - or fit a bigger motor. It is a warning "
+        "rather than an error even when the drive will not turn at all, because "
+        "every file this exports is still right: the geometry is the geometry, "
+        "and what is wrong is which motor goes on the end of it. "
+        "Rolling ring pins "
         "are the other lever and they act on the same fraction: they can be "
         "worth 14 points of efficiency, which comes straight off what the motor "
         "has to supply. A margin near 1 is not a margin; the drive has to "

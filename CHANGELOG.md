@@ -62,9 +62,15 @@ What is new is a set of numbers that were not there before.
 - **Three checks and a reading.** `MOTOR_OPERATING_POINT` says where on the
   curve this duty point sits — how much of the standstill torque is left here
   and how close to the ceiling it is, which is the number that catches a drive
-  designed on holding torque. `MOTOR_TORQUE_SHORT` is the test, an error when
-  the motor cannot turn it at all and a warning when the margin is thin or when
-  the duty is a burst rather than a rating. `MOTOR_SUPPLY_VOLTAGE` catches the
+  designed on holding torque. `MOTOR_TORQUE_SHORT` is the test — thin
+  margin, a duty that is a burst rather than a rating, or a motor that will not
+  turn the drive at all. A warning in every case, including the last: an error
+  in this app means the *files* are wrong, and these files are right. What is
+  wrong is which motor goes on the end, which is fixed by buying a different one
+  as readily as by redrawing anything — the same argument `MOTOR_SHAFT_MISMATCH`
+  has always been a warning on. Blocking the export would also have made the app
+  refuse to hand over a gearbox somebody is having machined so they can go and
+  find a motor for it. `MOTOR_SUPPLY_VOLTAGE` catches the
   one thing the winding resistance decides on its own: a bus that cannot push
   the rated current through a stationary winding, which scales the whole curve
   down from the datasheet's, standing still included.
@@ -130,6 +136,44 @@ What is new is a set of numbers that were not there before.
   not apply with it.
 
 **Fixed**
+
+- **The drawing's two caption lines used to run across the gearbox.** They sat
+  in the bottom-left corner of the *axes*, on the argument that the housing
+  circle leaves that corner empty. It does, and neither line is short enough to
+  stay in a corner: `set_aspect("equal")` makes the axes a square in the middle
+  of a wide panel, the circle is inscribed in it, and a full line of monospace
+  starting at the left edge runs straight under the circle and out the other
+  side — across the disc on a 1560 px window and across the whole gearbox on a
+  1180 px one. A corner is a place for a word, not for a sentence.
+
+  Both lines are figure text now, in a strip `tight_layout` is told to keep off,
+  and the strip is computed from the point size and the panel height rather than
+  written down as a fraction — the same reason the layout is already re-solved
+  on resize. Reserving the room rather than nudging the text is what makes it
+  hold on all three canvases this one figure is drawn on: the app's letterbox
+  panel, the PDF's square and the animation's small frame. Tested at four
+  shapes, and what is asserted is that the *drawing* stops above the strip
+  rather than where the text happens to be.
+
+- **The 3D tab opened with the gearbox a third of the height of its own
+  viewport.** VTK's `ResetCamera` fits a *sphere* around the bounding box, and
+  a cycloidal drive is a flat cylinder — so the diagonal it is sized by is most
+  of a diameter longer than anything on screen, and the camera ended up that
+  much too far back. The software renderer had never had this problem: it
+  projects the vertices themselves onto the screen axes and asks how far back it
+  has to be to hold *those*, which is a millisecond once per design. The GPU
+  view uses the same call now, with the same field of view, so a design looks
+  the same size whether or not the machine has a usable GPU — and the view opens
+  on a gearbox instead of on a small object in an empty room.
+
+- **The empty COMPARE tab is a panel that explains itself.** The invitation to
+  pin a reference was one sentence in the top-left corner with four hundred
+  pixels of nothing under it, because one label was being asked to be both that
+  invitation and the header over the filled table. They are two messages with
+  two jobs; they are two labels now, and the empty one sits in the middle of the
+  panel it is about to fill — which is what the trade study next door has always
+  done, and it matters more here, because pinning a reference is the one feature
+  of this window that nothing else in it mentions.
 
 - **The remembered tab is stored by name now, not by position.** A tab added in
   the middle renumbers every one after it, so a stored `4` reopened the session

@@ -523,8 +523,17 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                 f"{motor.output_speed_ceiling_rpm:.1f} rpm.",
                 motor.available_Nm, motor.required_Nm)
 
+        # Every branch here is a warning, including the one where the drive does
+        # not turn at all.  An error in this app means the *files* are wrong -
+        # a bolt pattern in the bore, a profile that cannot be cut - and every
+        # file this design exports is right: the geometry is the geometry, and
+        # what is wrong is which motor is going on the end of it.  That is fixed
+        # by buying a different motor as readily as by redrawing anything, which
+        # is the same argument MOTOR_SHAFT_MISMATCH is a warning on.  Blocking
+        # the export would also make the app refuse to hand over a gearbox
+        # somebody is machining precisely so they can find a motor for it.
         if motor.peak_margin < 1.0:
-            rep.add(Severity.ERROR, "MOTOR_TORQUE_SHORT",
+            rep.add(Severity.WARNING, "MOTOR_TORQUE_SHORT",
                     f"The drive needs {motor.required_Nm:.3f} Nm at the input shaft "
                     f"and the motor has {motor.available_Nm:.3f} Nm at "
                     f"{motor.motor_rpm:.0f} rpm. It does not turn at this duty "

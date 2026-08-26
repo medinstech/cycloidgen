@@ -117,10 +117,19 @@ _DETAIL_COL = 4
 #: because it is set in two places - when the tab is built and whenever the
 #: reference is cleared - and a state that describes itself differently
 #: depending on how it was reached is a state nobody trusts.
+#: Shown in the middle of the compare tab while there is nothing to compare.
+#:
+#: Written the way the empty trade study is written - what the panel will hold,
+#: and how to read it - rather than as an apology for being empty.  Two
+#: paragraphs, because the first is the instruction and the second is the reason
+#: anybody would follow it.
 _NOTHING_PINNED = (
-    "Nothing pinned yet. Press <b>Pin as reference</b> to freeze the current "
-    "design, then change things: this tab shows what moved and the drawing "
-    "shows the old outline underneath.")
+    "<div style='line-height:170%'>"
+    "Press <b>Pin as reference</b> to freeze the design you have now.<br><br>"
+    "Then change something. This tab fills with every quantity that<br>"
+    "moved and by how much, green where the change was an improvement,<br>"
+    "and the drawing keeps the old outline underneath the new one."
+    "</div>")
 
 #: The at-a-glance strip, as ``(key, caption, tooltip)``.  Ordered the way a
 #: drive is read: what it is, how big it is, then what it does and what that
@@ -1100,7 +1109,11 @@ class MainWindow(QMainWindow):
     def _build_compare_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        self._compare_note = QLabel(_NOTHING_PINNED)
+        # Only ever the *header* over a filled table now.  What to do when the
+        # table is empty is a different message with a different job, and giving
+        # one label both put the invitation in the top-left corner with four
+        # hundred pixels of nothing under it.
+        self._compare_note = QLabel()
         self._compare_note.setWordWrap(True)
         layout.addWidget(self._compare_note)
 
@@ -1111,9 +1124,27 @@ class MainWindow(QMainWindow):
         for col, width in ((0, 260), (1, 140), (2, 140), (3, 140)):
             self._compare.setColumnWidth(col, width)
         layout.addWidget(self._compare, 1)
-        # Something has to hold the space while the table is away, or the note
-        # stretches down the page and stops reading as one sentence.
+        # What stands in for the table, rather than a blank spacer holding the
+        # space open under a sentence in the corner.  The tab next door already
+        # does this properly - an empty trade study says, in the middle of the
+        # panel it is about to fill, what will come back and how to read it -
+        # and an empty panel that explains itself is worth more here than
+        # anywhere, because pinning a reference is the one feature of this
+        # application nothing else in the window mentions.
         self._compare_gap = QWidget()
+        gap = QVBoxLayout(self._compare_gap)
+        gap.addStretch(1)
+        self._compare_empty = QLabel(_NOTHING_PINNED)
+        self._compare_empty.setProperty("role", "placeholder")
+        # Broken by hand rather than wrapped.  A wrapping label knows its
+        # height only once its width is settled, and in a stretch-filled layout
+        # deciding both at once that resolves by cutting the last line off -
+        # which it did, twice, at two different widths.  The text is a fixed
+        # string, so the line breaks can be a decision instead of an outcome,
+        # and the empty trade study next door is written the same way.
+        self._compare_empty.setAlignment(Qt.AlignCenter)
+        gap.addWidget(self._compare_empty, 0, Qt.AlignHCenter)
+        gap.addStretch(1)
         layout.addWidget(self._compare_gap, 1)
 
         row = QHBoxLayout()
@@ -1139,6 +1170,7 @@ class MainWindow(QMainWindow):
         nothing, and nothing is the same thing a broken button does.
         """
         self._compare.setVisible(pinned)
+        self._compare_note.setVisible(pinned)
         self._compare_gap.setVisible(not pinned)
         for button in self._compare_buttons:
             button.setEnabled(pinned)
@@ -2231,7 +2263,6 @@ class MainWindow(QMainWindow):
         self._compare.clear()
         if self._pinned_analysis is None or self.analysis is None:
             self._show_reference(False)
-            self._compare_note.setText(_NOTHING_PINNED)
             return
         self._show_reference(True)
         ref, cur = self._pinned_analysis, self.analysis

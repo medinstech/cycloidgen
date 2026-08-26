@@ -1116,20 +1116,24 @@ def test_compare_does_not_show_an_empty_table_with_nothing_to_compare(app):
     try:
         assert not w._compare.isVisible()
         assert all(not b.isEnabled() for b in w._compare_buttons)
-        assert "Nothing pinned" in w._compare_note.text()
+        # The invitation lives in the placeholder that stands in for the table,
+        # not in the header above it: they are two messages with two jobs, and
+        # one label doing both put the invitation in the top-left corner with
+        # four hundred pixels of nothing under it.
+        assert "Pin as reference" in w._compare_empty.text()
 
         w._pin_reference()
         _pump(app, 1.0)
         assert w._compare.isVisible()
         assert all(b.isEnabled() for b in w._compare_buttons)
         assert w._compare.topLevelItemCount() > 0
-        assert "Nothing pinned" not in w._compare_note.text()
+        assert "Reference:" in w._compare_note.text()
 
         w._clear_reference()
         _pump(app, 0.5)
         assert not w._compare.isVisible()
         assert all(not b.isEnabled() for b in w._compare_buttons)
-        assert "Nothing pinned" in w._compare_note.text()
+        assert "Pin as reference" in w._compare_empty.text()
     finally:
         w.close()
 
@@ -1249,3 +1253,44 @@ def test_the_log_badge_is_not_part_of_the_name(app):
 
     assert _tab_key("LOG !!") == _tab_key("LOG !") == _tab_key("LOG") == "LOG"
     assert _tab_key("TRADE STUDY") == "TRADE STUDY"
+
+
+# ------------------------------------------------------- the compare tab empty
+
+def test_the_compare_tab_explains_itself_while_it_is_empty(app):
+    """An empty panel and a sentence in the top-left corner is worse than an
+    empty panel: the eye goes to the middle, finds nothing, and the one feature
+    of this window that nothing else mentions goes unfound.
+
+    The tab next door already does this properly - an empty trade study says,
+    in the middle of the panel it is about to fill, what will come back - and
+    this is the same thing.
+    """
+    w = _window(app)
+    assert w._compare_empty.isVisibleTo(w._compare_gap)
+    assert w._compare_gap.isVisibleTo(w._compare_page)
+    assert not w._compare.isVisibleTo(w._compare_page)
+    assert not w._compare_note.isVisibleTo(w._compare_page)
+    text = w._compare_empty.text()
+    assert "Pin as reference" in text
+    assert w._compare_empty.property("role") == "placeholder"
+    w.close()
+
+
+def test_pinning_puts_the_table_back_and_the_placeholder_away(app):
+    """The header over a filled table and the invitation to fill it are two
+    different messages; one label doing both is what put the invitation in the
+    corner."""
+    w = _window(app)
+    w._pin_reference()
+    _pump(app)
+    assert w._compare.isVisibleTo(w._compare_page)
+    assert w._compare_note.isVisibleTo(w._compare_page)
+    assert not w._compare_gap.isVisibleTo(w._compare_page)
+    assert "Reference:" in w._compare_note.text()
+
+    w._clear_reference()
+    _pump(app)
+    assert not w._compare.isVisibleTo(w._compare_page)
+    assert w._compare_gap.isVisibleTo(w._compare_page)
+    w.close()

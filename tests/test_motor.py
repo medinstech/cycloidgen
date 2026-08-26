@@ -294,12 +294,24 @@ def _codes(spec: GearSpec) -> dict[str, str]:
     return {f.code: f.severity.name for f in analyse(spec).report.findings}
 
 
-def test_a_motor_that_cannot_turn_it_is_an_error():
-    """Not a warning: the drive does not run at this duty point, so every file
-    exported from it describes a machine that stands still."""
+def test_a_motor_that_cannot_turn_it_is_a_warning_and_does_not_block_export():
+    """A warning rather than an error, even though the drive will not turn.
+
+    An error in this app means the files are wrong.  These files are right - the
+    geometry is the geometry - and what is wrong is which motor goes on the end
+    of it, which is fixed by buying a different one as readily as by redrawing
+    anything.  Blocking the export would also make the app refuse to hand over a
+    gearbox somebody is having machined so they can go and find a motor for it.
+    Same argument MOTOR_SHAFT_MISMATCH is a warning on.
+    """
     weak = with_motor(motor_kind=MotorKind.STEPPER,
                       motor_holding_torque_Nm=0.02, input_rpm=600.0)
-    assert _codes(weak).get("MOTOR_TORQUE_SHORT") == "ERROR"
+    report = analyse(weak).report
+    assert {f.code: f.severity.name for f in report.findings}[
+        "MOTOR_TORQUE_SHORT"] == "WARNING"
+    assert "does not turn at this duty point" in next(
+        f.message for f in report.findings if f.code == "MOTOR_TORQUE_SHORT")
+    assert report.ok, "a motor mismatch must not block the export"
 
 
 def test_a_thin_margin_is_a_warning_and_a_healthy_one_is_silent():

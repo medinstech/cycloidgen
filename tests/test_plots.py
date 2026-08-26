@@ -243,3 +243,56 @@ def test_the_empty_panel_takes_the_surface_it_is_sitting_on():
             fig = plots.placeholder_figure("nothing yet")
             assert fig.patch.get_facecolor() == matplotlib.colors.to_rgba(
                 plots.theme()["surface"])
+
+
+# ------------------------------------------------- the caption under the drawing
+
+@pytest.mark.parametrize("size", [(6.2, 6.2), (9.7, 4.3), (9.7, 2.9), (4.0, 3.0)])
+def test_the_caption_never_lands_on_the_drawing(size):
+    """It used to, at every size, and worse the wider the panel.
+
+    Both lines sat in the bottom-left corner of the *axes*, on the argument that
+    the housing circle leaves that corner empty.  It does - and neither line is
+    short enough to stay in a corner: ``set_aspect("equal")`` makes the axes a
+    square in the middle of a wide panel, the circle is inscribed in it, and a
+    full line of monospace starting at the left edge runs straight under the
+    circle and out the other side.
+
+    So the test is not where the text is but that the drawing is not there:
+    the axes must stop above the strip the caption occupies, at every shape
+    this figure is drawn at - the app's letterbox panel, the PDF's square and
+    the animation's small canvas.
+    """
+    fig = Figure(figsize=size, dpi=110)
+    view = plots.ProfileView(fig)
+    view.set_design(preset(15))
+    view.set_crank(140.0)
+    fig.canvas.draw()
+
+    band = view._caption_band()
+    assert 0.0 < band < 0.35
+    assert fig.axes[0].get_position().y0 >= band - 1e-9
+    for text in (view._speed, view._readout):
+        assert text in fig.texts, "the caption belongs to the figure, not the axes"
+        assert text.get_position()[1] < band
+
+
+def test_the_caption_moves_with_the_panel_it_is_drawn_in():
+    """A fraction that reserves the right number of pixels on one panel size
+    reserves the wrong number on another, which is why the band is computed and
+    re-solved on resize rather than written down once."""
+    tall = plots.ProfileView(Figure(figsize=(6.0, 8.0), dpi=110))
+    tall.set_design(preset(15))
+    short = plots.ProfileView(Figure(figsize=(6.0, 2.6), dpi=110))
+    short.set_design(preset(15))
+    assert short._caption_band() > tall._caption_band()
+
+
+def test_both_caption_lines_say_what_they_have_always_said():
+    """Moving them must not have dropped either one."""
+    view = plots.ProfileView(Figure(figsize=(6.2, 6.2), dpi=110))
+    view.set_design(preset(15))
+    view.set_crank(90.0)
+    assert "ring fixed" in view._speed.get_text()
+    assert "rpm" in view._speed.get_text()
+    assert "deg" in view._readout.get_text()

@@ -352,6 +352,11 @@ def stylesheet(mode: str = "light") -> str:
        which is what put a dark rectangle behind every word in the header. */
     QLabel {{ background: transparent; }}
     QLabel:disabled {{ color: {p.ink_dim}; }}
+    /* An empty panel explaining what will fill it.  Secondary ink, because it
+       is standing in for content rather than being content - and here rather
+       than inline in the window, so it follows the theme like everything
+       else. */
+    QLabel[role="placeholder"] {{ color: {p.ink_dim}; }}
 
     /* Brand header ---------------------------------------------------- */
     #BrandHeader {{
