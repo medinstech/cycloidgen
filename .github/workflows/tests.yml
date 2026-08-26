@@ -88,10 +88,30 @@ jobs:
           python -m pip install -e ".[dev]"
 
       - name: Test
+        # The verdict of a test step is the test runner's exit code, and this
+        # one used to throw that away.  On Windows the default shell is pwsh,
+        # which GitHub runs with `$ErrorActionPreference = 'stop'`; since
+        # PowerShell 7.4 `$PSNativeCommandUseErrorActionPreference` defaults to
+        # true, so a native command that fails - however it failed - becomes a
+        # terminating error and the step reports a flat `1`.
+        #
+        # That cost a day.  The suite was ending `1048 passed, 1 skipped` and
+        # then failing with "exit code 1" and nothing else in the log, which
+        # reads as a test failure that has hidden itself.  It was not: the real
+        # code was -1073741819, an access violation while the interpreter was
+        # shutting down, and printing it is what turned an unfalsifiable "CI is
+        # red" into a two-line reproduction.  See the casadi pin in
+        # `pyproject.toml`.
+        shell: pwsh
         env:
           QT_QPA_PLATFORM: offscreen
           MPLBACKEND: Agg
-        run: python -m pytest -q --durations=10
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          python -m pytest -q --durations=10
+          $code = $LASTEXITCODE
+          Write-Host "pytest exit code: $code"
+          exit $code
 
   # The real installer takes half an hour, almost all of it compressing a
   # 790 MB bundle, so it only runs on a tag.  Compiling the script against

@@ -74,13 +74,57 @@ def _pump(app, seconds: float = 2.0) -> None:
         time.sleep(0.01)
 
 
+#: Every window a test has built, so that it can be taken down again.
+#:
+#: A test that leaves a top-level window behind leaves a whole Qt object tree
+#: for the *interpreter* to destroy on its way out, in whatever order Python's
+#: collector happens to reach it - and this module was leaving sixty-six of
+#: them, each holding a 3D view, matplotlib canvases and a worker thread.  That
+#: is a lottery, and it came up an access violation: every test passing, then
+#: 0xC0000005 during shutdown, reported by the runner as a bare "exit code 1"
+#: with nothing else in the log.  Two other test modules here have always used
+#: ``deleteLater``; this one is the one that never did.
+_BUILT: list = []
+
+
 def _window(app, width: int = 1600):
     from cycloidgen.ui.main_window import MainWindow
     w = MainWindow()
     w.resize(width, 950)
     w.show()
     _pump(app)
+    _BUILT.append(w)
     return w
+
+
+def _take_down(app) -> None:
+    """Destroy the windows this test built, now, while there is a loop to do it.
+
+    Hidden rather than closed: ``closeEvent`` writes the workspace to the
+    preferences, and a teardown that silently saved state would hand the next
+    test a window restored from one it never asked about.  The workers *are*
+    waited on, because that is the other half of what ``closeEvent`` does and
+    the half that matters here - a QThread destroyed while it is still running
+    takes the process with it, which is the failure this whole function exists
+    to stop being reached by a different route.
+    """
+    from PySide6.QtCore import QEvent
+
+    while _BUILT:
+        window = _BUILT.pop()
+        for worker in list(getattr(window, "_workers", [])):
+            worker.wait(5000)
+        window.hide()
+        window.deleteLater()
+    app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    _pump(app, 0.2)
+
+
+@pytest.fixture(autouse=True)
+def _windows_do_not_outlive_the_test(app):
+    """Nothing this module builds is allowed to reach interpreter shutdown."""
+    yield
+    _take_down(app)
 
 
 def _settings() -> QSettings:

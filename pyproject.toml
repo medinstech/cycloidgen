@@ -49,6 +49,27 @@ dependencies = [
     "reportlab>=4.0",
     "PySide6>=6.6",
     "cadquery>=2.4",
+    # The one ceiling in this file, and it is not ours to want.
+    #
+    # `import cadquery` pulls casadi in whether anything uses it or not - see
+    # the PyInstaller runtime hook, which stubs it out of the frozen build for
+    # exactly that reason.  With casadi 3.8.0 on Windows that import corrupts
+    # the heap on the way out: the process does its work, prints its results,
+    # and then dies during interpreter shutdown with 0xC0000374.  Nothing here
+    # calls casadi, so nothing here can avoid it - the crash is in unloading
+    # the two native libraries together.
+    #
+    # Measured rather than suspected.  On a Windows runner:
+    #
+    #     python -c "import casadi"                       ->  0
+    #     python -c "import cadquery"                     ->  crash
+    #     python -c "import cadquery"  (casadi 3.7.2)     ->  0
+    #
+    # It matters beyond CI.  Every headless run writes its files and then exits
+    # with a crash code, which is the difference between a script that reports
+    # success and one that reports failure having succeeded.  Lift this when
+    # casadi or cadquery fixes the unload order.
+    "casadi<3.8; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

@@ -24,9 +24,38 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QApplication
 
 from cycloidgen.core.spec import Process, preset
-from cycloidgen.ui.view3d import Assembly3DTab, AssemblyView
+from cycloidgen.ui.view3d import Assembly3DTab as _Assembly3DTab
+from cycloidgen.ui.view3d import AssemblyView
 from cycloidgen.viz.mesh import mesh_for_spec
 from cycloidgen.viz.scene import Camera, render
+
+#: Every tab a test has built.  A 3D tab left behind is a Qt widget tree - and
+#: a renderer - for the interpreter to destroy at exit in whatever order it
+#: reaches them, which is how a run where every test passed ended in an access
+#: violation.  Wrapping the constructor rather than editing nine call sites,
+#: because the tenth is the one that would be forgotten.
+_BUILT: list = []
+
+
+def Assembly3DTab(*args, **kwargs):
+    """Stands in for the class, so every tab built here is also taken down."""
+    tab = _Assembly3DTab(*args, **kwargs)
+    _BUILT.append(tab)
+    return tab
+
+
+@pytest.fixture(autouse=True)
+def _tabs_do_not_outlive_the_test():
+    yield
+    from PySide6.QtCore import QEvent
+    from PySide6.QtWidgets import QApplication
+
+    instance = QApplication.instance()
+    while _BUILT:
+        _BUILT.pop().deleteLater()
+    if instance is not None:
+        instance.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        instance.processEvents()
 
 
 @pytest.fixture(scope="module")

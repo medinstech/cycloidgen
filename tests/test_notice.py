@@ -108,6 +108,7 @@ def isolated_settings(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def window(isolated_settings):
+    from PySide6.QtCore import QEvent
     from PySide6.QtWidgets import QApplication
 
     from cycloidgen.ui.main_window import MainWindow
@@ -122,7 +123,12 @@ def window(isolated_settings):
         app.processEvents()
         time.sleep(0.01)
     yield win
+    # Closed *and* destroyed.  A closed window is still a live Qt object tree,
+    # and one left for the interpreter to take apart at exit is the shape of
+    # thing that ends a passing run with an access violation.
     win.close()
+    win.deleteLater()
+    app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     app.processEvents()
 
 

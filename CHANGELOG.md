@@ -137,6 +137,50 @@ What is new is a set of numbers that were not there before.
 
 **Fixed**
 
+- **A headless run wrote its files and then died on the way out, on Windows.**
+  `import cadquery` pulls casadi in whether anything uses it or not — the
+  PyInstaller build already stubs it out of the frozen bundle for exactly that
+  reason — and with casadi 3.8.0 the two native libraries corrupt the heap while
+  they unload. The process does its work, prints its results, and exits
+  `0xC0000374`. Nothing here calls casadi, so nothing here could avoid it;
+  `casadi<3.8` is pinned on Windows until the unload order is fixed upstream.
+
+  It matters more than a red tick on a dashboard: every scripted run reported
+  failure having succeeded, which is the worst way for a tool to be wrong.
+
+  Measured rather than suspected, and it took the measurement to get there. The
+  suite ended `1048 passed, 1 skipped` and the step then said "exit code 1" with
+  nothing else in the log, which reads as a test failure that has hidden itself.
+  Four experiments said what it was not: the same failure on `v7.5.0`, code that
+  had been green a fortnight earlier; the same failure with PySide6 pinned back
+  to the version that was green; the same failure on every one of sixteen test
+  modules run in its own process, and none on the other twenty-three. What the
+  sixteen had in common was the CAD kernel. Then two lines were enough:
+  `python -c "import cadquery"` crashes, `python -c "import casadi"` does not,
+  and `import cadquery` on casadi 3.7.2 is clean.
+
+- **The test step now reports the exit code it was given.** The default shell on
+  Windows is pwsh, which GitHub runs with `$ErrorActionPreference = 'stop'`, and
+  since PowerShell 7.4 that turns any native command failure into a terminating
+  error and a flat `1`. The real code was `-1073741819`. A step that cannot tell
+  you which of those it saw is a step that cannot be debugged, and this one was
+  hiding the only fact that mattered.
+
+- **The Qt test modules destroy their windows.** `test_workspace.py` built
+  sixty-six top-level windows and took down none of them, `test_view3d` nine,
+  `test_notice` one — each holding a 3D view, matplotlib canvases and a worker
+  thread, all left for the interpreter to take apart at exit in whatever order
+  Python's collector reached them. Two other test modules here have always used
+  `deleteLater`; these are the ones that never did. They are hidden and deleted
+  after each test now — hidden rather than closed, because `closeEvent` writes
+  the workspace to the preferences and a teardown that silently saved state
+  would hand the next test a window restored from one it never asked about.
+
+  It was not the crash above, and it was worth doing anyway: the suite went from
+  32:49 to 15:35 on the Windows runner, and from 17:53 to 8:42 locally. Sixty-six
+  live windows were not only a bad way to end a process, they were a tax on every
+  test that ran after them.
+
 - **The drawing's two caption lines used to run across the gearbox.** They sat
   in the bottom-left corner of the *axes*, on the argument that the housing
   circle leaves that corner empty. It does, and neither line is short enough to
