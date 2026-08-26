@@ -410,6 +410,51 @@ EXPLANATIONS: dict[str, Explanation] = {
         "choose the lubricant for its boundary friction - an EP additive is "
         "worth a factor of two on every sliding loss - rather than for viscosity.",
         keep="above"),
+    "MOTOR_OPERATING_POINT": Explanation(
+        "Where this duty point sits on the motor's curve",
+        "T_motor(n_in), against the T_in the gearbox asks for",
+        "A motor is a curve, not a number, and the number it is sold on is the "
+        "one at standstill. Torque falls with speed because the winding is an "
+        "inductor the supply has to push current into against its own back-EMF, "
+        "and both models here run out entirely at a speed set by the bus "
+        "voltage - halve the supply and you halve the top speed. So the useful "
+        "reading is not the margin but the position: how much of the standstill "
+        "torque is left here, and how close to the electrical ceiling this is.",
+        "Nothing, on its own - this is a reading. The two ceilings it ends with "
+        "are what to design against: the output torque this motor and this "
+        "ratio can deliver, and the output speed past which they cannot.",
+        keep="", unit="Nm"),
+    "MOTOR_TORQUE_SHORT": Explanation(
+        "The motor cannot deliver what the gearbox asks of it",
+        "T_motor(n_in)  >  T_out / (i * efficiency),  by 1.5x",
+        "The input torque is the output torque divided by the ratio and the "
+        "efficiency, and the efficiency matters: on a printed drive with fixed "
+        "pins nearly half of what the motor supplies is spent inside the "
+        "gearbox. Short of it the drive stalls, and a stalled stepper does not "
+        "slow down - it loses synchronism and stops dead, which is a lost "
+        "position rather than a slow one.",
+        "Gear it down further, raise the bus voltage - which moves the whole "
+        "curve, not just the top end - or fit a bigger motor. Rolling ring pins "
+        "are the other lever and they act on the same fraction: they can be "
+        "worth 14 points of efficiency, which comes straight off what the motor "
+        "has to supply. A margin near 1 is not a margin; the drive has to "
+        "accelerate its own inertia and break away from stiction first, and "
+        "this curve is an upper bound rather than a measured one.",
+        keep="above", unit="Nm"),
+    "MOTOR_SUPPLY_VOLTAGE": Explanation(
+        "The supply cannot push the motor's rated current, even standing still",
+        "V / R  >=  rated current",
+        "Torque is proportional to current, and the torque on the datasheet was "
+        "measured at the rated current. If the bus divided by the winding "
+        "resistance comes to less than that, the driver never reaches it: the "
+        "whole curve is scaled down by the shortfall, from standstill upward. "
+        "It is the one thing the winding resistance decides by itself - "
+        "everywhere else on the curve the inductance and the back-EMF are what "
+        "limit the current.",
+        "A higher bus voltage, or a motor wound for the one you have. A "
+        "high-resistance motor is wound for a low-voltage drive and is the "
+        "wrong part on a 24 V bus rather than a weak one.",
+        keep="above", unit="A"),
     "MOTOR_SHAFT_MISMATCH": Explanation(
         "The motor's shaft is not the shaft this drive was built around",
         "motor shaft diameter == input shaft diameter",

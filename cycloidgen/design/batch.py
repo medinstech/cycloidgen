@@ -106,6 +106,10 @@ METRICS: tuple[Metric, ...] = (
     Metric("input_torque_Nm", "Nm",
            lambda a: a.efficiency.input_torque_Nm,
            "what the motor has to turn to get the duty point out"),
+    Metric("motor_margin", "x",
+           lambda a: _motor_margin(a),
+           "times over what the motor can hold continuously; nan where no "
+           "motor curve has been stated"),
 
     Metric("mass_g", "g",
            lambda a: a.mass.total_mass_g,
@@ -117,6 +121,17 @@ METRICS: tuple[Metric, ...] = (
            lambda a: a.spec.envelope_length,
            "barrel plus both end plates"),
 )
+
+
+def _motor_margin(a: DesignAnalysis) -> float:
+    """How much motor is left over, or ``nan`` where none was stated.
+
+    ``nan`` rather than an infinity, even though that is what the margin
+    genuinely is when nothing is asked of the motor: a study that sweeps bus
+    voltage across a design with no curve should come back empty rather than
+    come back passing.  Same rule as the fatigue margin on a printed part.
+    """
+    return a.motor.margin if a.motor.modelled else float("nan")
 
 
 def _worst_film(a: DesignAnalysis) -> float:

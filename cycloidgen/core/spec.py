@@ -10,6 +10,19 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, computed_field, model_validator
 
+# The motor lives in its own module because it is two separate facts - a face to
+# bolt to and a torque against speed - and only the first of them is geometry.
+# Re-exported here because every consumer already reaches for the spec, and a
+# name that moves house is a name that breaks a dozen imports for no gain.
+from .motor import (
+    MOTOR_FRAMES,
+    NO_MOTOR,
+    MotorCurve,
+    MotorFrame,
+    MotorKind,
+    curve_from,
+)
+
 
 class Material(BaseModel):
     """Elastic, strength and tribological data for one part."""
@@ -230,77 +243,6 @@ SHAFT_OVERHANG = 12.0
 #: Small and deliberate: a carrier face flush with the disc would put two
 #: surfaces at the same height, which the software renderer cannot arbitrate.
 CARRIER_DROP = 1.0
-
-
-class MotorFrame(BaseModel):
-    """A motor's mounting face, as the standard defines it.
-
-    NEMA frames put four bolts on a **square**, not on a bolt circle, and the
-    difference is not cosmetic: drawing four holes on a circle of the same size
-    puts every one of them in the wrong place.  Metric flanges do use a circle,
-    so both are here and ``square`` says which.
-
-    ``max_radial_N`` is what the motor's *own* bearings will take at the shaft
-    end.  It is a typical figure for the frame size rather than a promise about
-    your motor - they vary by a factor of two between makers - and it exists so
-    that hanging a drive on a motor face can be checked against something
-    instead of hoped about.  Read your datasheet before you believe it.
-    """
-
-    name: str
-    bolt_span: float = Field(gt=0, description="square side, or bolt circle dia")
-    square: bool = Field(True, description="four on a square, or N on a circle")
-    bolt_count: int = Field(4, ge=1)
-    bolt_diameter: float = Field(gt=0, description="clearance hole, not the thread")
-    pilot_diameter: float = Field(gt=0, description="the register that centres it")
-    pilot_depth: float = Field(gt=0)
-    shaft_diameter: float = Field(gt=0)
-    max_radial_N: float = Field(gt=0, description="typical, at the shaft end")
-
-    @property
-    def bolt_circle_diameter(self) -> float:
-        """Where the bolts actually land, whichever way the pattern is stated.
-
-        A square of side ``s`` puts its corners on a circle of ``s*sqrt(2)``, and
-        that is the number every clearance check wants.
-        """
-        import math
-        return self.bolt_span * (math.sqrt(2.0) if self.square else 1.0)
-
-
-#: What a motor face is, by frame size.  Standard NEMA geometry; the radial
-#: ratings are typical for the frame rather than any one motor.  ``None`` is a
-#: plate with no motor interface at all - a drive driven through a coupling from
-#: something this table does not describe.
-MOTOR_FRAMES: dict[str, MotorFrame] = {
-    m.name: m
-    for m in [
-        MotorFrame(name="None", bolt_span=1.0, bolt_diameter=1.0,
-                   pilot_diameter=1.0, pilot_depth=0.1, shaft_diameter=1.0,
-                   max_radial_N=1.0),
-        MotorFrame(name="NEMA 8", bolt_span=15.4, bolt_diameter=2.2,
-                   pilot_diameter=15.0, pilot_depth=1.6, shaft_diameter=4.0,
-                   max_radial_N=10.0),
-        MotorFrame(name="NEMA 11", bolt_span=23.0, bolt_diameter=2.7,
-                   pilot_diameter=22.0, pilot_depth=2.0, shaft_diameter=5.0,
-                   max_radial_N=15.0),
-        MotorFrame(name="NEMA 14", bolt_span=26.0, bolt_diameter=3.2,
-                   pilot_diameter=22.0, pilot_depth=2.0, shaft_diameter=5.0,
-                   max_radial_N=20.0),
-        MotorFrame(name="NEMA 17", bolt_span=31.0, bolt_diameter=3.4,
-                   pilot_diameter=22.0, pilot_depth=2.0, shaft_diameter=5.0,
-                   max_radial_N=28.0),
-        MotorFrame(name="NEMA 23", bolt_span=47.14, bolt_diameter=5.5,
-                   pilot_diameter=38.1, pilot_depth=1.6, shaft_diameter=6.35,
-                   max_radial_N=75.0),
-        MotorFrame(name="NEMA 34", bolt_span=69.58, bolt_diameter=5.5,
-                   pilot_diameter=73.03, pilot_depth=2.0, shaft_diameter=14.0,
-                   max_radial_N=220.0),
-    ]
-}
-
-#: The frame name that means "no motor interface on this plate".
-NO_MOTOR = "None"
 
 
 class OffsetMode(str, Enum):
@@ -598,6 +540,45 @@ class GearSpec(BaseModel):
     input_rpm: float = Field(1000.0, gt=0)
     output_torque_Nm: float = Field(5.0, gt=0)
     ambient_temp_C: float = Field(20.0, gt=-273.0, description="air around the housing")
+
+    # ---- what turns it --------------------------------------------------------
+    #
+    # Eight numbers off a datasheet, flat rather than nested, because the panel
+    # writes spec fields straight and a dotted path would be a second way to
+    # address one.  They are assembled into a :class:`MotorCurve` by the
+    # property below and read from there by everything else, so the curve has no
+    # state of its own to fall out of step.
+    #
+    # Three of them are shared between the two kinds and that sharing is
+    # physical rather than a squeeze: both motors run off the same bus, both
+    # datasheets print a winding resistance, and both have a current they will
+    # hold all day - the driver setting for a stepper, the continuous rating for
+    # a DC motor.  What is not shared is what the current *means*, which is why
+    # a stepper's curve is already its continuous curve and a DC motor's is not.
+    motor_kind: MotorKind = Field(
+        MotorKind.NONE,
+        description="which torque-speed curve the input follows; 'none' asks "
+                    "nothing of the motor, which is what the app always did",
+    )
+    motor_supply_V: float = Field(24.0, gt=0, description="bus volts")
+    motor_resistance_ohm: float = Field(
+        1.5, gt=0,
+        description="per phase on a stepper, terminal to terminal on a DC motor",
+    )
+    motor_rated_current_A: float = Field(
+        1.5, gt=0,
+        description="the driver setting on a stepper, the continuous rating on "
+                    "a DC motor",
+    )
+    motor_holding_torque_Nm: float = Field(
+        0.45, gt=0, description="stepper: both phases at rated current")
+    motor_inductance_mH: float = Field(3.0, gt=0, description="stepper: per phase")
+    motor_steps_per_rev: int = Field(
+        200, ge=4, le=10000,
+        description="stepper: full steps per revolution; 200 is 1.8 degrees",
+    )
+    motor_kv_rpm_per_V: float = Field(
+        100.0, gt=0, description="DC: no-load speed per volt")
 
     # ---------------------------------------------------------------- derived --
     @computed_field  # type: ignore[prop-decorator]
@@ -999,12 +980,36 @@ class GearSpec(BaseModel):
         return math.pi / self.housing_bolt_count
 
     @property
-    def motor(self) -> MotorFrame:
+    def motor_face(self) -> MotorFrame:
+        """The face the motor bolts to, as the frame standard defines it.
+
+        Named for the face rather than for the motor, because a motor is two
+        facts and this is only the first of them.  The other one is
+        :attr:`motor_curve`, and an analysis result carries the answer under
+        ``motor`` - so leaving this called ``motor`` would have put two
+        different objects behind one word on the two most-read classes here.
+        """
         return MOTOR_FRAMES[self.motor_frame]
 
     @property
     def has_motor_face(self) -> bool:
         return self.motor_frame != NO_MOTOR
+
+    @property
+    def motor_curve(self) -> MotorCurve:
+        """What the motor can deliver, against speed.
+
+        Assembled on every read rather than cached: it is eight attribute reads
+        and a dataclass, and a cache here would be a copy of the design that can
+        disagree with the design.
+
+        Independent of :attr:`has_motor_face` on purpose.  A face is what the
+        drive bolts to and a curve is what turns the crank, and the two are
+        genuinely separable - a motor driving through a coupling from somewhere
+        else has a curve and no face, and a plate cut for a NEMA 17 says nothing
+        about which NEMA 17 goes on it.
+        """
+        return curve_from(self)
 
     @property
     def motor_mounts_on_carrier(self) -> bool:

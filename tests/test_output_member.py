@@ -250,8 +250,8 @@ def test_the_motor_bolts_to_the_member_that_stands_still():
     flange = solid.output_flange(ring).val()
     box = flange.BoundingBox()
     assert box.zmin == pytest.approx(ring.base_plate_bottom + CARRIER_DROP)
-    half = ring.motor.bolt_span / 2.0
-    reach = math.hypot(half, half) + ring.motor.bolt_diameter / 2.0
+    half = ring.motor_face.bolt_span / 2.0
+    reach = math.hypot(half, half) + ring.motor_face.bolt_diameter / 2.0
     assert box.xlen / 2.0 == pytest.approx(ring.housing_outer_radius, rel=1e-3)
     assert reach < ring.housing_outer_radius        # the pattern lands on it
 

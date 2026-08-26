@@ -199,6 +199,37 @@ def report_dict(a: DesignAnalysis) -> dict:
             "loss_output_pins_W": a.efficiency.loss_output_pins_W,
             "loss_bearings_W": a.efficiency.loss_bearings_W,
         },
+        # ``modelled`` first and everything else null when it is false, rather
+        # than the block being absent: a consumer that has to tell "no motor
+        # stated" from "an older version that could not be asked" gets the
+        # answer from the key being there, and a script that reads a margin out
+        # of a design with no curve gets a null it has to handle instead of an
+        # infinity that quietly compares as fine.
+        "motor": {
+            "modelled": a.motor.modelled,
+            "kind": a.motor.kind.value,
+            **({
+                "motor_rpm": a.motor.motor_rpm,
+                "required_Nm": a.motor.required_Nm,
+                "available_Nm": a.motor.available_Nm,
+                "continuous_Nm": a.motor.continuous_Nm,
+                "margin": a.motor.margin,
+                "peak_margin": a.motor.peak_margin,
+                "stall_Nm": a.motor.stall_Nm,
+                "fraction_of_stall": a.motor.fraction_of_stall,
+                "ceiling_rpm": a.motor.ceiling_rpm,
+                "fraction_of_ceiling": a.motor.fraction_of_ceiling,
+                "output_torque_ceiling_Nm": a.motor.output_torque_ceiling_Nm,
+                "output_speed_ceiling_rpm": a.motor.output_speed_ceiling_rpm,
+            } if a.motor.modelled else {
+                "motor_rpm": None, "required_Nm": None, "available_Nm": None,
+                "continuous_Nm": None, "margin": None, "peak_margin": None,
+                "stall_Nm": None, "fraction_of_stall": None,
+                "ceiling_rpm": None, "fraction_of_ceiling": None,
+                "output_torque_ceiling_Nm": None,
+                "output_speed_ceiling_rpm": None,
+            }),
+        },
         "bearings": [
             {
                 "role": b.role,
@@ -458,6 +489,53 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
              "Output pins", "rolling" if s.output_pins_are_rollers else "fixed (sliding)"],
         ], [42 * mm, 36 * mm, 42 * mm, 36 * mm]),
     ]
+
+    # --- what turns it -------------------------------------------------------
+    #
+    # After efficiency and before stiffness, because it reads off the efficiency
+    # - the input torque the motor is asked for is the output torque through the
+    # ratio *and* the loss - and because the two ceilings it ends with are what
+    # the rest of the report should be read against.  Omitted entirely where no
+    # curve has been stated: a section that says "not asked" is a page of paper
+    # spent on a question nobody put.
+    m = a.motor
+    if m.modelled:
+        story += [
+            CondPageBreak(90 * mm),
+            Paragraph("The motor", h2),
+            Paragraph(
+                "Everything above is what the drive can take. This is what it "
+                "will be given. A motor is a curve rather than a number, and "
+                "the number it is sold on is the one at standstill: torque "
+                "falls with speed as the supply runs out of voltage to force "
+                "current into the winding against its own back-EMF, and it "
+                "reaches zero at a speed set by the bus as much as by the "
+                "motor. The model and its limits are in "
+                "<font face='Courier'>cycloidgen.core.motor</font>; it is an "
+                "upper bound rather than a measured curve, so read a margin "
+                "near 1 as no margin.",
+                body),
+            Spacer(1, 4),
+            _fig_png(plots.motor_figure(a), 155),
+            Spacer(1, 4),
+            _table([
+                ["Quantity", "Value", "Quantity", "Value"],
+                ["Motor", m.kind.value,
+                 "Bus", f"{s.motor_supply_V:g} V"],
+                ["Asked of it", f"{m.required_Nm:.3f} Nm",
+                 "At", f"{m.motor_rpm:.0f} rpm in"],
+                ["Available continuously", f"{m.continuous_Nm:.3f} Nm",
+                 "Available in bursts", f"{m.available_Nm:.3f} Nm"],
+                ["Margin", f"{m.margin:.2f} x",
+                 "Left of standing still", f"{100 * m.fraction_of_stall:.0f} %"],
+                ["Speed ceiling", f"{m.ceiling_rpm:.0f} rpm",
+                 "This duty point", f"{100 * m.fraction_of_ceiling:.0f} % of it"],
+                ["Output torque it buys",
+                 f"{m.output_torque_ceiling_Nm:.2f} Nm",
+                 "Output speed it buys",
+                 f"{m.output_speed_ceiling_rpm:.1f} rpm"],
+            ], [42 * mm, 36 * mm, 42 * mm, 36 * mm]),
+        ]
 
     # --- stiffness and backlash ----------------------------------------------
     st, te = a.stiffness, a.transmission_error

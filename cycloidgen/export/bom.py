@@ -178,7 +178,7 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
                  f"the tie bolts' own circle, half a pitch round from them"))
 
     if s.has_motor_face:
-        frame = s.motor
+        frame = s.motor_face
         pattern = (f"{frame.bolt_span:g} mm square" if frame.square
                    else f"{frame.bolt_span:g} mm circle")
         face = ("the carrier's base" if s.motor_mounts_on_carrier

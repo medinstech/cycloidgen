@@ -1207,3 +1207,45 @@ def test_the_help_menu_offers_the_project_and_the_company(app, monkeypatch):
         assert opened == [branding.COMPANY_URL]
     finally:
         w.close()
+
+
+# ------------------------------------------------------------ the stored tab
+
+def test_the_tab_is_remembered_by_name_and_not_by_position(app):
+    """A tab added in the middle renumbers every one after it.
+
+    Storing the index meant an upgrade reopened the session on somebody else's
+    tab - which is exactly what adding MOTOR between EFFICIENCY and DATASHEET
+    did. The name survives being reordered, and says what it means in a
+    preferences file somebody may have to read.
+    """
+    w = _window(app)
+    names = [w.tabs.tabText(i) for i in range(w.tabs.count())]
+    w.tabs.setCurrentIndex(names.index("DATASHEET"))
+    w._save_workspace()
+    assert _settings().value("tab") == "DATASHEET"
+    w.close()
+
+    again = _window(app)
+    assert again.tabs.tabText(again.tabs.currentIndex()) == "DATASHEET"
+    again.close()
+
+
+def test_a_session_stored_by_the_old_index_still_opens(app):
+    """The upgrade path: preferences written by an earlier version hold an
+    integer, and reading it once is cheaper than losing the tab."""
+    settings = _settings()
+    settings.setValue("tab", 2)
+    settings.sync()
+    w = _window(app)
+    assert w.tabs.currentIndex() == 2
+    w.close()
+
+
+def test_the_log_badge_is_not_part_of_the_name(app):
+    """The log tab decorates its own label when something unread is in it. A
+    session stored under 'LOG !!' would never be found again."""
+    from cycloidgen.ui.main_window import _tab_key
+
+    assert _tab_key("LOG !!") == _tab_key("LOG !") == _tab_key("LOG") == "LOG"
+    assert _tab_key("TRADE STUDY") == "TRADE STUDY"

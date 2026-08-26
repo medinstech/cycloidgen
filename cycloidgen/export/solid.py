@@ -161,7 +161,7 @@ def _motor_pattern(wp: cq.Workplane, spec: GearSpec) -> cq.Workplane:
     for the reason the table exists at all - four holes drawn on a circle of the
     same size land where a NEMA motor has nothing.
     """
-    frame = spec.motor
+    frame = spec.motor_face
     if frame.square:
         return wp.rarray(frame.bolt_span, frame.bolt_span, 2, 2).hole(
             frame.bolt_diameter)
@@ -216,7 +216,7 @@ def output_flange(spec: GearSpec,
                 .circle(spec.housing_outer_radius)
                 .extrude(spec.plate_thickness))
         if spec.has_motor_face:
-            frame = spec.motor
+            frame = spec.motor_face
             # The register first, and only where the spigot is wider than the
             # bore already through here - a motor that pilots on 22 mm into a
             # 22 mm bore is already located by it.
@@ -318,7 +318,7 @@ def housing_end_plate(spec: GearSpec, bore: float,
                                  spec.output_bolt_count)
                      .hole(spec.output_bolt_diameter))
     elif motor_face and spec.has_motor_face:
-        frame = spec.motor
+        frame = spec.motor_face
         # The register first: a shallow recess on the outside face that the
         # motor's spigot drops into, and the only thing that actually centres it
         # - four clearance holes on their own leave it free to sit anywhere

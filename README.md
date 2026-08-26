@@ -51,12 +51,15 @@
 - **A datasheet, not a drawing.** Contact stress, torque capacity, efficiency,
   torsional stiffness, lost motion, transmission error, PV and running
   temperature, lubrication regime, mass and inertia, bearing life.
-- **Fifty-six checks that explain themselves.** Each says what it tests, what
+- **Fifty-nine checks that explain themselves.** Each says what it tests, what
   goes wrong physically when it fails, and which parameter to move — and lights
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
-  a shortlist that passes every check, with the trade-offs side by side.
-- **Nothing is asserted that is not verified.** 946 tests, and where two parts
+  a shortlist that passes every check, with the trade-offs side by side. Or say
+  what motor you have and let it pick the reduction: a motor is a torque-speed
+  curve, not the number on its label, and what it can turn is what the drive is
+  worth.
+- **Nothing is asserted that is not verified.** 1,039 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -185,6 +188,13 @@ applies to it.
 what to optimise for; the search returns a shortlist of geometries that pass
 every check, with the trade-offs side by side. `Ctrl+R` in the app, or
 `--optimise` on the command line.
+
+**Give it a motor.** State the torque curve and the reduction stops being part
+of the question: the app works out which reductions that motor can drive your
+load with, searches across them, and ranks the results together. A reduction is
+a means, and the job is a torque at a speed. *Work it out from the motor* in the
+search dialog, or `--ratio-from-motor --out-rpm 10` on the command line, which
+reads the curve off the design you pass with `--design`.
 
 **Give it a grid, or call it from Python.** `--vary` puts a design through
 every combination of whatever you name and returns a table. The analysis
@@ -419,6 +429,16 @@ Beyond the geometry checks, every design gets a datasheet:
 
 - **Torque capacity**, both on the ideal load share and derated for what
   clearance actually does to it.
+- **What the motor can actually deliver**, if you state one. Everything else in
+  the datasheet is what the drive can *take*; this is what it will be *given*,
+  and on most designs here it is the smaller number. A motor is a curve rather
+  than a number, and the number it is sold on is the one at standstill: torque
+  falls with speed because the supply runs out of voltage to force current into
+  the winding against its own back-EMF, and it reaches zero at a speed set by
+  the bus as much as by the motor — halve the supply and you halve the top
+  speed. Out of it come the two ceilings a design should be read against: the
+  output torque this motor and this reduction can deliver, and the output speed
+  past which they cannot.
 - **Torsional stiffness** in Nm/arcmin and **lost motion** in arcmin, from
   Hertzian line-contact springs (Johnson's elastic approach) on the ring and
   output stages, in series with the parts they are mounted in — the ring pin
@@ -464,7 +484,7 @@ Beyond the geometry checks, every design gets a datasheet:
 
 ## Checks
 
-Fifty-six of them. Errors block export; warnings do not; several are readings
+Fifty-nine of them. Errors block export; warnings do not; several are readings
 rather than tests.
 
 **Profile** — `K1_TOO_HIGH` · `K1_HIGH` · `UNDERCUT` · `UNDERCUT_MARGIN` ·
@@ -494,6 +514,9 @@ rather than tests.
 
 **Mounting** — `HOUSING_BOLT_CLASH` · `OUTPUT_BOLT_CLASH` ·
 `MOTOR_SHAFT_MISMATCH` · `MOTOR_FACE_CLASH` · `MOTOR_RADIAL_LOAD`
+
+**The motor** — `MOTOR_OPERATING_POINT` · `MOTOR_TORQUE_SHORT` ·
+`MOTOR_SUPPLY_VOLTAGE`
 
 **Dynamics and mass** — `SINGLE_DISC_UNBALANCE` · `UNBALANCE_FORCE` · `MASS`
 
@@ -718,14 +741,16 @@ a physical prototype before committing to a design.
 cycloidgen/
 ├── units.py    what lengths are *shown* in; everything inside is millimetres
 ├── core/       spec (the one source of truth), profile, kinematics, validate,
+│               motor (the face it bolts to and the torque it makes),
 │               explain (what each check tests, why, and what to change),
 │               guide (what each parameter is and how to choose it)
 ├── analysis/   mechanics (Hertz), stiffness (contacts, backlash, transmission
 │               error), compliance (the parts around the mesh, as springs),
 │               tolerance (where the pins actually are), lubrication (the
 │               film, and the friction it earns), thermal, mass, efficiency,
-│               bearings
-├── design/     optimise (requirements -> geometry), sweep (trade studies)
+│               bearings, motor (what is asked of it against what it has)
+├── design/     optimise (requirements -> geometry, and the reduction from a
+│               motor), sweep (trade studies)
 ├── viz/        3D geometry and rendering maths, no Qt: mesh, scene (the
 │               software projection), vtkbridge (mesh -> VTK polydata)
 ├── export/     manifest (what a bundle contains), dxf, svg, solid (OCCT),
@@ -735,7 +760,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          946 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          1,039 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -751,7 +776,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-569 tests, about 300 s. Most of that is CadQuery writing solids; the pure
+1,039 tests, about 880 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

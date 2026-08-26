@@ -103,6 +103,48 @@ headline numbers that span groups are properties on the analysis itself, because
 they are derated by a result from another one:
 `torque_capacity_with_clearance_Nm` and `pin_safety_factor_with_clearance`.
 
+### 2a. Will your motor turn it
+
+Everything above is what the drive can *take*. `a.motor` is what it will be
+*given*, and on most designs here that is the smaller number. Set a curve on the
+spec and the analysis puts the duty point on it:
+
+```python
+from cycloidgen.core.spec import MotorKind
+
+spec.motor_kind = MotorKind.STEPPER
+spec.motor_holding_torque_Nm = 0.45      # a NEMA 17, off the datasheet
+spec.motor_rated_current_A = 1.5
+spec.motor_resistance_ohm = 1.5
+spec.motor_inductance_mH = 3.0
+spec.motor_supply_V = 24.0
+
+m = analyse(spec).motor
+print(m.margin)                          # times over, on the continuous line
+print(m.ceiling_rpm)                     # no torque at all past here
+print(m.fraction_of_stall)               # how much of holding torque is left
+print(m.output_torque_ceiling_Nm)        # what motor and ratio buy at the output
+print(m.output_speed_ceiling_rpm)        # and how fast, at the required torque
+```
+
+`motor_kind` defaults to `MotorKind.NONE`, and then `m.modelled` is false and
+nothing about the motor is checked — which is what every design did before there
+was a curve. `MotorKind.DC` covers brushed and brushless motors and wants
+`motor_kv_rpm_per_V` instead of the holding torque, inductance and step count.
+
+The curve itself is a plain object you can sample without running an analysis at
+all, which is what a sizing script wants:
+
+```python
+curve = spec.motor_curve
+for rpm in (0, 300, 600, 900):
+    print(rpm, round(curve.torque_at(rpm), 3))
+print(round(curve.speed_for_torque(0.2), 1))   # fastest that still makes 0.2 Nm
+```
+
+The models are stated in `cycloidgen.core.motor`, along with what they ignore.
+Both are upper bounds: read a margin near 1 as no margin.
+
 Findings are data, not printed text:
 
 ```python
@@ -228,6 +270,39 @@ if result.ok:
 else:
     print(result.tally.explain())        # why every candidate was rejected
 ```
+
+The reduction can be an answer rather than a question. Give the search a motor
+and what the *output* has to do, and it works out which reductions that motor
+can drive the load with, searches a spread of them, and ranks the results
+together:
+
+```python
+from cycloidgen.design import RATIO_FROM_MOTOR, ratio_band
+
+job = Requirements(
+    ratio=RATIO_FROM_MOTOR,              # let the motor decide
+    output_torque_Nm=6.0, output_rpm=10.0,
+    motor_kind=MotorKind.STEPPER, motor_holding_torque_Nm=0.45,
+    motor_rated_current_A=1.5, motor_inductance_mH=3.0, motor_supply_V=24.0,
+    max_outer_diameter_mm=130, max_length_mm=60,
+)
+
+band = ratio_band(job)                   # closed form, no geometry needed
+print(band.span)                         # (37, 97) - the reductions that work
+print(band.explain())
+
+found = optimise(job, effort="quick")
+print(found.ratios_searched)             # a sample of the band, declared
+for c in found.best[:3]:
+    print(c.spec.ratio, round(c.analysis.motor.margin, 2))
+```
+
+`ratio_band` is worth having on its own: it costs one curve evaluation per
+reduction and needs no geometry, so it answers "what reduction do I even want"
+before there is anything to analyse. Below the band the motor is short of
+torque and gearing down further helps; above it the motor is short of speed and
+gearing down further is what caused it. A design the motor cannot turn is
+dropped from the search whether or not the search picked the reduction.
 
 ---
 

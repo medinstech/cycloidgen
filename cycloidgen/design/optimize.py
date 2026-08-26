@@ -29,12 +29,32 @@ evaluation budget only on geometry that could work.  Candidates that survive get
 the fast analysis; the handful that win get the full one, and anything the full
 analysis rejects is dropped rather than reported.
 
+Where the reduction comes from
+------------------------------
+Either the question or the answer.  Name it and the search works inside it.
+Leave it at :data:`RATIO_FROM_MOTOR` and a stated motor curve decides: state
+what the *output* has to do, and :func:`ratio_band` asks the curve which whole
+reductions can drive that load at that speed - closed form, one curve evaluation
+each, before any geometry exists.  A spread of the band is then searched and the
+results are ranked together, so the answer can be a reduction nobody typed.
+
+That is the shape the question usually arrives in.  A reduction is a means; the
+job is a torque at a speed, and which gearing gets there is exactly the thing
+the app is better placed to work out than the person asking.
+
+Either way, a stated motor screens every candidate: the input torque a design
+needs is its output torque through the reduction *and* the loss, and a drive the
+motor cannot hold continuously is not a design.
+
 When nothing fits
 -----------------
 An optimiser that returns an empty list is useless.  This one counts *why* each
 candidate died, so a search that finds nothing can still say "1,400 of 1,500
 candidates were over your diameter limit" - which is the answer the user
-actually needs.
+actually needs.  Where the motor was asked to pick the reduction and could not,
+the band answers first and no geometry is evaluated at all: the two ends of it
+fail for different reasons, and telling somebody to loosen the envelope when the
+motor was never going to turn it is sending them to the wrong knob.
 """
 from __future__ import annotations
 
@@ -52,17 +72,22 @@ from ..analysis.efficiency import analyse_efficiency
 from ..analysis.fatigue import output_pin_fatigue
 from ..analysis.mass import analyse_mass
 from ..analysis.mechanics import analyse_contacts, torque_capacity
+from ..analysis.motor import COMFORTABLE_MARGIN
 from ..analysis.stiffness import analyse_stiffness
+from ..core.motor import MOTOR_FIELDS, MotorCurve, MotorKind, curve_from
 from ..core.profile import critical_radius
 from ..core.spec import MATERIALS, GearSpec, OffsetMode, OutputMember, Process
 
 __all__ = [
+    "RATIO_FROM_MOTOR",
     "Candidate",
     "Objective",
     "OptimisationResult",
+    "RatioBand",
     "RejectionTally",
     "Requirements",
     "optimise",
+    "ratio_band",
     "requirements_from_spec",
 ]
 
@@ -100,13 +125,49 @@ _WEIGHTS: dict[Objective, tuple[float, float, float, float, float]] = {
 #: three times stronger than it needs to be is just heavy.
 _CAPACITY_CEILING = 2.0
 
+#: ``Requirements.ratio`` set to this means "work it out from the motor".
+#:
+#: Zero rather than ``None`` on the same argument ``disc_count`` uses: the field
+#: is an integer the panel spins, and a sentinel inside its own type keeps the
+#: widget an integer widget.  The difference is that this one needs a motor to
+#: be answerable at all, which the validator below insists on.
+RATIO_FROM_MOTOR = 0
+
+#: The smallest and largest reductions the band is searched over.  Three lobes
+#: is the smallest disc the profile code will generate; the top is where the
+#: pressure angle has made the geometry pointless long before the motor has.
+_RATIO_LIMITS = (4, 120)
+
+#: How many reductions out of a feasible band actually get searched.
+#:
+#: The band is usually a dozen wide and every one of them costs a full search,
+#: so they are sampled rather than swept - ends and middle, because the ends are
+#: the interesting ones: the low end is the smallest, most efficient drive the
+#: motor can turn and the high end is the most torque it can buy.  What is left
+#: out is said in the tally rather than passed over quietly.
+_RATIOS_SEARCHED = 5
+
+#: Efficiency assumed while working out which reductions the motor can drive.
+#:
+#: Pessimistic on purpose and stated rather than solved: the band is a screen
+#: over 120 candidate reductions, and the real efficiency needs a geometry that
+#: does not exist yet.  Under-guessing widens nothing - it asks the motor for
+#: more torque than the finished drive will - so the band it produces is a
+#: subset of the true one and the search inside it screens again with the real
+#: number.
+_BAND_EFFICIENCY = 0.55
+
 
 class Requirements(BaseModel):
     """What the drive has to do, as opposed to what it is."""
 
     model_config = {"validate_assignment": True}
 
-    ratio: int = Field(29, ge=3, le=200)
+    ratio: int = Field(
+        29, ge=0, le=200,
+        description="0 is RATIO_FROM_MOTOR: work out which reductions the motor "
+                    "can drive and search across them",
+    )
     output_member: OutputMember = Field(
         OutputMember.CARRIER,
         description="which member turns the load; it decides how many lobes a "
@@ -114,6 +175,25 @@ class Requirements(BaseModel):
     )
     output_torque_Nm: float = Field(5.0, gt=0)
     input_rpm: float = Field(1000.0, gt=0)
+    #: What the *output* has to turn at.  Only read when the reduction is being
+    #: chosen, and it has to be, because then the input speed is a consequence
+    #: of the answer rather than part of the question.
+    output_rpm: float = Field(30.0, gt=0)
+
+    # ---- what will be turning it -------------------------------------------
+    #
+    # Carried through rather than read off a spec, because a search starts from
+    # requirements and may have no spec behind it at all.  Mirrors the eight
+    # fields on GearSpec; ``base_spec`` hands them straight on, so every
+    # candidate the search evaluates knows what is meant to drive it.
+    motor_kind: MotorKind = MotorKind.NONE
+    motor_supply_V: float = Field(24.0, gt=0)
+    motor_resistance_ohm: float = Field(1.5, gt=0)
+    motor_rated_current_A: float = Field(1.5, gt=0)
+    motor_holding_torque_Nm: float = Field(0.45, gt=0)
+    motor_inductance_mH: float = Field(3.0, gt=0)
+    motor_steps_per_rev: int = Field(200, ge=4, le=10000)
+    motor_kv_rpm_per_V: float = Field(100.0, gt=0)
 
     max_outer_diameter_mm: float = Field(120.0, gt=0)
     max_length_mm: float = Field(60.0, gt=0)
@@ -155,17 +235,59 @@ class Requirements(BaseModel):
         return (self.ratio if self.output_member is OutputMember.CARRIER
                 else self.ratio - 1)
 
+    @property
+    def motor(self) -> MotorCurve:
+        """What is meant to turn it.  See :attr:`GearSpec.motor_curve`."""
+        return curve_from(self)
+
+    @property
+    def ratio_is_free(self) -> bool:
+        return self.ratio == RATIO_FROM_MOTOR
+
+    def at_ratio(self, ratio: int) -> Requirements:
+        """The same requirement stated at one reduction.
+
+        The input speed follows from the output speed and the reduction, which
+        is the whole point of letting the motor choose: the requirement fixes
+        what the *load* does, and how fast the motor has to turn to get it is an
+        answer rather than an input.
+
+        Rebuilt through the constructor rather than copied, so the validators
+        below run on the result - a reduction that leaves no disc to cut has to
+        fail here and not four calls later.
+        """
+        return Requirements(**{**self.model_dump(),
+                               "ratio": ratio,
+                               "input_rpm": self.output_rpm * ratio})
+
     @model_validator(mode="after")
     def _ratio_leaves_a_disc_to_cut(self) -> Requirements:
         """A three-lobed disc is the smallest the profile code will generate, so
         off the ring the smallest reduction is four rather than three.  Caught
         here, where the requirement is stated, instead of as a spec error two
         calls later that names a field the user never set."""
+        if self.ratio_is_free:
+            return self                      # no reduction to check yet
         if self.lobes < 3:
             raise ValueError(
                 f"a {self.ratio}:1 off the {self.output_member.value} needs "
                 f"{self.lobes} lobes, and the smallest disc is 3 - ask for "
                 f"{4 if self.output_member is OutputMember.RING else 3}:1 or more")
+        return self
+
+    @model_validator(mode="after")
+    def _something_has_to_choose_the_ratio(self) -> Requirements:
+        """Leaving the reduction to the motor needs there to be a motor.
+
+        Otherwise there is nothing in the requirement that prefers one
+        reduction to another - every one of them meets an output torque, given
+        an input torque nobody has bounded - and the search would return the
+        first thing it tried dressed up as an answer.
+        """
+        if self.ratio_is_free and self.motor_kind is MotorKind.NONE:
+            raise ValueError(
+                "the reduction can only be worked out from a motor: state one, "
+                "or ask for a reduction")
         return self
 
     def base_spec(self) -> GearSpec:
@@ -189,6 +311,7 @@ class Requirements(BaseModel):
             output_torque_Nm=self.output_torque_Nm,
             ambient_temp_C=self.ambient_temp_C,
             housing_wall=self.housing_wall,
+            **{f: getattr(self, f) for f in MOTOR_FIELDS},
         ).apply_process_defaults()
 
 
@@ -200,6 +323,8 @@ def requirements_from_spec(spec: GearSpec,
         output_member=spec.output_member,
         output_torque_Nm=spec.output_torque_Nm,
         input_rpm=spec.input_rpm,
+        output_rpm=spec.output_rpm,
+        **{f: getattr(spec, f) for f in MOTOR_FIELDS},
         max_outer_diameter_mm=max(2.0 * spec.housing_outer_radius, 20.0),
         max_length_mm=max(spec.envelope_length, 10.0),
         housing_wall=spec.housing_wall,
@@ -219,6 +344,113 @@ def requirements_from_spec(spec: GearSpec,
         disc_count=spec.disc_count,
         objective=objective,
     )
+
+
+@dataclass(frozen=True)
+class RatioBand:
+    """Which reductions the motor can drive this load with, and why not the rest.
+
+    Two different failures, and telling them apart is most of the value.  Below
+    the band the motor is short of *torque*: the reduction is not multiplying it
+    enough.  Above it the motor is short of *speed*: the reduction is asking it
+    to turn faster than the bus lets it, where it has no torque left whatever
+    the gearing.  The first is fixed by gearing down, the second only by a
+    higher bus voltage or a different motor - so a design that fails both ends
+    at once is a motor that cannot do this job at all, and saying so is more
+    useful than an empty list.
+    """
+
+    #: Every whole reduction that works, ascending.  Empty if none does.
+    ratios: tuple[int, ...]
+    #: The ones tried and rejected for want of torque, and for want of speed.
+    torque_short: tuple[int, ...]
+    speed_short: tuple[int, ...]
+
+    @property
+    def ok(self) -> bool:
+        return bool(self.ratios)
+
+    @property
+    def span(self) -> tuple[int, int] | None:
+        return (self.ratios[0], self.ratios[-1]) if self.ratios else None
+
+    def explain(self) -> str:
+        """One line saying what the motor can and cannot do here."""
+        if self.ok:
+            low, high = self.span                                # type: ignore[misc]
+            return (f"the motor drives this load between {low}:1 and {high}:1"
+                    if low != high else f"only {low}:1 works")
+        if self.torque_short and self.speed_short:
+            return ("short of torque below "
+                    f"{self.speed_short[0]}:1 and out of speed above it - this "
+                    "motor cannot drive this load at any reduction")
+        if self.torque_short:
+            return (f"short of torque at every reduction up to "
+                    f"{self.torque_short[-1]}:1, which is as far as this "
+                    "searches")
+        if self.speed_short:
+            return (f"out of speed at every reduction from "
+                    f"{self.speed_short[0]}:1 up - the output is being asked to "
+                    "turn faster than the motor can drive it")
+        return "no reduction was tried"
+
+
+def ratio_band(req: Requirements) -> RatioBand:
+    """Which reductions the stated motor can drive the stated load with.
+
+    Closed form and cheap - one curve evaluation per whole reduction - so the
+    answer is worth having on its own, before any geometry exists.  What it
+    cannot know is the efficiency, which needs a design: it assumes a
+    pessimistic one (see ``_BAND_EFFICIENCY``), which asks the motor for more
+    than the finished drive will and so can only ever narrow the band.
+
+    A reduction is in the band when the motor can hold the required torque
+    *continuously* with the usual margin.  Peak torque is deliberately not used:
+    a search that returned drives only a brushless motor's stall current can
+    turn would be returning drives that work for about four seconds.
+    """
+    motor = req.motor
+    if not motor.modelled:
+        return RatioBand((), (), ())
+
+    def margin(ratio: int) -> float:
+        """Times over the requirement at this reduction, on the screen's terms."""
+        needed = req.output_torque_Nm / (ratio * _BAND_EFFICIENCY)
+        return motor.continuous_torque_at(req.output_rpm * ratio) / needed
+
+    good: list[int] = []
+    torque_short: list[int] = []
+    speed_short: list[int] = []
+    low, high = _RATIO_LIMITS
+    for ratio in range(low, high + 1):
+        here = margin(ratio)
+        if here >= COMFORTABLE_MARGIN:
+            good.append(ratio)
+        elif margin(ratio + 1) > here:
+            # Gearing down further still buys more than the speed costs, so the
+            # reduction is what is short.  Asked as a question about the *next*
+            # reduction rather than about the ceiling: past the peak the motor
+            # is often still making torque, just less of it than the speed has
+            # taken away, and calling that a torque shortage sends somebody to
+            # gear down when gearing down is what did it.
+            torque_short.append(ratio)
+        else:
+            speed_short.append(ratio)
+    return RatioBand(tuple(good), tuple(torque_short), tuple(speed_short))
+
+
+def _spread(ratios: tuple[int, ...], count: int) -> tuple[int, ...]:
+    """Pick ``count`` reductions evenly across a band, ends included.
+
+    Evenly across the *list* rather than across the numbers, because the band is
+    already the set of workable answers and every member of it is equally worth
+    trying; spacing by value would over-sample wherever the band happens to be
+    sparse.
+    """
+    if len(ratios) <= count:
+        return ratios
+    step = (len(ratios) - 1) / (count - 1)
+    return tuple(sorted({ratios[round(i * step)] for i in range(count)}))
 
 
 @dataclass
@@ -276,6 +508,11 @@ class OptimisationResult:
     best: list[Candidate]
     tally: RejectionTally
     evaluations: int
+    #: Which reductions the motor could drive, where the search was asked to
+    #: work that out.  ``None`` when the reduction was given.
+    band: RatioBand | None = None
+    #: The reductions actually searched, which is a sample of the band.
+    ratios_searched: tuple[int, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -434,6 +671,11 @@ def _fast_metrics(spec: GearSpec) -> dict | None:
         "lost": stiff.lost_motion_arcmin,
         "stiffness": stiff.stiffness_Nm_per_arcmin,
         "loss_W": eff.total_loss_W,
+        # What the motor is asked for, which is the output torque through the
+        # ratio *and* the loss.  Taken from the efficiency solve rather than
+        # divided out again, so the screen below and the datasheet the winner
+        # gets cannot disagree about the same number.
+        "input_torque": eff.input_torque_Nm,
     }
 
 
@@ -464,6 +706,22 @@ def _score(req: Requirements, spec: GearSpec, m: dict,
     if pin.modelled and pin.safety_factor < 1.0:
         tally.hit("output pins fail in fatigue")
         return None
+
+    # A drive the stated motor cannot turn is not a design, whether or not the
+    # search picked the reduction.  Screened here rather than in ``_build``
+    # because it needs the efficiency, and the efficiency needs the geometry -
+    # this is the first point where what the motor is really being asked for is
+    # known.  Nothing happens with no curve stated, which is every design that
+    # has not been told what drives it.
+    motor = spec.motor_curve
+    if motor.modelled:
+        have = motor.continuous_torque_at(spec.input_rpm)
+        if have < m["input_torque"]:
+            tally.hit("the motor cannot turn it at this speed")
+            return None
+        if have < COMFORTABLE_MARGIN * m["input_torque"]:
+            tally.hit("not enough margin on motor torque")
+            return None
 
     wc, we, ws, wp, wm = _WEIGHTS[req.objective]
     od = 2.0 * spec.housing_outer_radius
@@ -524,34 +782,40 @@ def _latin_hypercube(rng: np.random.Generator, rows: int, cols: int) -> np.ndarr
     return (grid + rng.random((rows, cols))) / rows
 
 
-def optimise(req: Requirements,
-             effort: str = "normal",
-             progress: Callable[[int, int, str], None] | None = None,
-             cancelled: Callable[[], bool] | None = None,
-             seed: int = 12345) -> OptimisationResult:
-    """Search for designs meeting ``req``, best first.
+def _families(req: Requirements) -> list[tuple[int, int]]:
+    """Every (disc count, output pin count) the search spreads over.
 
-    ``effort`` is ``"quick"``, ``"normal"`` or ``"thorough"``.  ``progress`` is
-    called as ``(done, total, message)``; ``cancelled`` is polled between
-    candidates so a GUI can stop the search.
+    Its own function because the progress bar has to know how big the job is
+    before the job starts, and with several reductions to search that is the
+    only number that says so.
     """
-    coarse, refine = {"quick": (10, 24), "normal": (26, 60),
-                      "thorough": (60, 120)}.get(effort, (26, 60))
-
-    base = req.base_spec()
-    tally = RejectionTally()
-    rng = np.random.default_rng(seed)
-
     disc_options = (req.disc_count,) if req.disc_count else (1, 2, 3)
     pin_options = (4, 5, 6, 7, 8, 10, 12)
-    families = [(d, p) for d in disc_options for p in pin_options]
+    return [(d, p) for d in disc_options for p in pin_options]
+
+
+def _search_one_ratio(req: Requirements, coarse: int, refine: int,
+                      rng, tally: RejectionTally,
+                      step: Callable[[str], None],
+                      cancelled: Callable[[], bool] | None,
+                      ) -> tuple[list[Candidate], int]:
+    """The whole search, at one stated reduction.
+
+    Lifted out of :func:`optimise` unchanged when the reduction became something
+    the motor could choose: searching three reductions is running this three
+    times and ranking the results together, and nothing inside it needed to know
+    that.  ``step`` is called once per evaluation with a message, and owns the
+    progress accounting so this function does not have to know how many
+    reductions are being searched around it.
+    """
+    base = req.base_spec()
+    evaluations = 0
+    families = _families(req)
 
     # generous upper bounds; the closed-form screen trims what does not fit
     r_hi = req.max_outer_diameter_mm / 2.0 - req.housing_wall
     t_hi = req.max_length_mm - base.output_flange_thickness
 
-    evaluations = 0
-    total = len(families) * coarse + 3 * refine
     best_of_family: list[tuple[float, GearSpec, dict, tuple]] = []
 
     def evaluate(unit: np.ndarray, output_pins: int, discs: int):
@@ -576,7 +840,6 @@ def optimise(req: Requirements,
         return score, spec, metrics
 
     # ---- stage 1: spread over every family ---------------------------------
-    done = 0
     for discs, output_pins in families:
         if cancelled and cancelled():
             break
@@ -584,9 +847,7 @@ def optimise(req: Requirements,
         samples = _latin_hypercube(rng, coarse, len(_KNOBS))
         family_best = None
         for row in samples:
-            done += 1
-            if progress and done % 8 == 0:
-                progress(done, total, f"{discs} disc(s), {output_pins} output pins")
+            step(f"{discs} disc(s), {output_pins} output pins")
             got = evaluate(row, output_pins, discs)
             if got and (family_best is None or got[0] > family_best[0]):
                 family_best = (got[0], got[1], got[2], (row.copy(), output_pins, discs))
@@ -602,27 +863,28 @@ def optimise(req: Requirements,
             break
         x = vector.copy()
         best = (score, spec, metrics)
-        step = 0.18
+        # ``span`` rather than ``step``: the caller's progress callback is
+        # already called that, and a pattern-search step size shadowing it would
+        # silently stop the progress bar moving during refinement.
+        span = 0.18
         budget = refine
-        while step > 0.012 and budget > 0:
+        while span > 0.012 and budget > 0:
             improved = False
             for i in range(len(_KNOBS)):
-                for delta in (step, -step):
+                for delta in (span, -span):
                     if budget <= 0 or (cancelled and cancelled()):
                         break
                     trial = x.copy()
                     trial[i] = float(np.clip(trial[i] + delta, 0.0, 1.0))
                     budget -= 1
-                    done += 1
-                    if progress and done % 8 == 0:
-                        progress(done, total, "refining")
+                    step("refining")
                     got = evaluate(trial, output_pins, discs)
                     if got and got[0] > best[0]:
                         best = got
                         x = trial
                         improved = True
             if not improved:
-                step *= 0.5
+                span *= 0.5
         finalists.append(best)
 
     finalists.extend((s, sp, m) for s, sp, m, _ in best_of_family[3:6])
@@ -649,6 +911,87 @@ def optimise(req: Requirements,
         cand.warnings = len(full.report.warnings)
         out.append(cand)
 
+    return out, evaluations
+
+
+def optimise(req: Requirements,
+             effort: str = "normal",
+             progress: Callable[[int, int, str], None] | None = None,
+             cancelled: Callable[[], bool] | None = None,
+             seed: int = 12345) -> OptimisationResult:
+    """Search for designs meeting ``req``, best first.
+
+    ``effort`` is ``"quick"``, ``"normal"`` or ``"thorough"``.  ``progress`` is
+    called as ``(done, total, message)``; ``cancelled`` is polled between
+    candidates so a GUI can stop the search.
+
+    With ``req.ratio`` at :data:`RATIO_FROM_MOTOR` the reduction is worked out
+    instead of stated: the motor curve says which reductions can drive the load
+    at the output speed asked for, a spread of those is searched, and the
+    results are ranked together.  That is the difference between "design me a
+    29:1" and "I have this motor and this job" - and the second is the question
+    people actually arrive with, because the reduction is a means rather than a
+    requirement.
+    """
+    coarse, refine = {"quick": (10, 24), "normal": (26, 60),
+                      "thorough": (60, 120)}.get(effort, (26, 60))
+    tally = RejectionTally()
+    rng = np.random.default_rng(seed)
+
+    band: RatioBand | None = None
+    if req.ratio_is_free:
+        band = ratio_band(req)
+        if not band.ok:
+            # Not an empty answer: the band knows *why* every reduction failed,
+            # and which end it failed at is what says whether to gear down or to
+            # buy volts.
+            tally.hit(band.explain())
+            if progress:
+                progress(1, 1, "done")
+            return OptimisationResult(best=[], tally=tally, evaluations=0,
+                                      band=band)
+        ratios = _spread(band.ratios, _RATIOS_SEARCHED)
+        if len(ratios) < len(band.ratios):
+            # Said rather than passed over: a bounded search that looks
+            # exhaustive is how somebody concludes a reduction does not work
+            # when it was simply never tried.
+            tally.hit(f"{len(band.ratios) - len(ratios)} reductions in the band "
+                      f"were not searched")
+    else:
+        ratios = (req.ratio,)
+
+    per_ratio = len(_families(req)) * coarse + 3 * refine
+    total = per_ratio * len(ratios)
+    done = 0
+
+    def stepper(label: str):
+        """One progress counter across however many reductions are searched."""
+        def step(message: str) -> None:
+            nonlocal done
+            done += 1
+            if progress and done % 8 == 0:
+                progress(min(done, total), total, f"{label}{message}")
+        return step
+
+    candidates: list[Candidate] = []
+    evaluations = 0
+    for ratio in ratios:
+        if cancelled and cancelled():
+            break
+        sub = req if ratio == req.ratio else req.at_ratio(ratio)
+        label = f"{ratio}:1 - " if len(ratios) > 1 else ""
+        found, spent = _search_one_ratio(sub, coarse, refine, rng, tally,
+                                         stepper(label), cancelled)
+        candidates.extend(found)
+        evaluations += spent
+
+    # Ranked together rather than best-per-reduction: the score already
+    # expresses what "better" means here, and a 41:1 that beats every 23:1 on it
+    # is the answer even though it is not the reduction anybody typed.
+    candidates.sort(key=lambda c: -c.score)
+
     if progress:
         progress(total, total, "done")
-    return OptimisationResult(best=out, tally=tally, evaluations=evaluations)
+    return OptimisationResult(best=candidates, tally=tally,
+                              evaluations=evaluations, band=band,
+                              ratios_searched=tuple(ratios))

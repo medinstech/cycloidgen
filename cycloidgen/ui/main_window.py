@@ -47,6 +47,7 @@ from PySide6.QtWidgets import (
 
 from .. import __version__, notice
 from ..analysis import DesignAnalysis, analyse
+from ..analysis.motor import COMFORTABLE_MARGIN
 from ..core.designfile import (
     design_dict,
     numbers_may_have_moved,
@@ -56,14 +57,27 @@ from ..core.designfile import (
 )
 from ..core.explain import explain, margin
 from ..core.guide import guide
-from ..core.spec import GearSpec, OffsetMode, OutputMember, Process, preset
+from ..core.spec import (
+    GearSpec,
+    MotorKind,
+    OffsetMode,
+    OutputMember,
+    Process,
+    preset,
+)
 from ..core.validate import Severity
 from ..export import animation, write_bundle
 from ..export.manifest import group_keys
 from ..report import plots
 from ..units import Unit, unit
 from . import branding
-from .fields import CODE_FIELDS, GROUPS, Field, codes_for_field
+from .fields import (
+    CODE_FIELDS,
+    GROUPS,
+    MOTOR_FIELD_KINDS,
+    Field,
+    codes_for_field,
+)
 from .history import SpecHistory
 from .logpanel import LogPanel, logger
 from .logpanel import install as install_logging
@@ -277,6 +291,17 @@ class AnalysisWorker(QThread):
             self.failed.emit(self._generation, str(exc))
 
 
+def _tab_key(text: str) -> str:
+    """What a tab is called, with anything transient taken off.
+
+    One tab decorates its own label: the log grows exclamation marks when
+    something has been written to it that you have not read.  That is a badge
+    rather than a name, and a session stored under "LOG !!" would not be found
+    again by a window whose log is quiet.
+    """
+    return text.rstrip(" !")
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -384,12 +409,26 @@ class MainWindow(QMainWindow):
         if geometry is not None:
             self.restoreGeometry(geometry)
 
-        try:
-            index = int(settings.value("tab", 0))
+        # By name, not by index.  A tab added in the middle renumbers every one
+        # after it, and a stored 4 then reopens the session on somebody else's
+        # tab - which happened the moment MOTOR went in between EFFICIENCY and
+        # DATASHEET.  The name survives being reordered and, unlike the index,
+        # says what it means in the preferences file.  The old integer is still
+        # read once, so an upgrade does not lose the tab it was left on.
+        stored = settings.value("tab")
+        wanted = -1
+        if isinstance(stored, str) and not stored.lstrip("-").isdigit():
+            wanted = next((i for i in range(self.tabs.count())
+                           if _tab_key(self.tabs.tabText(i)) == stored), -1)
+        else:
+            try:
+                index = int(stored)
+            except (TypeError, ValueError):
+                index = -1
             if 0 <= index < self.tabs.count():
-                self.tabs.setCurrentIndex(index)
-        except (TypeError, ValueError):
-            pass
+                wanted = index
+        if wanted >= 0:
+            self.tabs.setCurrentIndex(wanted)
         self._tab_changed(self.tabs.currentIndex())
 
         try:
@@ -455,7 +494,8 @@ class MainWindow(QMainWindow):
             sizes = splitter.sizes()
             if sum(sizes) > 0:
                 self._settings.setValue(key, sizes[0] / sum(sizes))
-        self._settings.setValue("tab", self.tabs.currentIndex())
+        self._settings.setValue(
+            "tab", _tab_key(self.tabs.tabText(self.tabs.currentIndex())))
         self._settings.setValue("crank", self._crank_slider.value())
         self._view3d.save_state()
 
@@ -759,6 +799,15 @@ class MainWindow(QMainWindow):
         lv.addWidget(self._loss_note)
         lv.addStretch(1)
         self.tabs.addTab(loss_page, "EFFICIENCY")
+
+        # Its own tab rather than a second figure under the loss bars.  What
+        # the motor has is a question about the machine the gearbox goes into,
+        # not about where the gearbox spends its power, and the two get read
+        # for different reasons - the rating of the drive is the smaller of the
+        # gearbox's capacity and this, and that comparison is the point.
+        self._fig_motor = Figure(figsize=(6.4, 3.2), dpi=100)
+        self._canvas_motor = Canvas(self._fig_motor)
+        self.tabs.addTab(self._canvas_motor, "MOTOR")
 
         self._datasheet = QTreeWidget()
         self._datasheet.setHeaderLabels(["QUANTITY", "VALUE", "NOTE"])
@@ -1293,6 +1342,8 @@ class MainWindow(QMainWindow):
             self._canvas_force.draw_idle()
             plots.loss_figure(self.analysis, self._fig_loss)
             self._canvas_loss.draw_idle()
+            plots.motor_figure(self.analysis, self._fig_motor)
+            self._canvas_motor.draw_idle()
             self._fill_findings()
             self._fill_compare()
         self._trade.refresh_theme()
@@ -1469,6 +1520,16 @@ class MainWindow(QMainWindow):
             rollers = self._widgets.get("ring_pins_are_rollers")
             if rollers is not None:
                 rollers.setEnabled(not self.spec.ring_pins_integral)
+            # A stepper has no Kv and a brushless motor has no step angle, so
+            # the fields the other kind uses are greyed rather than hidden.
+            # Greyed, because the search box already owns visibility in this
+            # panel and two things setting it would be a race - and because a
+            # field that vanishes takes the reason it does not apply with it.
+            kind = self.spec.motor_kind
+            for name, kinds in MOTOR_FIELD_KINDS.items():
+                w = self._widgets.get(name)
+                if w is not None:
+                    w.setEnabled(kind in kinds)
         finally:
             self._updating = False
 
@@ -1608,6 +1669,8 @@ class MainWindow(QMainWindow):
         self._canvas_force.draw_idle()
         plots.loss_figure(self.analysis, self._fig_loss)
         self._canvas_loss.draw_idle()
+        plots.motor_figure(self.analysis, self._fig_motor)
+        self._canvas_motor.draw_idle()
         self._fill_findings()
         self._show_explanation()
         self._fill_datasheet()
@@ -1632,7 +1695,10 @@ class MainWindow(QMainWindow):
             f"{e.input_torque_Nm:.3f} Nm in at {s.input_rpm:g} rpm delivers "
             f"{e.output_power_W:.2f} W of the {e.input_power_W:.2f} W supplied. "
             f"Losses scale with the friction coefficient, so lubrication and rolling "
-            f"elements move this number further than any geometry change.")
+            f"elements move this number further than any geometry change."
+            + (f"   The motor has {a.motor.continuous_Nm:.3f} Nm there, "
+               f"{a.motor.margin:.2f}x what is being asked of it."
+               if a.motor.modelled else ""))
         self._set_header_status()
         if not a.report.ok:
             self.statusBar().showMessage(
@@ -1986,6 +2052,47 @@ class MainWindow(QMainWindow):
             text += f" &mdash; {shown:.2f}x {side}"
         return text
 
+    def _motor_rows(self) -> list[tuple[str, str, str]]:
+        """What the motor has, against what the gearbox asks for.
+
+        Kept out of ``Ratings`` even though it belongs beside the torque
+        capacity, because the two answer different questions and get confused
+        with each other: the capacity is what the drive can *take*, and these
+        are what it will actually be *given*.  On most designs here the second
+        is the smaller number, and putting them in one block invites reading
+        whichever one is nearer.
+        """
+        a = self.analysis
+        assert a is not None
+        m, s = a.motor, self.spec
+        peak = ("" if m.kind is MotorKind.STEPPER else
+                f"; {m.available_Nm:.3f} Nm on the peak line")
+        return [
+            ("Motor torque needed", f"{m.required_Nm:.3f} Nm",
+             f"at the input shaft, at {m.motor_rpm:.0f} rpm, "
+             f"including the {100 * (1 - a.efficiency.efficiency):.0f}% lost inside"),
+            ("Motor torque available", f"{m.continuous_Nm:.3f} Nm",
+             f"continuously{peak}"),
+            ("Margin on the motor", f"{m.margin:.2f}x",
+             f"{COMFORTABLE_MARGIN:g}x is comfortable - the drive still has to "
+             f"accelerate itself and break away"),
+            ("Left of standing still", f"{100 * m.fraction_of_stall:.0f} %",
+             f"of {m.stall_Nm:.3f} Nm; "
+             + ("holding torque" if m.kind is MotorKind.STEPPER else "stall torque")),
+            ("Speed ceiling", f"{m.ceiling_rpm:.0f} rpm in",
+             f"where back-EMF alone reaches {s.motor_supply_V:g} V - this duty "
+             f"point is {100 * m.fraction_of_ceiling:.0f}% of the way there"),
+            ("Output torque this motor buys",
+             f"{m.output_torque_ceiling_Nm:.2f} Nm",
+             f"through {s.ratio}:1 at {100 * a.efficiency.efficiency:.0f}%; the "
+             f"drive itself is good for "
+             f"{a.torque_capacity_with_clearance_Nm:.2f} Nm"),
+            ("Output speed this motor buys",
+             f"{m.output_speed_ceiling_rpm:.1f} rpm",
+             f"the fastest that still makes {m.required_Nm:.3f} Nm; "
+             f"this duty point runs at {s.output_rpm:.1f} rpm"),
+        ]
+
     def _fill_datasheet(self) -> None:
         """The numbers you would put on a spec sheet, in one place."""
         a = self.analysis
@@ -2015,6 +2122,10 @@ class MainWindow(QMainWindow):
                 ("Power density",
                  f"{a.power_density_Nm_per_kg:.2f} Nm/kg", "capacity per assembled mass"),
             ]),
+            # Only where a curve has been stated.  An empty section headed "The
+            # motor" reads as a motor that has nothing to say about itself,
+            # which is not the same as not having been asked.
+            *([("The motor", self._motor_rows())] if a.motor.modelled else []),
             ("Precision", [
                 ("Torsional stiffness",
                  f"{st.stiffness_Nm_per_arcmin:.3f} Nm/arcmin",

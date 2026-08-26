@@ -14,6 +14,7 @@ from ..core.spec import (
     LUBRICANTS,
     MATERIALS,
     MOTOR_FRAMES,
+    MotorKind,
     OffsetMode,
     OutputMember,
     Process,
@@ -150,14 +151,6 @@ GROUPS: list[tuple[str, list[Field]]] = [
                   "Not available on integral pins, which cannot turn."),
     ]),
     ("Mounting", [
-        Field("motor_frame", "Motor", "choice", choices=tuple(MOTOR_FRAMES),
-              tip="Bolt pattern, register and shaft of the motor. It goes on "
-                  "whichever member does not turn: the input end plate with "
-                  "the carrier as the output, the carrier's own base with the "
-                  "ring housing as the output. 'None' leaves a plain plate."),
-        Field("motor_drives_the_shaft", "Motor turns the cam", "bool",
-              tip="On, the motor's own shaft is the input shaft. Off, there is "
-                  "a separate shaft and a coupling between them."),
         Field("housing_bolt_count", "Tie bolts", "int", 0, 24, 1,
               tip="Through both end plates into the barrel. 0 draws none."),
         Field("housing_bolt_diameter", "Tie bolt", "float", 1, 20, 0.5,
@@ -174,6 +167,57 @@ GROUPS: list[tuple[str, list[Field]]] = [
                   "interleave with them, so equal counts is the safe answer."),
         Field("output_bolt_diameter", "Output bolt", "float", 1, 20, 0.5,
               decimals=2, suffix=" mm"),
+    ]),
+    # The face and the curve in one group, because they are one object.  They
+    # used to be apart - the frame filed under mounting with the tie bolts,
+    # because a bolt pattern is what it did to the geometry - and that put the
+    # two halves of "which motor" in different boxes the moment there was a
+    # second half.
+    ("Motor", [
+        Field("motor_frame", "Frame", "choice", choices=tuple(MOTOR_FRAMES),
+              tip="Bolt pattern, register and shaft. It goes on whichever "
+                  "member does not turn: the input end plate with the carrier "
+                  "as the output, the carrier's own base with the ring housing "
+                  "as the output. 'None' leaves a plain plate. The frame is a "
+                  "face and says nothing about the torque - that is below."),
+        Field("motor_drives_the_shaft", "Turns the cam", "bool",
+              tip="On, the motor's own shaft is the input shaft. Off, there is "
+                  "a separate shaft and a coupling between them."),
+        Field("motor_kind", "Torque curve", "choice",
+              choices=tuple(k.value for k in MotorKind),
+              tip="'none' asks nothing of the motor and is what the app always "
+                  "did. Either curve turns on the torque, speed-ceiling and "
+                  "supply checks."),
+        Field("motor_supply_V", "Bus voltage", "float", 1, 1000, 1,
+              decimals=1, suffix=" V",
+              tip="Both curves scale with it, and it sets the speed past which "
+                  "the motor makes no torque at all. Usually the cheapest "
+                  "thing in the design to change."),
+        Field("motor_resistance_ohm", "Winding resistance", "float",
+              0.001, 1000, 0.1, decimals=3, suffix=" ohm",
+              tip="Per phase on a stepper, terminal to terminal on a DC motor. "
+                  "It decides the stall current and whether the bus can reach "
+                  "the rated current standing still."),
+        Field("motor_rated_current_A", "Rated current", "float",
+              0.01, 500, 0.1, decimals=2, suffix=" A",
+              tip="The driver setting on a stepper, the continuous rating on a "
+                  "DC motor - the current it will take all day."),
+        Field("motor_holding_torque_Nm", "Holding torque", "float",
+              0.001, 1000, 0.05, decimals=3, suffix=" Nm",
+              tip="Stepper only: both phases at rated current, standing still. "
+                  "The motor has less than this at every speed it runs at."),
+        Field("motor_inductance_mH", "Inductance", "float",
+              0.001, 1000, 0.5, decimals=2, suffix=" mH",
+              tip="Stepper only, per phase. With the bus voltage it sets how "
+                  "soon the current - and so the torque - starts falling."),
+        Field("motor_steps_per_rev", "Steps per turn", "int", 4, 10000, 100,
+              tip="Stepper only. 200 is a 1.8 degree motor, 400 a 0.9 degree "
+                  "one, which reaches the same electrical frequency at half "
+                  "the speed."),
+        Field("motor_kv_rpm_per_V", "Kv", "float", 0.1, 100000, 10,
+              decimals=1, suffix=" rpm/V",
+              tip="DC and brushless only: no-load speed per volt. It is also "
+                  "the torque constant - Kt in Nm/A is 9.5493 divided by it."),
     ]),
     ("Bearings", [
         Field("cam_bearing_fitted", "Cam bearing", "bool",
@@ -212,6 +256,23 @@ GROUPS: list[tuple[str, list[Field]]] = [
                   "added to."),
     ]),
 ]
+
+#: Which motor kinds each motor field means anything to.
+#:
+#: The two curves share three inputs and do not share the rest, so a panel that
+#: showed all of them live would be offering a stepper a Kv.  Declared here with
+#: the fields rather than in the window, for the same reason the fields
+#: themselves are: the window should not know which parameter belongs to which
+#: model.  Fields not listed apply to every kind.
+MOTOR_FIELD_KINDS: dict[str, frozenset[MotorKind]] = {
+    "motor_supply_V": frozenset({MotorKind.STEPPER, MotorKind.DC}),
+    "motor_resistance_ohm": frozenset({MotorKind.STEPPER, MotorKind.DC}),
+    "motor_rated_current_A": frozenset({MotorKind.STEPPER, MotorKind.DC}),
+    "motor_holding_torque_Nm": frozenset({MotorKind.STEPPER}),
+    "motor_inductance_mH": frozenset({MotorKind.STEPPER}),
+    "motor_steps_per_rev": frozenset({MotorKind.STEPPER}),
+    "motor_kv_rpm_per_V": frozenset({MotorKind.DC}),
+}
 
 #: Which parameters a finding is actually about, so the checks list can point at
 #: the thing to change instead of leaving the user to guess.  Codes not listed
@@ -269,6 +330,18 @@ CODE_FIELDS: dict[str, tuple[str, ...]] = {
                            "ring_pins_are_rollers"),
     "MOTOR_SHAFT_MISMATCH": ("motor_frame", "input_shaft_diameter",
                              "motor_drives_the_shaft"),
+    # The duty fields are in here as well as the motor's own, and deliberately:
+    # a motor short of torque is as often a ratio that is too low or a speed
+    # that is too high as it is the wrong motor, and the panel should light up
+    # everything that moves the answer rather than only the part that is named.
+    "MOTOR_OPERATING_POINT": ("motor_kind", "motor_supply_V", "input_rpm",
+                              "output_torque_Nm", "lobes"),
+    "MOTOR_TORQUE_SHORT": ("motor_kind", "motor_holding_torque_Nm",
+                           "motor_kv_rpm_per_V", "motor_supply_V",
+                           "motor_rated_current_A", "input_rpm",
+                           "output_torque_Nm", "lobes"),
+    "MOTOR_SUPPLY_VOLTAGE": ("motor_supply_V", "motor_resistance_ohm",
+                             "motor_rated_current_A"),
     "HOUSING_BOLT_CLASH": ("housing_bolt_diameter", "housing_bolt_count",
                            "housing_wall", "pin_radius"),
     "OUTPUT_BOLT_CLASH": ("output_bolt_count", "output_bolt_diameter",

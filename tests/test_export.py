@@ -198,7 +198,7 @@ def test_the_motor_pattern_is_a_square_and_only_on_the_input_plate(tmp_path):
     fits badly enough to look like it nearly worked."""
     s = preset(15)
     s.motor_frame = "NEMA 17"
-    frame = s.motor
+    frame = s.motor_face
 
     msp = _plate(s, tmp_path, "input_end_plate")
     motor = msp.query('CIRCLE[layer=="MOTOR"]')
@@ -232,14 +232,14 @@ def test_the_register_is_drawn_only_where_there_is_one_left_to_cut(tmp_path):
         msp = _plate(s, tmp_path / frame_name.replace(" ", ""),
                      "input_end_plate")
         return s, [c for c in msp.query('CIRCLE[layer=="MOTOR"]')
-                   if c.dxf.radius == pytest.approx(s.motor.pilot_diameter / 2.0)]
+                   if c.dxf.radius == pytest.approx(s.motor_face.pilot_diameter / 2.0)]
 
     s, swallowed = register("NEMA 17")
-    assert s.motor.pilot_diameter == s.hub_bore        # the exact-equality case
+    assert s.motor_face.pilot_diameter == s.hub_bore        # the exact-equality case
     assert swallowed == []
 
     s, cut = register("NEMA 23")
-    assert s.motor.pilot_diameter > s.hub_bore
+    assert s.motor_face.pilot_diameter > s.hub_bore
     assert len(cut) == 1
 
 

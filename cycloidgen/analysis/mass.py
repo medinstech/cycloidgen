@@ -162,7 +162,7 @@ def analyse_mass(spec: GearSpec) -> MassResult:
         flange_volume += math.pi * (spec.housing_outer_radius ** 2
                                     - (spec.hub_bore / 2.0) ** 2) * spec.plate_thickness
         if spec.has_motor_face:
-            frame = spec.motor
+            frame = spec.motor_face
             flange_volume -= (frame.bolt_count * math.pi
                               * (frame.bolt_diameter / 2.0) ** 2
                               * spec.plate_thickness)

@@ -5,6 +5,152 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 7.6.0
+
+**Numbers** — none move. Every existing design analyses exactly as it did:
+`motor_kind` defaults to `none`, nothing about the motor feeds back into the
+geometry, and `tests/test_motor.py` holds that promise by comparing whole report
+sections between a design with a motor stated and the same design without one.
+What is new is a set of numbers that were not there before.
+
+**Added**
+
+- **The motor is a curve now, not a mounting face.** The app has always known
+  which NEMA frame a drive bolts to and nothing whatever about what comes out of
+  the shaft — so the duty point was taken on trust: an output torque at a speed,
+  worked back through the ratio and the efficiency to an input torque nobody
+  then asked about. That is a complete answer to *is the gearbox strong enough*
+  and no answer at all to *will this turn*, which is the question a drive is
+  bought to settle. Set a torque curve under **Motor** in the panel and the
+  analysis puts the duty point on it: what the motor has there, what is being
+  asked of it, and the margin between.
+
+  Two models, both closed form, both stated with their limits in
+  [`core/motor.py`](https://github.com/medinstech/cycloidgen/blob/main/cycloidgen/core/motor.py).
+  A **stepper**'s torque follows its phase current, and the current is what the
+  supply can force through the winding against its resistance, its inductive
+  reactance and its own back-EMF — `V^2 = (K*w_m + I*R)^2 + (w_e*L*I)^2`, solved
+  for `I` and capped at the rated current. A **DC or brushless** motor gets the
+  straight line between `Kt*V/R` at stall and `Kv*V` at no load, with the
+  continuous rating carried as a separate, much lower line.
+
+  Eight numbers off a datasheet, and three of them are shared between the two
+  kinds because the sharing is physical rather than a squeeze: both motors run
+  off the same bus, both datasheets print a winding resistance, and both have a
+  current they will hold all day. What is *not* shared is what that current
+  means — a stepper is current limited everywhere, so its curve is already its
+  continuous curve, and a brushless motor's is drawn at stall current with a
+  continuous line two orders of magnitude below it. Sizing a gearbox on the
+  first is the classic way to build one that survives the bench and not the
+  robot, so the margin reported here is on the continuous line and the peak is
+  carried alongside rather than instead.
+
+  The identity that makes this cheap is worth stating: torque per amp and volts
+  per radian per second are the *same constant*, so a stepper's electrical
+  ceiling falls out of its mechanical rating with nothing else needed —
+  `n_ceiling = 60*V/(2*pi*K)`, where `K = T_hold/(sqrt(2)*I_rated)` because
+  holding torque is measured with both phases energised. On 24 V a 0.4 Nm,
+  1.7 A motor makes no torque at all past about 1380 rpm; on 12 V the same motor
+  stops at 690. Halving the supply halves the top speed, and the supply is
+  usually the cheapest thing in the design to change.
+
+  It also says something people do not expect: on a fixed bus and a fixed
+  current, **more holding torque buys less top speed**. More torque per amp is
+  more volts per rad/s, so the bigger motor meets the supply sooner. Buying
+  torque without buying current or volts moves the ceiling *down*.
+
+- **Three checks and a reading.** `MOTOR_OPERATING_POINT` says where on the
+  curve this duty point sits — how much of the standstill torque is left here
+  and how close to the ceiling it is, which is the number that catches a drive
+  designed on holding torque. `MOTOR_TORQUE_SHORT` is the test, an error when
+  the motor cannot turn it at all and a warning when the margin is thin or when
+  the duty is a burst rather than a rating. `MOTOR_SUPPLY_VOLTAGE` catches the
+  one thing the winding resistance decides on its own: a bus that cannot push
+  the rated current through a stationary winding, which scales the whole curve
+  down from the datasheet's, standing still included.
+
+- **A MOTOR tab**, the curve with the duty point on it and the crossing where
+  the motor runs out labelled, plus seven rows on the datasheet and a section in
+  the PDF. Two of those rows are the ones to design against: the **output torque
+  this motor buys** through this reduction at this efficiency, and the **output
+  speed** past which it cannot make the required torque. On most designs here
+  the first is smaller than the gearbox's own capacity — so the motor, not the
+  contact stress, is what the drive is worth, and that comparison is now on one
+  page.
+
+- **The reduction can come from the motor.** In the search dialog, *work it out
+  from the motor*: state what the **output** has to do and the reduction stops
+  being part of the question. `design.ratio_band` asks the curve which whole
+  reductions can drive that load — closed form, one curve evaluation each, no
+  geometry needed — and the search then works across a spread of them and ranks
+  the results together. A reduction is a means; the job is a torque at a speed.
+
+  The band's two ends fail for different reasons and it says which. Below it the
+  motor is short of torque and gearing down further helps. Above it the motor is
+  short of *speed*, and gearing down further is what caused it — so the answer
+  there is bus voltage or a different motor, and a design that fails both ends
+  at once is a motor that cannot do the job at any reduction. Told apart by
+  asking whether the *next* reduction up improves the margin, rather than by
+  whether the speed ceiling has been reached: past the peak the motor is often
+  still making torque, just less than the speed has taken away, and calling that
+  a torque shortage sends somebody to gear down when gearing down is what did
+  it.
+
+  What the search leaves out, it says: a feasible band is usually dozens wide
+  and each one costs a full search, so five are sampled and the rest are
+  reported in the rejection tally. A bounded search that looks exhaustive is how
+  somebody concludes a reduction does not work when it was never tried.
+
+  On the command line it is `--ratio-from-motor --out-rpm 10`, and the curve
+  comes off the design passed with `--design` rather than off eight more flags —
+  the app already has a place to put those eight numbers, and a second way to
+  state them would be a second thing to keep in step.
+
+- **`motor_margin`** joins the batch metrics, so a study can sweep bus voltage
+  or reduction against what the motor can hold. `nan` where no curve was stated
+  — the same rule the fatigue margin follows on a printed part, because a study
+  that sweeps a motor across a design that has none should come back empty
+  rather than come back passing.
+
+**Changed**
+
+- **`GearSpec.motor` is now `GearSpec.motor_face`.** It returns the mounting
+  face, and an analysis result now carries the motor's own answer under `motor`;
+  leaving both called the same thing would have put two different objects behind
+  one word on the two most-read classes in the app. `MotorFrame` and
+  `MOTOR_FRAMES` moved to the new `core/motor.py` beside the curve and are
+  re-exported from `core.spec`, so every existing import still resolves.
+
+- **The panel has a Motor group.** The frame and *motor turns the cam* used to
+  be filed under Mounting with the tie bolts, because a bolt pattern is what
+  they did to the geometry. That put the two halves of "which motor" in
+  different boxes the moment there was a second half. Fields the chosen kind
+  does not use are greyed rather than hidden — the search box already owns
+  visibility in that panel, and a field that vanishes takes the reason it does
+  not apply with it.
+
+**Fixed**
+
+- **The remembered tab is stored by name now, not by position.** A tab added in
+  the middle renumbers every one after it, so a stored `4` reopened the session
+  on somebody else's tab — which is exactly what putting MOTOR between
+  EFFICIENCY and DATASHEET would have done to everybody who had the app open on
+  the datasheet. The name survives being reordered and says what it means in a
+  preferences file somebody may one day have to read. Preferences written by an
+  earlier version still hold an integer and it is still read, so an upgrade does
+  not lose the tab it was left on. The log tab's unread badge is stripped before
+  the name is stored, because a session saved under `LOG !!` would never be
+  found again by a window whose log is quiet.
+
+- **The motor curve was being sampled at the wrong speed** — caught by its own
+  test before it shipped, and worth recording because the mistake is a
+  reasonable one. `GearSpec.crank_rate` is crank angle per input revolution *in
+  the ring-fixed frame the kinematics are parameterised in*, which is how every
+  relative speed inside the drive is stated and is not a shaft speed at all. It
+  is not 1 on a ring-output drive, so multiplying by it read the curve 4.5% off
+  on a 21:1 and further out the lower the ratio. The motor turns the input shaft
+  at the input speed, whichever member is grounded.
+
 ## 7.5.0
 
 **Numbers** — none.

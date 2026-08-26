@@ -33,8 +33,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..core.motor import MOTOR_FIELDS
 from ..core.spec import MATERIALS, GearSpec, OffsetMode, OutputMember, Process
 from ..design import (
+    RATIO_FROM_MOTOR,
     Candidate,
     Objective,
     OptimisationResult,
@@ -68,9 +70,11 @@ class _Worker(QThread):
 
     def run(self) -> None:
         r = self._req
-        logger.info("search: %s:1, %g Nm out at %g rpm, under %g x %g mm, "
+        logger.info("search: %s, %g Nm out at %g rpm, under %g x %g mm, "
                     "%s disc in a %s housing, optimising for %s (%s effort)",
-                    r.ratio, r.output_torque_Nm, r.input_rpm,
+                    "reduction from the motor" if r.ratio_is_free else f"{r.ratio}:1",
+                    r.output_torque_Nm,
+                    r.output_rpm if r.ratio_is_free else r.input_rpm,
                     r.max_outer_diameter_mm, r.max_length_mm, r.disc_material,
                     r.housing_material, r.objective.value, self._effort)
         try:
@@ -183,6 +187,17 @@ class OptimiseDialog(QDialog):
         self._ratio = QSpinBox()
         self._ratio.setRange(3, 200)
         self._ratio.setSuffix(" :1")
+        # The reduction is a means, not a requirement: what the job actually
+        # fixes is a torque and a speed at the *output*, and which reduction
+        # gets there is something a stated motor can answer.  Off by default,
+        # and unavailable at all without a curve to answer from - see
+        # ``_sync_ratio_source``.
+        self._ratio_from_motor = QCheckBox("work it out from the motor")
+        self._ratio_from_motor.setToolTip(
+            "Search across the reductions the motor can actually drive this "
+            "load with, instead of the one you name. Needs a torque curve on "
+            "the design - set one under Motor in the parameter panel.")
+        self._ratio_from_motor.toggled.connect(self._sync_ratio_source)
         # Which member turns belongs with the reduction rather than under
         # materials, because it *is* half of the reduction: the same disc gives
         # N off the carrier and N+1 off the ring, so a search told the wrong one
@@ -202,10 +217,25 @@ class OptimiseDialog(QDialog):
         self._rpm.setRange(1, 30000)
         self._rpm.setDecimals(0)
         self._rpm.setSuffix(" rpm")
+        # Two speed fields rather than one relabelled, and the one that does not
+        # apply is greyed.  They are different requirements: with the reduction
+        # named, the input speed is what you have and the output speed follows;
+        # with it left to the motor, the output speed is the job and the input
+        # speed is part of the answer.  One field switching meaning under a
+        # checkbox is how a number gets read as the other one.
+        self._out_rpm = QDoubleSpinBox()
+        self._out_rpm.setRange(0.01, 30000)
+        self._out_rpm.setDecimals(2)
+        self._out_rpm.setSuffix(" rpm")
+        self._motor_note = QLabel()
+        self._motor_note.setWordWrap(True)
         f.addRow("Reduction", self._ratio)
+        f.addRow("", self._ratio_from_motor)
         f.addRow("Output from", self._member)
         f.addRow("Output torque", self._torque)
         f.addRow("Input speed", self._rpm)
+        f.addRow("Output speed", self._out_rpm)
+        f.addRow("Motor", self._motor_note)
         layout.addWidget(duty)
 
         env = QGroupBox("Envelope")
@@ -329,9 +359,38 @@ class OptimiseDialog(QDialog):
         return layout
 
     # ------------------------------------------------------------------ state
+    def _sync_ratio_source(self) -> None:
+        """Grey whichever half of the duty does not apply, and say why.
+
+        The motor is not edited here on purpose. It belongs to the design - a
+        curve is eight numbers off a datasheet and they are already in the
+        panel - and duplicating them into this dialog would give the search a
+        motor the design does not have.
+        """
+        curve = self._req.motor
+        self._ratio_from_motor.setEnabled(curve.modelled)
+        free = curve.modelled and self._ratio_from_motor.isChecked()
+        self._ratio.setEnabled(not free)
+        self._rpm.setEnabled(not free)
+        self._out_rpm.setEnabled(free)
+        if not curve.modelled:
+            self._motor_note.setText(
+                "none stated, so the reduction has to be. Set a torque curve "
+                "under Motor in the parameter panel to search across the "
+                "reductions it can drive.")
+            return
+        self._motor_note.setText(
+            f"{curve.kind.value} on {curve.supply_V:g} V - "
+            f"{curve.stall_torque_Nm:.3f} Nm standing still, nothing past "
+            f"{curve.ceiling_rpm:.0f} rpm. A design the motor cannot turn is "
+            f"dropped whichever way the reduction is decided.")
+
     def _load(self) -> None:
         r = self._req
-        self._ratio.setValue(r.ratio)
+        self._ratio.setValue(r.ratio or 29)
+        self._ratio_from_motor.setChecked(r.ratio_is_free)
+        self._out_rpm.setValue(r.output_rpm)
+        self._sync_ratio_source()
         self._member.setCurrentIndex(
             self._member.findData(r.output_member))
         self._torque.setValue(r.output_torque_Nm)
@@ -354,11 +413,15 @@ class OptimiseDialog(QDialog):
         self._max_lost.setValue(r.max_lost_motion_arcmin)
 
     def _collect(self) -> Requirements:
+        free = self._ratio_from_motor.isEnabled() and self._ratio_from_motor.isChecked()
+        base = self._req
         return Requirements(
-            ratio=self._ratio.value(),
+            ratio=RATIO_FROM_MOTOR if free else self._ratio.value(),
             output_member=self._member.currentData(),
             output_torque_Nm=self._torque.value(),
             input_rpm=self._rpm.value(),
+            output_rpm=self._out_rpm.value(),
+            **{f: getattr(base, f) for f in MOTOR_FIELDS},
             max_outer_diameter_mm=self._max_od.value(),
             max_length_mm=self._max_len.value(),
             housing_wall=self._wall.value(),
@@ -420,8 +483,26 @@ class OptimiseDialog(QDialog):
 
     def _on_done(self, result: OptimisationResult) -> None:
         self._result = result
+        # Where the reduction was left to the motor, what the motor could do is
+        # the first thing to say - it frames everything after it, and when the
+        # answer is empty it is the *whole* answer: no geometry was ever at
+        # fault, and telling somebody to loosen the envelope would send them to
+        # the wrong knob.
+        band = ""
+        if result.band is not None:
+            band = result.band.explain().capitalize() + ". "
+            if result.ratios_searched:
+                band += ("Searched "
+                         + ", ".join(f"{r}:1" for r in result.ratios_searched)
+                         + ". ")
         if not result.best:
+            if result.band is not None and not result.band.ok:
+                self._status.setText(
+                    band + "Gear it down further, raise the bus voltage - which "
+                    "moves the whole curve - or fit a bigger motor.")
+                return
             self._status.setText(
+                band +
                 f"Nothing met those requirements after {result.evaluations} "
                 f"candidates. What stopped them: {result.tally.explain()}. "
                 f"Loosen the envelope, drop the torque, or pick a stronger "
@@ -429,6 +510,7 @@ class OptimiseDialog(QDialog):
             return
 
         self._status.setText(
+            band +
             f"{len(result.best)} design(s) from {result.evaluations} candidates, "
             f"best first. Every one passes all checks; the columns are what they "
             f"trade against each other.")

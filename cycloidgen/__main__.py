@@ -185,16 +185,37 @@ def _search(args) -> tuple[int, object | None]:
 
     Returns ``(exit_code, spec)``; the spec is the winner, ready to export.
     """
+    from .core.motor import MOTOR_FIELDS
     from .core.spec import MATERIALS, Process
-    from .design import Objective, Requirements, optimise
+    from .design import (
+        RATIO_FROM_MOTOR,
+        Objective,
+        Requirements,
+        optimise,
+        ratio_band,
+    )
 
     if args.disc_material not in MATERIALS:
         print(f"unknown material {args.disc_material!r}; choose from "
               + ", ".join(MATERIALS), file=sys.stderr)
         return 2, None
 
+    # The motor comes off a design file rather than off eight more flags.  A
+    # curve is eight numbers from a datasheet and the app already has a place to
+    # put them; a second way to state them here would be a second thing to keep
+    # in step, and the first thing anybody would do with it is get one wrong.
+    motor: dict = {}
+    if args.design:
+        motor = {f: getattr(_spec_from_args(args), f) for f in MOTOR_FIELDS}
+    if args.ratio_from_motor and not motor:
+        print("--ratio-from-motor needs a design to take the motor from: pass "
+              "--design with a torque curve on it", file=sys.stderr)
+        return 2, None
+
     req = Requirements(
-        ratio=args.ratio or 29,
+        **motor,
+        output_rpm=args.out_rpm,
+        ratio=RATIO_FROM_MOTOR if args.ratio_from_motor else (args.ratio or 29),
         output_member=_member(args.output_from or "carrier"),
         output_torque_Nm=args.torque,
         input_rpm=args.rpm,
@@ -213,18 +234,34 @@ def _search(args) -> tuple[int, object | None]:
         objective=Objective(args.objective),
         disc_count=args.discs,
     )
-    print(f"searching for a {req.ratio}:1 drive off the "
-          f"{req.output_member.value} ({req.lobes} lobes), "
-          f"{req.output_torque_Nm:g} Nm out, "
-          f"under {req.max_outer_diameter_mm:g} mm across, "
-          f"optimising for {req.objective.value}...\n")
+    if req.ratio_is_free:
+        print(f"the motor: {ratio_band(req).explain()}")
+        print(f"searching for a drive off the {req.output_member.value}, "
+              f"{req.output_torque_Nm:g} Nm at {req.output_rpm:g} rpm out, "
+              f"under {req.max_outer_diameter_mm:g} mm across, "
+              f"optimising for {req.objective.value}...\n")
+    else:
+        print(f"searching for a {req.ratio}:1 drive off the "
+              f"{req.output_member.value} ({req.lobes} lobes), "
+              f"{req.output_torque_Nm:g} Nm out, "
+              f"under {req.max_outer_diameter_mm:g} mm across, "
+              f"optimising for {req.objective.value}...\n")
     result = optimise(req, effort=args.effort)
 
     if not result.ok:
+        if result.band is not None and not result.band.ok:
+            # No geometry was ever at fault, so the usual advice - loosen the
+            # envelope, drop the torque - would send somebody to the wrong knob.
+            print(f"the motor cannot do this job: {result.band.explain()}",
+                  file=sys.stderr)
+            return 3, None
         print(f"nothing met those requirements after {result.evaluations} "
               f"candidates.\nwhat stopped them: {result.tally.explain()}",
               file=sys.stderr)
         return 3, None
+    if len(result.ratios_searched) > 1:
+        print("reductions searched: "
+              + ", ".join(f"{r}:1" for r in result.ratios_searched) + "\n")
 
     header = (f"{'#':>2}  {'OD':>6} {'len':>6} {'capacity':>9} {'margin':>7} "
               f"{'eff':>6} {'mass':>7} {'backlash':>9} {'temp':>6}")
@@ -301,6 +338,13 @@ def main(argv: list[str] | None = None) -> int:
                         help="required output torque, Nm (default 5)")
     search.add_argument("--rpm", type=float, default=1000.0,
                         help="input speed (default 1000)")
+    search.add_argument("--out-rpm", type=float, default=30.0,
+                        help="required *output* speed, used with "
+                             "--ratio-from-motor (default 30)")
+    search.add_argument("--ratio-from-motor", action="store_true",
+                        help="work the reduction out from the motor on the "
+                             "design given with --design, instead of taking "
+                             "it from --ratio")
     search.add_argument("--max-od", type=float, default=120.0,
                         help="outer diameter limit, mm (default 120)")
     search.add_argument("--max-length", type=float, default=60.0,

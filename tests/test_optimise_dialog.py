@@ -18,7 +18,8 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtWidgets import QApplication, QScrollArea
 
-from cycloidgen.core.spec import GearSpec
+from cycloidgen.core.spec import GearSpec, MotorKind
+from cycloidgen.design import RATIO_FROM_MOTOR
 from cycloidgen.ui.optimise_dialog import OptimiseDialog
 
 #: The shortest screen this has to work on, less the room a title bar and a
@@ -89,3 +90,50 @@ def test_the_dialog_does_not_open_larger_than_the_screen(dialog):
     available = dialog.screen().availableGeometry()
     assert dialog.size().height() <= available.height()
     assert dialog.size().width() <= available.width()
+
+
+# ------------------------------------------------------------ the reduction --
+
+@pytest.fixture
+def driven(app):
+    """The dialog on a design that knows what turns it."""
+    spec = GearSpec(motor_kind=MotorKind.STEPPER)
+    d = OptimiseDialog(spec)
+    yield d
+    d.deleteLater()
+
+
+def test_without_a_motor_the_reduction_cannot_be_left_to_one(dialog):
+    """Offering the option and then failing on it would be worse than not
+    offering it: there is nothing to answer from."""
+    assert not dialog._ratio_from_motor.isEnabled()
+    assert dialog._ratio.isEnabled()
+    assert not dialog._out_rpm.isEnabled()
+    assert "none stated" in dialog._motor_note.text()
+
+
+def test_with_a_motor_the_option_appears_and_swaps_which_duty_applies(driven):
+    """The two speed fields are different requirements, not one relabelled: with
+    the reduction named the input speed is what you have, and with it left to
+    the motor the output speed is the job."""
+    assert driven._ratio_from_motor.isEnabled()
+    assert driven._ratio.isEnabled() and not driven._out_rpm.isEnabled()
+
+    driven._ratio_from_motor.setChecked(True)
+    assert not driven._ratio.isEnabled()
+    assert not driven._rpm.isEnabled()
+    assert driven._out_rpm.isEnabled()
+    assert driven._collect().ratio == RATIO_FROM_MOTOR
+
+    driven._ratio_from_motor.setChecked(False)
+    assert driven._collect().ratio == driven._ratio.value()
+
+
+def test_the_dialog_hands_the_motor_on_without_asking_for_it_again(driven):
+    """A curve is eight numbers off a datasheet and they are already in the
+    panel; a second copy here would give the search a motor the design has not
+    got."""
+    req = driven._collect()
+    assert req.motor_kind is MotorKind.STEPPER
+    assert req.motor.modelled
+    assert "stepper" in driven._motor_note.text()

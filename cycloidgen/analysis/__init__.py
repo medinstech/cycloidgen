@@ -17,6 +17,7 @@ from .fatigue import FatigueResult, analyse_fatigue
 from .lubrication import FULL_FILM_LAMBDA, LubricationResult
 from .mass import MassResult, analyse_mass
 from .mechanics import ContactResult, analyse_contacts, torque_capacity
+from .motor import COMFORTABLE_MARGIN, MotorResult, analyse_motor
 from .stiffness import (
     StiffnessResult,
     TransmissionErrorResult,
@@ -40,6 +41,7 @@ class DesignAnalysis:
     mass: MassResult
     fatigue: FatigueResult
     bearings: list[BearingChoice]
+    motor: MotorResult
     torque_capacity_Nm: float
 
     @property
@@ -97,6 +99,10 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                                contact.max_output_force_N,
                                ring_pin_load_N=contact.max_pin_force_N)
     capacity = torque_capacity(spec, contact=contact)
+    # After the efficiency solve rather than beside it: what the motor is asked
+    # for is the input torque *including* the loss, and on a printed drive with
+    # fixed pins the loss is nearly half of it.
+    motor = analyse_motor(spec, eff)
 
     if contact.pin_safety_factor < 1.0:
         rep.add(Severity.WARNING, "HERTZ_STRESS_RING",
@@ -445,7 +451,7 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     # question of a load leaving the gearbox for something on the other end of it.
     # ---- what it bolts to ---------------------------------------------------
     if spec.has_motor_face:
-        frame = spec.motor
+        frame = spec.motor_face
         if spec.motor_drives_the_shaft and \
                 abs(frame.shaft_diameter - spec.input_shaft_diameter) > 1e-6:
             # A warning rather than an error: every file this exports is still
@@ -497,6 +503,68 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                         f"between makers.",
                         crank, frame.max_radial_N)
 
+    # ---- what turns it, against what it is asked to turn --------------------
+    #
+    # Outside the motor-face block on purpose: a face is what the drive bolts to
+    # and a curve is what drives it, and a motor on the other end of a coupling
+    # has the second without the first.  Tying these checks to the face would
+    # have made the most useful half of the answer conditional on a bolt
+    # pattern.
+    if motor.modelled:
+        rep.add(Severity.INFO, "MOTOR_OPERATING_POINT",
+                f"At {motor.motor_rpm:.0f} rpm the motor has "
+                f"{motor.available_Nm:.3f} Nm, which is "
+                f"{100 * motor.fraction_of_stall:.0f}% of its "
+                f"{motor.stall_Nm:.3f} Nm standing still and "
+                f"{100 * motor.fraction_of_ceiling:.0f}% of the way to the "
+                f"{motor.ceiling_rpm:.0f} rpm this bus can turn it at. "
+                f"Through {spec.ratio}:1 at {100 * eff.efficiency:.0f}% that is "
+                f"{motor.output_torque_ceiling_Nm:.2f} Nm at the output, up to "
+                f"{motor.output_speed_ceiling_rpm:.1f} rpm.",
+                motor.available_Nm, motor.required_Nm)
+
+        if motor.peak_margin < 1.0:
+            rep.add(Severity.ERROR, "MOTOR_TORQUE_SHORT",
+                    f"The drive needs {motor.required_Nm:.3f} Nm at the input shaft "
+                    f"and the motor has {motor.available_Nm:.3f} Nm at "
+                    f"{motor.motor_rpm:.0f} rpm. It does not turn at this duty "
+                    f"point at all. "
+                    + (f"Below {motor.output_speed_ceiling_rpm:.1f} rpm at the "
+                       f"output it would."
+                       if motor.top_motor_rpm > 0 else
+                       "It is short of the torque at every speed, so gearing it "
+                       "down further is what is left."),
+                    motor.available_Nm, motor.required_Nm)
+        elif motor.margin < 1.0:
+            rep.add(Severity.WARNING, "MOTOR_TORQUE_SHORT",
+                    f"The motor reaches {motor.required_Nm:.3f} Nm at "
+                    f"{motor.motor_rpm:.0f} rpm only on its peak line. It can "
+                    f"hold {motor.continuous_Nm:.3f} Nm there, so this duty is "
+                    f"a burst rather than a rating - the winding heats at the "
+                    f"square of the current.",
+                    motor.continuous_Nm, motor.required_Nm)
+        elif motor.margin < COMFORTABLE_MARGIN:
+            rep.add(Severity.WARNING, "MOTOR_TORQUE_SHORT",
+                    f"Only {motor.margin:.2f}x on motor torque - "
+                    f"{motor.continuous_Nm:.3f} Nm against the "
+                    f"{motor.required_Nm:.3f} Nm this duty asks for. The drive "
+                    f"still has to accelerate its own inertia and break away "
+                    f"from stiction, and the efficiency this is measured "
+                    f"through is an upper bound.",
+                    motor.continuous_Nm, COMFORTABLE_MARGIN * motor.required_Nm)
+
+        if not motor.supply_reaches_rated_current:
+            rep.add(Severity.WARNING, "MOTOR_SUPPLY_VOLTAGE",
+                    f"{spec.motor_supply_V:g} V across "
+                    f"{spec.motor_resistance_ohm:g} ohm is "
+                    f"{motor.standstill_current_A:.2f} A, and the motor is "
+                    f"rated {motor.rated_current_A:g} A. The bus cannot reach "
+                    f"the current the datasheet's torque was measured at, so "
+                    f"the whole curve is scaled down from it - standing still "
+                    f"included. A higher bus voltage, or a motor wound for a "
+                    f"lower one.",
+                    motor.standstill_current_A, motor.rated_current_A)
+
     external = [c for c in bearings if c.carried_elsewhere]
     if external:
         rep.add(Severity.INFO, "BEARINGS_OMITTED",
@@ -533,4 +601,4 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     return DesignAnalysis(spec=spec, report=rep, contact=contact, efficiency=eff,
                           stiffness=stiff, transmission_error=te, thermal=therm,
                           mass=mass, fatigue=fatigue, bearings=bearings,
-                          torque_capacity_Nm=capacity)
+                          motor=motor, torque_capacity_Nm=capacity)

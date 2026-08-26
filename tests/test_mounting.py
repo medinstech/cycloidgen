@@ -82,11 +82,11 @@ def test_the_bolt_holes_are_drawn_where_the_motor_has_bolts():
     plate = next(p for p in mesh.parts if p.name == "input_end_plate")
     xy = mesh.vertices[plate.vertices][:, :2]
 
-    half = spec.motor.bolt_span / 2.0
+    half = spec.motor_face.bolt_span / 2.0
     for sx in (-1.0, 1.0):
         for sy in (-1.0, 1.0):
             near = np.hypot(xy[:, 0] - sx * half, xy[:, 1] - sy * half)
-            assert near.min() == pytest.approx(spec.motor.bolt_diameter / 2.0,
+            assert near.min() == pytest.approx(spec.motor_face.bolt_diameter / 2.0,
                                                rel=0.05), (sx, sy)
 
 

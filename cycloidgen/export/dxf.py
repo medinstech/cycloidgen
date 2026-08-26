@@ -118,7 +118,7 @@ def _end_plate(spec: GearSpec, directory: Path, name: str, bore: float,
                  f"output on BC {2 * spec.output_face_bolt_radius:g}, "
                  f"{np.degrees(spec.output_bolt_phase):.1f} deg off the tie bolts")
     elif motor_face and spec.has_motor_face:
-        frame = spec.motor
+        frame = spec.motor_face
         if frame.pilot_diameter > bore:
             msp.add_circle((0, 0), frame.pilot_diameter / 2.0,
                            dxfattribs={"layer": "MOTOR"})

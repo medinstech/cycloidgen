@@ -376,6 +376,92 @@ PARAMETERS: dict[str, ParameterGuide] = {
         "shaft bearings fitted, because then the drive carries its own input.",
         "Off costs a coupling and length. On costs the freedom to size the "
         "shaft, and pairs the drive to one frame."),
+    "motor_kind": ParameterGuide(
+        "Which torque-speed curve the thing on the input shaft follows. The "
+        "frame above is the face it bolts by; this is what comes out of it.",
+        "'none' is the default and asks nothing of the motor, which is exactly "
+        "what the rest of the app did before there was a curve. Set it to the "
+        "motor you have and the torque, ceiling and supply checks turn on. The "
+        "two are not variants of one model: a stepper is current limited "
+        "everywhere so its curve is already its continuous curve, while a DC "
+        "motor's curve is drawn at stall current and has a much lower "
+        "continuous line under it.",
+        "Nothing in the geometry moves. What changes is that the duty point "
+        "stops being taken on trust - and on most designs the motor, not the "
+        "contact stress, turns out to be what the drive is worth."),
+    "motor_supply_V": ParameterGuide(
+        "The bus the motor runs off. Not a property of the motor at all, which "
+        "is why it is the lever people miss.",
+        "State what the drive actually has. It sets the speed past which the "
+        "motor makes no torque whatever - back-EMF alone reaches the supply "
+        "there - and that ceiling is proportional to it: the same stepper that "
+        "stops at 1380 rpm on 24 V stops at 690 on 12 V.",
+        "Usually nothing but the driver's rating and the insulation. Where a "
+        "design is short of speed this is the first thing to try, and it is "
+        "cheaper than every other answer."),
+    "motor_resistance_ohm": ParameterGuide(
+        "Winding resistance - per phase on a stepper, terminal to terminal on "
+        "a DC motor. Whichever one the datasheet prints.",
+        "Straight off the datasheet. It decides one thing on its own: whether "
+        "the bus divided by it reaches the rated current at standstill. Below "
+        "that the whole curve is scaled down from the published one, because "
+        "the torque on the sheet was measured at a current the supply cannot "
+        "reach. On a DC motor it also sets the stall torque.",
+        "None - it is a measurement, not a choice. It is a choice at the point "
+        "of buying: a high-resistance motor is wound for a low-voltage drive "
+        "and is the wrong part on a high bus rather than a weak one."),
+    "motor_rated_current_A": ParameterGuide(
+        "The current the motor will take all day: the driver setting on a "
+        "stepper, the continuous rating on a DC motor.",
+        "The driver's current limit for a stepper, which is what the holding "
+        "torque has to be quoted at for the two to agree. For a DC motor it is "
+        "the continuous rating, and it is the line a drive should be sized on "
+        "- the stall end of the curve is a current the motor survives for "
+        "seconds.",
+        "Set it above what the motor is rated for and every number here is "
+        "optimistic by the same factor, because torque is proportional to "
+        "current until the iron saturates."),
+    "motor_holding_torque_Nm": ParameterGuide(
+        "Stepper only: the torque it holds standing still, with both phases at "
+        "rated current. The number a stepper is sold on.",
+        "Off the datasheet, and note what it is not: the motor has less than "
+        "this at every speed it actually runs at, and the fall starts sooner "
+        "on a low bus. Designing a drive on holding torque is the single "
+        "commonest way to size a motor that will not turn the gearbox.",
+        "None as an input. As a purchase it is length and mass - within a "
+        "frame size, holding torque buys the rotor stack that carries it."),
+    "motor_inductance_mH": ParameterGuide(
+        "Stepper only: inductance per phase. It is what makes the winding "
+        "resist a change of current, so it is what makes torque fall with "
+        "speed.",
+        "Off the datasheet. With the bus voltage it sets where the curve "
+        "starts bending: the reactance grows with the electrical frequency, "
+        "and the driver runs out of voltage to force rated current through it.",
+        "Low inductance holds torque to higher speed and needs more current "
+        "for the same torque, so the trade is real and it is made when the "
+        "motor is bought, not here."),
+    "motor_steps_per_rev": ParameterGuide(
+        "Stepper only: full steps per revolution. 200 is a 1.8 degree motor "
+        "and 400 a 0.9 degree one.",
+        "Count the steps, not the microsteps - microstepping subdivides the "
+        "command and does not change the rotor. It is here because it is the "
+        "rotor tooth count in disguise: a 400-step motor reaches the same "
+        "electrical frequency at half the speed, so its torque falls away at "
+        "half the rpm.",
+        "Finer steps are finer open-loop positioning and a lower top speed, "
+        "which is a trade a cycloidal drive can often decline - the reduction "
+        "is already worth more resolution than the step angle is."),
+    "motor_kv_rpm_per_V": ParameterGuide(
+        "DC and brushless only: no-load speed per volt. It is also the torque "
+        "constant - Kt in Nm/A is 9.5493 divided by it.",
+        "Off the label for a brushless motor. From a brushed motor's datasheet "
+        "it is the no-load speed divided by the voltage it was measured at. "
+        "One number sets both ends of the line, which is why it is the only "
+        "motor property the DC model needs beyond the resistance.",
+        "High Kv is speed and low torque per amp, low Kv the reverse, at the "
+        "same power. Through a reduction that is a real choice rather than a "
+        "preference: a low-Kv motor may want less reduction than the drive is "
+        "worth building."),
     "housing_bolt_count": ParameterGuide(
         "Tie bolts through both end plates into the barrel.",
         "Enough to hold the joint closed under the ring's bursting load - six "

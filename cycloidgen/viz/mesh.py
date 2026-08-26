@@ -529,7 +529,7 @@ def motor_bolt_holes(spec: GearSpec) -> list[np.ndarray]:
     """
     if not spec.has_motor_face:
         return []
-    frame = spec.motor
+    frame = spec.motor_face
     rb = frame.bolt_diameter / 2.0
     if frame.square:
         half = frame.bolt_span / 2.0
@@ -582,9 +582,9 @@ def _pilot_recess(spec: GearSpec, bore: float) -> float:
     Zero as well wherever the motor is not: on a ring-output drive the face this
     is asked about turns, and a register in it would centre nothing.
     """
-    if not spec.has_motor_face or spec.motor.pilot_diameter <= bore:
+    if not spec.has_motor_face or spec.motor_face.pilot_diameter <= bore:
         return 0.0
-    return min(spec.motor.pilot_depth, spec.plate_thickness / 2.0)
+    return min(spec.motor_face.pilot_depth, spec.plate_thickness / 2.0)
 
 
 def build_mesh(spec: GearSpec,
@@ -734,7 +734,7 @@ def build_mesh(spec: GearSpec,
                 # that shows is the ring between the two.  Capping both prisms
                 # instead would bury a wall inside the solid, and a solid with a
                 # wall inside it is not something the section plane can cap.
-                pilot = _circle(0.0, 0.0, spec.motor.pilot_diameter / 2.0, 48)
+                pilot = _circle(0.0, 0.0, spec.motor_face.pilot_diameter / 2.0, 48)
                 b.prism(base_outer, (pilot, *motor_holes), floor, floor + recess,
                         cap_top=False)
                 b.ring(pilot, _circle(0.0, 0.0, bore_r, 28), floor + recess,
@@ -822,7 +822,7 @@ def build_mesh(spec: GearSpec,
                 # section its cap on the one part a motor bolts to. All that is
                 # really exposed is the step itself, the ring between the
                 # spigot's bore and the shaft support's.
-                pilot = _circle(0.0, 0.0, spec.motor.pilot_diameter / 2.0, 48)
+                pilot = _circle(0.0, 0.0, spec.motor_face.pilot_diameter / 2.0, 48)
                 b.prism(outer, (pilot, *bolts), top - recess, top,
                         cap_bottom=False)
                 b.ring(pilot, bore_loop, top - recess, up=False)

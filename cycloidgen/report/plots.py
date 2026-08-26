@@ -806,6 +806,80 @@ def _anchor_axis(ax, y: np.ndarray) -> None:
         ax.set_ylim(0.0, hi * 1.15)
 
 
+def motor_figure(analysis, fig: Figure | None = None, steps: int = 400) -> Figure:
+    """The motor's curve, with this duty point on it.
+
+    The one figure in the app that is about something outside the gearbox, and
+    it is here because the gearbox's rating is meaningless without it: a drive
+    good for 5 Nm on a motor that runs out at 2 is a 2 Nm drive.
+
+    Three lines and a point.  The peak curve is what the motor makes; the
+    continuous curve is what it makes for longer than a few seconds, and it is
+    drawn separately only where the two differ - on a stepper they are the same
+    line and drawing it twice would suggest a headroom that is not there.  The
+    flat line is what this duty point asks for, so where it crosses the curve is
+    the top speed, and the app labels that crossing rather than leaving it to be
+    read off.
+    """
+    m = analysis.motor
+    if not m.modelled:
+        return placeholder_figure(
+            "No motor curve stated.\n\nSet one under Motor and this becomes "
+            "what the drive can\nactually be driven with, rather than what it "
+            "could take.", fig)
+
+    t = theme()
+    fig = fig or Figure(figsize=(6.2, 3.0), dpi=110)
+    fig.clear()
+    fig.patch.set_facecolor(t["surface"])
+    ax = fig.add_subplot(111)
+    curve = analysis.spec.motor_curve
+    # Past the ceiling there is nothing to draw, and a little of the flat top
+    # before zero is what makes the shape readable.
+    top = curve.ceiling_rpm
+    if not np.isfinite(top) or top <= 0:
+        top = max(m.motor_rpm * 2.0, 1.0)
+    rpm = np.linspace(0.0, top, steps)
+    peak = np.array([curve.torque_at(float(n)) for n in rpm])
+    cont = np.array([curve.continuous_torque_at(float(n)) for n in rpm])
+
+    ax.plot(rpm, peak, color=t["series"][0], linewidth=2.0, zorder=3,
+            label="peak")
+    if not np.allclose(peak, cont):
+        ax.plot(rpm, cont, color=t["series"][1], linewidth=2.0, zorder=3,
+                label="continuous")
+    ax.axhline(m.required_Nm, color=t["ink2"], linewidth=1.2, linestyle="--",
+               zorder=2, label="asked of it")
+    # Primary ink rather than a series colour: the point is not another series,
+    # it is where the design sits among them.  Not the brand blue either - the
+    # palette is chosen for separation and the brand colour is chosen to be
+    # loud, and this figure is read against the other figures.
+    ax.plot([m.motor_rpm], [m.required_Nm], marker="o", markersize=6,
+            color=t["ink"], zorder=5, linestyle="none",
+            label="this duty point")
+    if 0.0 < m.top_motor_rpm < top:
+        ax.plot([m.top_motor_rpm], [m.required_Nm], marker="|", markersize=14,
+                color=t["ink2"], zorder=4, linestyle="none")
+        ax.annotate(f"{m.top_motor_rpm:.0f} rpm",
+                    (m.top_motor_rpm, m.required_Nm),
+                    textcoords="offset points", xytext=(6, 8),
+                    color=t["ink2"], fontsize=8)
+
+    style_axes(ax)
+    ax.set_xlim(0, top)
+    ax.set_ylim(0, max(float(peak.max()), m.required_Nm) * 1.15)
+    ax.set_xlabel("input speed (rpm)")
+    ax.set_ylabel("torque (Nm)")
+    ax.legend(loc="upper right", frameon=False, fontsize=8,
+              labelcolor=t["ink2"])
+    ax.set_title(f"{m.kind.value}  -  {m.margin:.2f}x at "
+                 f"{m.motor_rpm:.0f} rpm, nothing left by "
+                 f"{curve.ceiling_rpm:.0f}",
+                 color=t["ink"], fontsize=10, loc="left", pad=8)
+    fig.tight_layout()
+    return fig
+
+
 def loss_figure(analysis, fig: Figure | None = None) -> Figure:
     """Where the input power goes.  Bars, not a pie, and every bar is labelled."""
     t = theme()
