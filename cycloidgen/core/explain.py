@@ -410,6 +410,63 @@ EXPLANATIONS: dict[str, Explanation] = {
         "choose the lubricant for its boundary friction - an EP additive is "
         "worth a factor of two on every sliding loss - rather than for viscosity.",
         keep="above"),
+    "DUTY_CYCLE": Explanation(
+        "What the drive is asked to do, over time",
+        "peak for stress, mean for heat, cubic mean for life, RMS for the motor",
+        "A machine lifts, holds, returns and waits, and the quantities that "
+        "describe it do not aggregate the same way. Stress wants the worst "
+        "moment, because that is what cracks a disc. Temperature wants the mean "
+        "loss, because a housing integrates and sizing the cooling to a peak is "
+        "sizing it to a transient. Bearing life wants the cubic mean, because "
+        "life goes as the cube of load. The motor wants both ends: it has to "
+        "make the peak and survive the RMS. No single point is conservative for "
+        "all four, so picking a representative one is a coincidence rather than "
+        "a method.",
+        "Nothing - this is a reading. What it changes is which numbers on the "
+        "datasheet you should believe: the headline ones are still the rated "
+        "point's, and these four are the cycle's.",
+        keep=""),
+    "DUTY_RATING_MISMATCH": Explanation(
+        "The cycle asks for more than the drive is rated at",
+        "max(cycle torque)  <=  rated output torque",
+        "Every number worked out for this design - torque capacity, safety "
+        "factor, wind-up, transmission error, fatigue life - is computed at the "
+        "rated torque. State a cycle that goes above it and all of them are "
+        "describing an easier machine than the one you have described. The "
+        "drive is not wrong; the page in front of you is.",
+        "Rate the drive at the cycle's peak. That is what the rated point is "
+        "for: the worst thing the machine does, so that everything sized "
+        "against it is sized against the worst.",
+        unit="Nm"),
+    "DUTY_MOTOR_SHORT": Explanation(
+        "One point of the cycle asks more of the motor than it has",
+        "T_motor(n_i)  >  T_in(i),  at every point i",
+        "A cycle is only as good as its hardest moment, and that is not always "
+        "the one with the most load. Torque falls with speed, so a light point "
+        "at high speed can be tighter than a heavy one at low speed - which is "
+        "exactly the case a single rated duty point cannot see, because it is "
+        "one point and this is the interaction between two.",
+        "Gear it down, raise the bus voltage, or drop the speed at the point "
+        "that is short. The RMS figure beside the peak says whether the motor "
+        "is also being cooked over the whole cycle, which is a different "
+        "problem with a different answer: a bigger motor rather than a faster "
+        "one.",
+        keep="above", unit="Nm"),
+    "DUTY_BEARING_LIFE": Explanation(
+        "The bearings do not last the cycle",
+        "L10 at the equivalent load and the equivalent speed  >=  the design's "
+        "minimum",
+        "Life goes as the cube of load, so a varying load is not carried at its "
+        "average - it is carried at ISO 281's equivalent load, which sits well "
+        "above the mean and well below the peak. The speed is averaged over the "
+        "whole cycle including the part that stands still, because a bearing "
+        "wears per revolution and a drive that holds for half its cycle turns "
+        "half as much.",
+        "Fewer or shorter heavy points, a bigger bearing, or a lower minimum "
+        "life if the machine genuinely does not need it. The hours here are "
+        "hours of *cycle*, not hours of rotation, so they are already the hours "
+        "a service interval is written in.",
+        keep="above", unit="h"),
     "MOTOR_OPERATING_POINT": Explanation(
         "Where this duty point sits on the motor's curve",
         "T_motor(n_in), against the T_in the gearbox asks for",

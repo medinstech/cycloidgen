@@ -1211,6 +1211,10 @@ class MainWindow(QMainWindow):
         opt.setShortcut("Ctrl+R")
         opt.triggered.connect(self._optimise)
         d.addAction(opt)
+        duty = QAction("&Duty cycle...", self)
+        duty.setShortcut("Ctrl+D")
+        duty.triggered.connect(self._edit_duty_cycle)
+        d.addAction(duty)
         pin = QAction("&Pin as reference", self)
         pin.setShortcut("Ctrl+P")
         pin.triggered.connect(self._pin_reference)
@@ -2125,6 +2129,43 @@ class MainWindow(QMainWindow):
              f"this duty point runs at {s.output_rpm:.1f} rpm"),
         ]
 
+    def _duty_rows(self) -> list[tuple[str, str, str]]:
+        """The four things a cycle answers that a rated point cannot.
+
+        Deliberately only four.  The per-point table belongs in the dialog where
+        it is edited; what belongs here is the aggregate, because that is what
+        the rest of the datasheet has to be read against.
+        """
+        a = self.analysis
+        assert a is not None
+        d, s = a.duty, self.spec
+        worst = d.worst_stress
+        rows = [
+            ("Points", f"{len(d.points)} over {s.duty_cycle.total_seconds:g} s",
+             f"{100 * d.moving_share:.0f}% of the cycle turning; "
+             f"equivalent {d.equivalent_input_rpm:.0f} rpm at the input"),
+            ("Worst for stress",
+             f"{worst.point.output_torque_Nm:g} Nm",
+             f"'{worst.point.name or 'unnamed'}' at "
+             f"{worst.max_pin_pressure_MPa:.0f} MPa; the rated point is "
+             f"{s.output_torque_Nm:g} Nm"),
+            ("Mean loss", f"{d.mean_loss_W:.2f} W",
+             f"settles at {d.temperature_C:.0f} C - a housing integrates, so "
+             f"this is the temperature rather than the peak point's"),
+            ("Equivalent bearing load",
+             f"{d.equivalent_eccentric_load_N:.0f} N at the cam",
+             f"ISO 281 cubic mean over the turning points; shortest life "
+             f"{d.shortest_life_hours:,.0f} h of cycle"),
+        ]
+        if d.motor_is_modelled:
+            rows.append(
+                ("Motor peak / RMS",
+                 f"{d.peak_motor_torque_Nm:.3f} / {d.rms_motor_torque_Nm:.3f} Nm",
+                 f"hardest moment is '"
+                 f"{d.worst_motor.point.name or 'unnamed'}' at "
+                 f"{d.worst_motor.motor_margin:.2f}x"))
+        return rows
+
     def _fill_datasheet(self) -> None:
         """The numbers you would put on a spec sheet, in one place."""
         a = self.analysis
@@ -2158,6 +2199,7 @@ class MainWindow(QMainWindow):
             # motor" reads as a motor that has nothing to say about itself,
             # which is not the same as not having been asked.
             *([("The motor", self._motor_rows())] if a.motor.modelled else []),
+            *([("The duty cycle", self._duty_rows())] if a.duty.stated else []),
             ("Precision", [
                 ("Torsional stiffness",
                  f"{st.stiffness_Nm_per_arcmin:.3f} Nm/arcmin",
@@ -2233,6 +2275,30 @@ class MainWindow(QMainWindow):
             parent.setExpanded(True)
 
     # --------------------------------------------------------------- compare
+    def _edit_duty_cycle(self) -> None:
+        """Open the cycle table, and apply whatever comes back.
+
+        Through the same path a parameter change takes - the spec is replaced,
+        which is what puts it in the undo history and starts the analysis - so a
+        cycle can be undone like anything else rather than being a change the
+        window remembers differently from the rest.
+        """
+        from PySide6.QtWidgets import QDialog
+
+        from .duty_dialog import DutyDialog
+
+        dialog = DutyDialog(self.spec, self)
+        if dialog.exec() != QDialog.Accepted or dialog.cycle is None:
+            return
+        if dialog.cycle == self.spec.duty_cycle:
+            return
+        self._replace_spec(self.spec.model_copy(update={"duty_cycle": dialog.cycle}))
+        self._say(
+            f"Duty cycle: {len(dialog.cycle.points)} points"
+            if dialog.cycle.stated else "Duty cycle cleared",
+            seconds=4)
+        self._recompute()
+
     def _pin_reference(self) -> None:
         if self.analysis is None:
             return

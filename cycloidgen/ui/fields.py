@@ -334,6 +334,15 @@ CODE_FIELDS: dict[str, tuple[str, ...]] = {
     # a motor short of torque is as often a ratio that is too low or a speed
     # that is too high as it is the wrong motor, and the panel should light up
     # everything that moves the answer rather than only the part that is named.
+    # The duty cycle is not a spec field the panel spins - it is a table behind
+    # a button - so these point at the things that *can* be moved in response:
+    # the rated point the cycle is measured against, and the motor.
+    "DUTY_CYCLE": ("output_torque_Nm", "input_rpm"),
+    "DUTY_RATING_MISMATCH": ("output_torque_Nm",),
+    "DUTY_MOTOR_SHORT": ("motor_kind", "motor_supply_V", "motor_holding_torque_Nm",
+                         "motor_kv_rpm_per_V", "lobes"),
+    "DUTY_BEARING_LIFE": ("bearing_min_life_hours", "cam_bearing", "output_pin_roller",
+                          "shaft_bearing"),
     "MOTOR_OPERATING_POINT": ("motor_kind", "motor_supply_V", "input_rpm",
                               "output_torque_Nm", "lobes"),
     "MOTOR_TORQUE_SHORT": ("motor_kind", "motor_holding_torque_Nm",

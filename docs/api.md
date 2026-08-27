@@ -145,6 +145,43 @@ print(round(curve.speed_for_torque(0.2), 1))   # fastest that still makes 0.2 Nm
 The models are stated in `cycloidgen.core.motor`, along with what they ignore.
 Both are upper bounds: read a margin near 1 as no margin.
 
+### 2b. What it does over time
+
+`spec.output_torque_Nm` and `spec.input_rpm` are the *rated* point — one thing
+the drive does. A machine lifts, holds, returns and waits, and the quantities
+that describe it do not aggregate the same way, so a cycle is stated separately:
+
+```python
+from cycloidgen.core.duty import DutyCycle, DutyPoint
+
+spec.output_torque_Nm = 55.0                 # rate it at the cycle's peak
+spec.duty_cycle = DutyCycle(points=(
+    DutyPoint(name="lift",   output_torque_Nm=40.0, output_rpm=12.0, seconds=4.0),
+    DutyPoint(name="hold",   output_torque_Nm=55.0, output_rpm=0.0,  seconds=6.0),
+    DutyPoint(name="return", output_torque_Nm=8.0,  output_rpm=30.0, seconds=2.0),
+))
+
+d = analyse(spec).duty
+print(d.worst_stress.point.name)         # stress comes from the worst point
+print(d.mean_loss_W, d.temperature_C)    # heat from the mean - a housing integrates
+print(d.equivalent_torque_Nm)            # ISO 281 cubic mean, for bearing life
+print(d.peak_motor_torque_Nm, d.rms_motor_torque_Nm)   # make one, survive the other
+print(d.shortest.designation, d.shortest.life_hours)   # hours of cycle
+```
+
+Four aggregations, because no single point is conservative for all four. The
+durations are in whatever unit suits — only their ratios are read — and
+`output_rpm=0` is a **hold**: the load is there, nothing turns, so there is no
+loss, no PV and no bearing life consumed.
+
+The bearings are the drive's *own*, chosen at the rated point, with only their
+lives recomputed at the cycle's equivalent duty. Re-selecting for the cycle
+would answer a different question and could never report a bearing that falls
+short, because it would simply have picked a bigger one.
+
+An empty `DutyCycle()` is the default and changes nothing: a design that has not
+been given a cycle analyses exactly as it did before there was one.
+
 Findings are data, not printed text:
 
 ```python

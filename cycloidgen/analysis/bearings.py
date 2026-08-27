@@ -12,8 +12,8 @@ from dataclasses import dataclass
 from ..core.spec import AUTOMATIC, CARRIER_DROP, GearSpec, OutputMember
 
 __all__ = ["CATALOGUE", "Bearing", "BearingChoice", "BearingPlacement", "BearingRing",
-           "bearing_placements", "bearing_schedule", "pin_shank_diameter",
-           "placements_for_spec", "select_bearings"]
+           "bearing_placements", "bearing_schedule", "life_hours",
+           "pin_shank_diameter", "placements_for_spec", "select_bearings"]
 
 
 @dataclass(frozen=True)
@@ -121,7 +121,13 @@ class BearingChoice:
     fits: bool = True
 
 
-def _life_hours(b: Bearing, load_N: float, rpm: float) -> float:
+def life_hours(b: Bearing, load_N: float, rpm: float) -> float:
+    """Basic rating life, hours.  ``inf`` where nothing is loaded or turning.
+
+    Public because it is a fact about a part rather than a step in selecting
+    one: the duty cycle asks it of the parts a drive already has, at the
+    equivalent load and speed of a whole cycle rather than at one point.
+    """
     if load_N <= 0 or rpm <= 0:
         return float("inf")
     ratio = (b.C_kN * 1000.0) / load_N
@@ -210,7 +216,7 @@ def _pick(seat: _Seat, min_life_hours: float) -> Bearing | None:
         b for b in CATALOGUE
         if b.kind in seat.kinds
         and not seat.misfit(b)
-        and _life_hours(b, seat.load_N, seat.rpm) >= min_life_hours
+        and life_hours(b, seat.load_N, seat.rpm) >= min_life_hours
     ]
     if not candidates:
         return None
@@ -306,7 +312,7 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
         out.append(BearingChoice(
             role="Eccentric cam bearing", count=spec.disc_count,
             bearing=b, load_N=eccentric_load_N, speed_rpm=rpm,
-            life_hours=_life_hours(b, eccentric_load_N, rpm) if b else 0.0,
+            life_hours=life_hours(b, eccentric_load_N, rpm) if b else 0.0,
             carries="the radial force the disc pushes back into the crank",
             seat=f"on the {spec.cam_diameter:.1f} mm cam, inside the "
                  f"{spec.center_bore_diameter:.1f} mm disc bore",
@@ -341,7 +347,7 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
             role="Output pin roller",
             count=spec.output_pin_count * spec.disc_count * per_seat,
             bearing=b2, load_N=output_pin_load_N, speed_rpm=outpin_rpm,
-            life_hours=_life_hours(b2, output_pin_load_N, outpin_rpm) if b2 else 0.0,
+            life_hours=life_hours(b2, output_pin_load_N, outpin_rpm) if b2 else 0.0,
             carries="one pin's share of the output torque",
             seat=f"over each output pin, {spec.output_pin_diameter:g} mm OD "
                  f"working surface running in the "
@@ -380,7 +386,7 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
         out.append(BearingChoice(
             role="Ring pin roller", count=spec.pin_count * per_pin,
             bearing=b4, load_N=ring_pin_load_N, speed_rpm=roller_rpm,
-            life_hours=_life_hours(b4, ring_pin_load_N, roller_rpm) if b4 else 0.0,
+            life_hours=life_hours(b4, ring_pin_load_N, roller_rpm) if b4 else 0.0,
             carries="the lobe load as each tooth sweeps past",
             seat=f"over each ring pin, {2 * spec.pin_radius:.1f} mm OD working "
                  f"surface, {spec.stack_height:.1f} mm long"
@@ -430,7 +436,7 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
         out.append(BearingChoice(
             role="Input shaft support", count=2,
             bearing=b5, load_N=shaft_load, speed_rpm=shaft_rpm,
-            life_hours=_life_hours(b5, shaft_load, shaft_rpm) if b5 else 0.0,
+            life_hours=life_hours(b5, shaft_load, shaft_rpm) if b5 else 0.0,
             carries="half the crank reaction each, plus whatever the driving "
                     "coupling adds",
             seat=f"on the {spec.input_shaft_diameter:.1f} mm shaft, in the "
@@ -482,7 +488,7 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
             # housing is located rather than merely hung.
             count=2 if spec.ground_frame_fitted else 1,
             bearing=b3, load_N=radial, speed_rpm=spec.output_rpm,
-            life_hours=_life_hours(b3, radial, spec.output_rpm) if b3 else 0.0,
+            life_hours=life_hours(b3, radial, spec.output_rpm) if b3 else 0.0,
             carries=f"whatever the machine hangs on the {turning}"
                     + (", and the moment it applies - which is what having two "
                        "of them is for" if spec.ground_frame_fitted else ""),

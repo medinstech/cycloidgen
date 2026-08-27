@@ -230,6 +230,48 @@ def report_dict(a: DesignAnalysis) -> dict:
                 "output_speed_ceiling_rpm": None,
             }),
         },
+        # Same shape as the motor block above and for the same reason: the key
+        # is always there so a consumer can tell "no cycle stated" from "an
+        # older version that could not be asked", and the aggregates are null
+        # rather than zero so nothing reads a missing answer as a good one.
+        "duty": {
+            "stated": a.duty.stated,
+            "points": [
+                {
+                    "name": r.point.name,
+                    "output_torque_Nm": r.point.output_torque_Nm,
+                    "output_rpm": r.point.output_rpm,
+                    "seconds": r.point.seconds,
+                    "share": r.share,
+                    "input_rpm": r.input_rpm,
+                    "max_pin_pressure_MPa": r.max_pin_pressure_MPa,
+                    "loss_W": r.loss_W,
+                    "motor_required_Nm": r.motor_required_Nm,
+                }
+                for r in a.duty.points
+            ],
+            **({
+                "equivalent_input_rpm": a.duty.equivalent_input_rpm,
+                "moving_share": a.duty.moving_share,
+                "mean_loss_W": a.duty.mean_loss_W,
+                "temperature_C": a.duty.temperature_C,
+                "peak_torque_Nm": a.duty.worst_stress.point.output_torque_Nm,
+                "equivalent_eccentric_load_N": a.duty.equivalent_eccentric_load_N,
+                "equivalent_output_pin_load_N": a.duty.equivalent_output_pin_load_N,
+                "equivalent_ring_pin_load_N": a.duty.equivalent_ring_pin_load_N,
+                "shortest_bearing_life_hours": a.duty.shortest_life_hours,
+                "peak_motor_torque_Nm": a.duty.peak_motor_torque_Nm,
+                "rms_motor_torque_Nm": a.duty.rms_motor_torque_Nm,
+            } if a.duty.stated else {
+                "equivalent_input_rpm": None, "moving_share": None,
+                "mean_loss_W": None, "temperature_C": None,
+                "peak_torque_Nm": None, "equivalent_eccentric_load_N": None,
+                "equivalent_output_pin_load_N": None,
+                "equivalent_ring_pin_load_N": None,
+                "shortest_bearing_life_hours": None,
+                "peak_motor_torque_Nm": None, "rms_motor_torque_Nm": None,
+            }),
+        },
         "bearings": [
             {
                 "role": b.role,
@@ -534,6 +576,56 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
                  f"{m.output_torque_ceiling_Nm:.2f} Nm",
                  "Output speed it buys",
                  f"{m.output_speed_ceiling_rpm:.1f} rpm"],
+            ], [42 * mm, 36 * mm, 42 * mm, 36 * mm]),
+        ]
+
+    # --- the duty cycle ------------------------------------------------------
+    #
+    # After the motor, because it is the same argument carried further: the
+    # motor section says what the drive will be given at one point, and this
+    # says what it will be given over time.  Omitted entirely with no cycle
+    # stated - a section headed "The duty cycle" with the rated point in it
+    # would be answering a question nobody put.
+    if a.duty.stated:
+        d = a.duty
+        story += [
+            CondPageBreak(90 * mm),
+            Paragraph("The duty cycle", h2),
+            Paragraph(
+                "Everything above is worked out at the rated point. A machine "
+                "lifts, holds, returns and waits, and the quantities that "
+                "describe it do not aggregate the same way: stress comes from "
+                "the worst moment, temperature from the mean loss, bearing life "
+                "from the cubic mean load, and a motor has to make the peak and "
+                "survive the RMS. No single point is conservative for all four, "
+                "which is why the four are here and not one representative "
+                "number.",
+                body),
+            Spacer(1, 4),
+            _table(
+                [["What it does", "Torque", "Speed out", "Share", "Needs"]]
+                + [[r.point.name or "-",
+                    f"{r.point.output_torque_Nm:g} Nm",
+                    ("hold" if r.point.is_hold
+                     else f"{r.point.output_rpm:g} rpm"),
+                    f"{100 * r.share:.0f} %",
+                    f"{r.motor_required_Nm:.3f} Nm"] for r in d.points],
+                [40 * mm, 28 * mm, 28 * mm, 22 * mm, 28 * mm]),
+            Spacer(1, 6),
+            _table([
+                ["Quantity", "Value", "Quantity", "Value"],
+                ["Turning", f"{100 * d.moving_share:.0f} % of the cycle",
+                 "Equivalent speed", f"{d.equivalent_input_rpm:.0f} rpm in"],
+                ["Worst for stress",
+                 f"{d.worst_stress.max_pin_pressure_MPa:.0f} MPa",
+                 "Rated at", f"{s.output_torque_Nm:g} Nm"],
+                ["Mean loss", f"{d.mean_loss_W:.2f} W",
+                 "Settles at", f"{d.temperature_C:.0f} C"],
+                ["Equivalent cam load",
+                 f"{d.equivalent_eccentric_load_N:.0f} N",
+                 "Shortest life", f"{d.shortest_life_hours:,.0f} h of cycle"],
+                ["Motor peak", f"{d.peak_motor_torque_Nm:.3f} Nm",
+                 "Motor RMS", f"{d.rms_motor_torque_Nm:.3f} Nm"],
             ], [42 * mm, 36 * mm, 42 * mm, 36 * mm]),
         ]
 

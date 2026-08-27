@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, computed_field, model_validator
 # bolt to and a torque against speed - and only the first of them is geometry.
 # Re-exported here because every consumer already reaches for the spec, and a
 # name that moves house is a name that breaks a dozen imports for no gain.
+from .duty import DutyCycle
 from .motor import (
     MOTOR_FRAMES,
     NO_MOTOR,
@@ -540,6 +541,15 @@ class GearSpec(BaseModel):
     input_rpm: float = Field(1000.0, gt=0)
     output_torque_Nm: float = Field(5.0, gt=0)
     ambient_temp_C: float = Field(20.0, gt=-273.0, description="air around the housing")
+
+    #: What the drive actually does over time, if it has been said.
+    #:
+    #: Empty is the default and means the rated point above is the whole duty,
+    #: which is what every design has meant until now.  Stating a cycle does not
+    #: move the rated point or anything derived from it: it adds the four
+    #: aggregates a spectrum can answer and a single point cannot - see
+    #: :mod:`cycloidgen.core.duty`.
+    duty_cycle: DutyCycle = Field(default_factory=DutyCycle)
 
     # ---- what turns it --------------------------------------------------------
     #

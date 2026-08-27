@@ -51,7 +51,7 @@
 - **A datasheet, not a drawing.** Contact stress, torque capacity, efficiency,
   torsional stiffness, lost motion, transmission error, PV and running
   temperature, lubrication regime, mass and inertia, bearing life.
-- **Fifty-nine checks that explain themselves.** Each says what it tests, what
+- **Sixty-three checks that explain themselves.** Each says what it tests, what
   goes wrong physically when it fails, and which parameter to move — and lights
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
@@ -59,7 +59,7 @@
   what motor you have and let it pick the reduction: a motor is a torque-speed
   curve, not the number on its label, and what it can turn is what the drive is
   worth.
-- **Nothing is asserted that is not verified.** 1,049 tests, and where two parts
+- **Nothing is asserted that is not verified.** 1,072 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -484,7 +484,7 @@ Beyond the geometry checks, every design gets a datasheet:
 
 ## Checks
 
-Fifty-nine of them. Errors block export; warnings do not; several are readings
+Sixty-three of them. Errors block export; warnings do not; several are readings
 rather than tests.
 
 **Profile** — `K1_TOO_HIGH` · `K1_HIGH` · `UNDERCUT` · `UNDERCUT_MARGIN` ·
@@ -517,6 +517,9 @@ rather than tests.
 
 **The motor** — `MOTOR_OPERATING_POINT` · `MOTOR_TORQUE_SHORT` ·
 `MOTOR_SUPPLY_VOLTAGE`
+
+**The duty cycle** — `DUTY_CYCLE` · `DUTY_RATING_MISMATCH` ·
+`DUTY_MOTOR_SHORT` · `DUTY_BEARING_LIFE`
 
 **Dynamics and mass** — `SINGLE_DISC_UNBALANCE` · `UNBALANCE_FORCE` · `MASS`
 
@@ -760,7 +763,7 @@ cycloidgen/
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar)
-tests/          1,049 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          1,072 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -776,7 +779,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-1,049 tests, about 1200 s. Most of that is CadQuery writing solids; the pure
+1,072 tests, about 540 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

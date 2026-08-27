@@ -5,6 +5,88 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 7.7.0
+
+**Numbers** — none move. A design with no duty cycle analyses exactly as it did:
+the field defaults to empty, nothing about a cycle feeds back into the geometry
+or the rated point, and `tests/test_duty.py` holds that by comparing whole report
+sections between a design with a cycle and the same design without one. What is
+new is a set of numbers a single rated point could not produce.
+
+**Added**
+
+- **A duty cycle, because a machine is not one point.** The app has always taken
+  the duty as a torque out at a speed in, which is the right way to *size* a
+  gearbox and the wrong way to describe a machine. A robot joint lifts, holds,
+  returns and waits; a winch pulls hard and slowly and spools back fast and
+  empty. A single point can be the worst of those or the average of them, and
+  the app has been asking which one you meant without saying that it was asking.
+
+  **Design ▸ Duty cycle** (`Ctrl+D`) takes a table of them: what it does, the
+  torque, the speed at the output, and how long it lasts. The durations are in
+  whatever unit suits — only the ratios are read — so a cycle can be typed the
+  way it was measured rather than converted into shares that have to add up to
+  one.
+
+  The point of it is that the quantities **do not aggregate the same way**, and
+  no single point is conservative for all of them at once:
+
+  - **Stress** takes the worst point. Averaging the hardest moment away is how a
+    drive passes on paper and cracks on a bench.
+  - **Temperature** takes the mean loss. A housing integrates, and sizing the
+    cooling to the peak is sizing it to a transient.
+  - **Bearing life** takes neither. Life goes as the cube of load, so a varying
+    load is carried at ISO 281's equivalent load — the cubic mean, which sits
+    well above the arithmetic mean and well below the peak.
+  - **The motor** takes both ends: it has to make the peak and survive the RMS.
+
+  Four aggregations from one cycle. Getting any of them by picking a
+  representative point is a coincidence rather than a method.
+
+- **Holding still is a point, not an error.** Zero output speed is most of what
+  some drives do: the torque is there so the contact loads are, nothing slides
+  so there is no PV and no friction loss, nothing turns so no bearing life is
+  consumed. It falls out of the arithmetic rather than being special-cased —
+  the cubic mean weighs *revolutions*, so a point at half the speed contributes
+  half the wear and a point at no speed contributes none, and the equivalent
+  speed is averaged over the whole cycle including the standstill. That last
+  one is what makes the life a number of hours of **cycle** rather than hours of
+  rotation, which is the unit a service interval is actually written in.
+
+- **`DUTY_RATING_MISMATCH`, and it is the check that makes the rest safe to
+  read.** Everything on the datasheet — capacity, safety factor, wind-up,
+  transmission error, fatigue — is computed at the rated torque. State a cycle
+  that goes above it and every one of those numbers is describing an easier
+  machine than the one you have just described. The drive is not wrong; the page
+  in front of you is. Beside it, `DUTY_MOTOR_SHORT` names the hardest *moment* —
+  which is not always the heaviest point, because torque falls with speed and a
+  light point at speed can be tighter than a heavy one standing still — and
+  `DUTY_BEARING_LIFE` reports the drive's own bearings over the cycle.
+
+  That last one is the one that had to be built twice. The first version
+  re-selected bearings for the cycle, which answers "what would I fit for this
+  duty" and can therefore never report a bearing that falls short: it would
+  simply have picked a bigger one. The question worth asking is whether the
+  parts the drive *has* survive what it will actually do, so the rated
+  schedule's parts are kept and only their lives are recomputed — at one scalar
+  equivalent torque and one equivalent speed, which is exact here because every
+  load in this machine is linear in output torque and every speed is linear in
+  input speed. Doing it that way also means nothing has to match a role by its
+  *name* to know what a number means, which is how the bearing quantities went
+  wrong once before.
+
+- **Where it shows up.** A section on the datasheet and in the PDF, a `duty`
+  block in the JSON with every point and every aggregate, and a shape that
+  matches the motor block: the key is always there so a consumer can tell "no
+  cycle stated" from "an older version that could not be asked", with nulls
+  rather than zeros so nothing reads a missing answer as a good one.
+
+**Changed**
+
+- **`analysis.bearings.life_hours` is public.** It is a fact about a part rather
+  than a step in selecting one, and the duty cycle asks it of parts that have
+  already been chosen.
+
 ## 7.6.0
 
 **Numbers** — none move. Every existing design analyses exactly as it did:

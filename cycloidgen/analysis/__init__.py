@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from ..core.spec import PROCESS_POSITION_TOLERANCE, GearSpec
 from ..core.validate import Report, Severity, validate
 from .bearings import BearingChoice, select_bearings
+from .duty import DutyResult, analyse_duty
 from .efficiency import EfficiencyResult
 from .fatigue import FatigueResult, analyse_fatigue
 from .lubrication import FULL_FILM_LAMBDA, LubricationResult
@@ -42,6 +43,7 @@ class DesignAnalysis:
     fatigue: FatigueResult
     bearings: list[BearingChoice]
     motor: MotorResult
+    duty: DutyResult
     torque_capacity_Nm: float
 
     @property
@@ -103,6 +105,10 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     # for is the input torque *including* the loss, and on a printed drive with
     # fixed pins the loss is nearly half of it.
     motor = analyse_motor(spec, eff)
+    # Cheap by construction - the cycle re-runs the contact and efficiency
+    # solves per point and leaves the stiffness and transmission error alone,
+    # which is five sixths of the cost and the part a spectrum does not change.
+    duty = analyse_duty(spec, rated=bearings)
 
     if contact.pin_safety_factor < 1.0:
         rep.add(Severity.WARNING, "HERTZ_STRESS_RING",
@@ -574,6 +580,72 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                     f"lower one.",
                     motor.standstill_current_A, motor.rated_current_A)
 
+    # ---- the cycle, where one has been stated -------------------------------
+    if duty.stated:
+        rep.add(Severity.INFO, "DUTY_CYCLE",
+                f"{len(duty.points)} points over "
+                f"{spec.duty_cycle.total_seconds:g} s, "
+                f"{100 * duty.moving_share:.0f}% of it turning. Peak "
+                f"{duty.worst_stress.point.output_torque_Nm:g} Nm, mean loss "
+                f"{duty.mean_loss_W:.2f} W settling at {duty.temperature_C:.0f} C, "
+                f"equivalent {duty.equivalent_input_rpm:.0f} rpm at the input. "
+                f"The headline numbers above are still the rated point's; these "
+                f"are the four the cycle answers and it cannot.",
+                float(len(duty.points)))
+
+        # The one that makes the rest of the report safe to read.  Everything
+        # above - capacity, safety factor, stiffness, fatigue, wind-up - is
+        # computed at the rated torque, and if the cycle asks for more than that
+        # somewhere then every one of those numbers is describing a load this
+        # drive does not actually see at its worst.
+        peak = duty.worst_stress.point.output_torque_Nm
+        if peak > spec.output_torque_Nm * 1.001:
+            rep.add(Severity.WARNING, "DUTY_RATING_MISMATCH",
+                    f"The cycle reaches {peak:g} Nm at '"
+                    f"{duty.worst_stress.point.name or 'a point'}' and the drive "
+                    f"is rated at {spec.output_torque_Nm:g} Nm. Every number on "
+                    f"the datasheet - capacity, safety factor, wind-up, fatigue - "
+                    f"is worked out at the rated torque, so they are all "
+                    f"describing an easier machine than the one you have "
+                    f"described. Rate it at the peak.",
+                    peak, spec.output_torque_Nm)
+
+        if duty.motor_is_modelled and duty.worst_motor is not None:
+            worst = duty.worst_motor
+            if worst.motor_margin < 1.0:
+                rep.add(Severity.WARNING, "DUTY_MOTOR_SHORT",
+                        f"At '{worst.point.name or 'one point'}' the motor is "
+                        f"asked for {worst.motor_required_Nm:.3f} Nm at "
+                        f"{worst.input_rpm:.0f} rpm and can hold "
+                        f"{worst.motor_available_Nm:.3f} Nm. A cycle is only as "
+                        f"good as its hardest moment, and that is not always the "
+                        f"one with the most load - it is where load and speed are "
+                        f"worst together.",
+                        worst.motor_available_Nm, worst.motor_required_Nm)
+            elif worst.motor_margin < COMFORTABLE_MARGIN:
+                rep.add(Severity.WARNING, "DUTY_MOTOR_SHORT",
+                        f"Only {worst.motor_margin:.2f}x on motor torque at '"
+                        f"{worst.point.name or 'one point'}', the hardest moment "
+                        f"of the cycle. RMS over the whole cycle is "
+                        f"{duty.rms_motor_torque_Nm:.3f} Nm against a peak of "
+                        f"{duty.peak_motor_torque_Nm:.3f}.",
+                        worst.motor_available_Nm,
+                        COMFORTABLE_MARGIN * worst.motor_required_Nm)
+
+        first = duty.shortest
+        if first is not None and first.life_hours < spec.bearing_min_life_hours:
+            rep.add(Severity.WARNING, "DUTY_BEARING_LIFE",
+                    f"The {first.designation} on the {first.role.lower()} "
+                    f"reaches {first.life_hours:,.0f} h of cycle against the "
+                    f"{spec.bearing_min_life_hours:,.0f} h this design asks "
+                    f"for. It was chosen for the rated point; the cycle is "
+                    f"equivalent to {duty.equivalent_torque_Nm:.1f} Nm at "
+                    f"{duty.equivalent_input_rpm:.0f} rpm. Hours of cycle, not "
+                    f"hours of rotation - the "
+                    f"{100 * duty.moving_share:.0f}% of the time this drive "
+                    f"spends turning is already in it.",
+                    first.life_hours, spec.bearing_min_life_hours)
+
     external = [c for c in bearings if c.carried_elsewhere]
     if external:
         rep.add(Severity.INFO, "BEARINGS_OMITTED",
@@ -610,4 +682,5 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     return DesignAnalysis(spec=spec, report=rep, contact=contact, efficiency=eff,
                           stiffness=stiff, transmission_error=te, thermal=therm,
                           mass=mass, fatigue=fatigue, bearings=bearings,
-                          motor=motor, torque_capacity_Nm=capacity)
+                          motor=motor, duty=duty,
+                          torque_capacity_Nm=capacity)
