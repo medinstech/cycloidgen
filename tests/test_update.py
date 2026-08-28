@@ -278,6 +278,28 @@ def test_an_http_failure_says_something_a_person_can_act_on(monkeypatch, code,
     assert expected in str(caught.value)
 
 
+def test_a_download_that_404s_does_not_talk_about_releases(monkeypatch, tmp_path):
+    """The same helper serves the check and the download, and the 404 differs.
+
+    "GitHub has no published release for this project yet" is true of a check
+    that cannot find one and nonsense during a download: the release is right
+    there, it is the file that has gone - replaced, most likely, between the
+    check and the click. A message that is wrong in one of its two callers sends
+    the reader looking in the wrong place, which is worse than a status code.
+    """
+    def opener(request, timeout=None, context=None):
+        raise urllib.error.HTTPError(request.full_url, 404, "gone", {}, None)
+
+    monkeypatch.setattr(update.urllib.request, "urlopen", opener)
+    asset = update.Asset("setup.exe", "https://example.invalid/s.exe", 10)
+    with pytest.raises(update.UpdateError) as caught:
+        update.download(asset, tmp_path)
+    said = str(caught.value)
+    assert "no longer on the release" in said
+    assert "no published release" not in said
+    assert list(tmp_path.iterdir()) == []
+
+
 @pytest.mark.parametrize("raised", [
     urllib.error.URLError("no route to host"),
     TimeoutError("timed out"),

@@ -294,11 +294,23 @@ def _request(url: str) -> urllib.request.Request:
     })
 
 
-def _http_message(error: urllib.error.HTTPError) -> str:
+def _http_message(error: urllib.error.HTTPError, *, fetching: bool = False) -> str:
+    """What to tell the reader, in the words of the errand they were on.
+
+    The 404 is the one that has to know: this is called from both the check and
+    the download, and "GitHub has no published release for this project yet" is
+    a true sentence about the first and nonsense about the second - the release
+    is right there, it is the *file* that has gone.  A message that is wrong in
+    one of its two callers is worse than a status code, because it sends the
+    reader looking in the wrong place.
+    """
     if error.code in (403, 429):
-        return ("GitHub is rate-limiting this address; the check will work again "
-                "in an hour")
+        return ("GitHub is rate-limiting this address; it will work again "
+                "within the hour")
     if error.code == 404:
+        if fetching:
+            return ("the file is no longer on the release - it may have been "
+                    "replaced since the check")
         return "GitHub has no published release for this project yet"
     return f"GitHub answered {error.code} {error.reason}"
 
@@ -382,7 +394,7 @@ def download(asset: Asset, directory: Path | None = None, *,
         raise
     except urllib.error.HTTPError as exc:
         partial.unlink(missing_ok=True)
-        raise UpdateError(_http_message(exc)) from exc
+        raise UpdateError(_http_message(exc, fetching=True)) from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         partial.unlink(missing_ok=True)
         raise UpdateError(f"the download stopped: {exc}") from exc
