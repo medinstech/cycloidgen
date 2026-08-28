@@ -48,6 +48,16 @@ dependencies = [
     "pillow>=9.1",
     "reportlab>=4.0",
     "PySide6>=6.6",
+    # The one thing the update check needs that the standard library does not
+    # supply everywhere.  `ssl.create_default_context()` reads the platform
+    # store, which is the right answer on Windows and on a normal Linux install
+    # and the wrong one inside a PyInstaller bundle on macOS: OpenSSL looks in
+    # the paths it was *built* against, they belong to the CI runner, and a
+    # perfectly good connection fails verification.  certifi is the same CA list
+    # as a file the bundle can carry.  `cycloidgen/update.py` imports it
+    # optionally, so a copy installed without it still works - it just falls
+    # back to whatever the platform has.
+    "certifi>=2024.2",
     "cadquery>=2.4",
     # The one ceiling in this file, and it is not ours to want.
     #

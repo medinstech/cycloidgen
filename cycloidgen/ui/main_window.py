@@ -87,6 +87,7 @@ from .plotbar import PlotToolbar
 from .settings import app_settings
 from .tables import WrappingColumn
 from .tradestudy import TradeStudyTab
+from .updates import Updater
 from .view3d import Assembly3DTab
 
 _MAX_RECENT = 8
@@ -379,6 +380,16 @@ class MainWindow(QMainWindow):
         self.mode = self._resolve_mode(self.appearance)
         self._apply_theme_colours()
 
+        # Built before the menu bar, which is where its two entries go.  It
+        # makes no request until `start()`, and `start()` is not called until
+        # the window has been on screen for a moment - see `showEvent`.
+        self._updates = Updater(self)
+        self._updates.announced.connect(
+            lambda text, level, seconds: self._say(text, level=level,
+                                                   seconds=seconds))
+        self._updates.link.connect(self._open_url)
+        self._updates.finished_with_window.connect(self.close)
+
         self._build_ui()
         self._sync_preset_box()
         self._load_spec_into_widgets()
@@ -471,6 +482,10 @@ class MainWindow(QMainWindow):
             return
         self._splitter_restored = True
         QTimer.singleShot(0, self._restore_split)
+        # The same once-only moment the split is restored at, and the earliest
+        # point at which there is a window for the update question to be modal
+        # to.  It waits several seconds more before asking anything.
+        self._updates.start()
 
     def _restore_split(self) -> None:
         self._apply_fraction(self._splitter, "splitter_fraction",
@@ -1260,6 +1275,9 @@ class MainWindow(QMainWindow):
             action.setStatusTip(url)
             action.triggered.connect(lambda _checked=False, u=url: self._open_url(u))
             h.addAction(action)
+        h.addSeparator()
+
+        self._updates.add_to_menu(h)
         h.addSeparator()
 
         about = QAction("&About cycloidgen", self)
@@ -2670,4 +2688,5 @@ class MainWindow(QMainWindow):
         if rendering is not None and rendering.isRunning():
             rendering.cancel()
             rendering.wait(3000)
+        self._updates.shutdown()
         super().closeEvent(event)

@@ -59,7 +59,7 @@
   what motor you have and let it pick the reduction: a motor is a torque-speed
   curve, not the number on its label, and what it can turn is what the drive is
   worth.
-- **Nothing is asserted that is not verified.** 1,072 tests, and where two parts
+- **Nothing is asserted that is not verified.** 1,172 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -709,6 +709,27 @@ Preferences live wherever the platform puts them, or in a file of your choosing
 via `CYCLOIDGEN_SETTINGS` — which is what makes a portable install possible, and
 what lets the test suite run without rearranging your actual application.
 
+**Updates.** **Help ▸ Check for updates…** asks GitHub which release is the
+newest; **Help ▸ Check for updates automatically** does the same once a day and
+stays quiet unless there is something to say. The first run asks whether it may,
+and until that is answered no request is made by any path. What a check sends is
+a request for a version number — nothing about your designs, your machine or
+your files, none of which the application collects. This matters more here than
+it does for most tools: the analysis models change between releases, so a design
+sized against an old build can disagree with the current one about the same
+drive, and nothing else in the application can tell you that.
+
+What it offers depends on how the copy was installed. A pip install gets the
+upgrade command with the running interpreter named in it. An AppImage or a disk
+image is a file you placed yourself, so those go to the release page. The Windows
+installer can be fetched with a progress bar, checked against its published
+length, and started — the app closes, Windows asks permission, and preferences
+and the restored session survive it. The build is unsigned, so SmartScreen warns
+exactly as it does for an installer you downloaded yourself; the download is
+checked for being whole, not for being ours. *Skip this version* silences one
+release and no more; `CYCLOIDGEN_NO_UPDATE_CHECK` silences the feature entirely,
+for a distribution whose users update through their package manager.
+
 ## How far to trust the analysis
 
 The ideal load model treats the disc as rigid and each contact as a linear
@@ -743,6 +764,8 @@ a physical prototype before committing to a design.
 ```
 cycloidgen/
 ├── units.py    what lengths are *shown* in; everything inside is millimetres
+├── update.py   whether a newer release exists and how this copy would get it;
+│               no Qt, so the comparison is testable without a display
 ├── core/       spec (the one source of truth), profile, kinematics, validate,
 │               motor (the face it bolts to and the torque it makes),
 │               explain (what each check tests, why, and what to change),
@@ -762,8 +785,9 @@ cycloidgen/
 └── ui/         PySide6 window, 3D viewer, outputs tab, declarative field table,
                 optimiser dialog, trade-study tab, undo/redo history, log panel,
                 branding (palette and stylesheet), plotbar (the trimmed
-                matplotlib toolbar)
-tests/          1,072 tests; the envelope, pin-in-hole, clearance-sign,
+                matplotlib toolbar), updates (the check, and asking before it
+                runs)
+tests/          1,172 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -779,7 +803,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-1,072 tests, about 540 s. Most of that is CadQuery writing solids; the pure
+1,172 tests, about 520 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

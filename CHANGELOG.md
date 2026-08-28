@@ -5,6 +5,86 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 7.8.0
+
+**Numbers** — none move. Nothing here touches the geometry, the analysis or what
+an export contains. A design opened in 7.8.0 analyses exactly as it did in
+7.7.0; what is new is that the application can now tell you when it is no longer
+the version those numbers should be coming from.
+
+**Added**
+
+- **It can say when it is out of date, if you say it may.** An engineering tool
+  is installed once and used for months, and this one has had no way to mention
+  that it had fallen behind. That is not a missing convenience. The models
+  change between releases — the changelog above is mostly a record of numbers
+  moving — so a design sized against a build from two versions ago can disagree
+  with the current one about the same drive, and the person reading the old
+  answer has no reason to suspect it. There was nothing in the application that
+  could tell them.
+
+  **Help ▸ Check for updates…** asks GitHub which release is the newest and says
+  so either way. **Help ▸ Check for updates automatically** does the same once a
+  day, in the background, and stays quiet unless there is something to say.
+
+  **Nothing is sent before you are asked.** The first run puts the question up
+  once, in plain words, and until it is answered no request is made by any path.
+  What a check sends is a request for a version number: nothing about your
+  designs, your machine or your files, and there is nothing in the application
+  that collects any of that in the first place.
+
+  A "no" is remembered, and there are three different ones. *Not now* asks again
+  tomorrow. *Skip this version* means that particular release is not wanted and
+  nothing more is said about it until a newer one appears — asking from the menu
+  overrides it, because that is the user putting the question again. Turning the
+  setting off stops it entirely. A prompt that cannot be dismissed for good is a
+  prompt people learn to click through, and then the one that matters goes the
+  same way.
+
+  The dialog carries the release notes rather than only the version number. "Is
+  7.8.1 worth installing in the middle of a job" is a question about what
+  changed, and sending the reader to a browser to find out is how it gets
+  postponed indefinitely.
+
+- **On Windows, it can do the install.** Choosing *Download and install* fetches
+  the installer with a progress bar you can cancel, checks it against the length
+  GitHub published for it, closes the application and starts it. Windows asks for
+  permission first — the installer needs it, and that decision stays with the
+  person in front of the machine. Preferences, recent files and the restored
+  session survive it; the installer clears the old bundle rather than copying
+  over it, which is why the application closes first.
+
+  **The build is still unsigned**, and the dialog says so rather than implying a
+  verification that has not happened. SmartScreen warns exactly as it does for an
+  installer fetched in a browser, and the download is checked for being whole,
+  not for being ours. A signed build is still planned.
+
+- **What it offers depends on how this copy was installed**, because offering the
+  wrong route is worse than offering none. A pip install is given the upgrade
+  command with the interpreter that is actually running named in it — a machine
+  with several Pythons is exactly where a bare `pip install -U` upgrades a copy
+  that is not the one in front of you. An AppImage or a disk image is a file you
+  put somewhere yourself and is not ours to replace, so those are sent to the
+  release page. Only the Windows installer, and only on the architecture the
+  release actually carries a bundle for, is offered as an install.
+
+**Changed**
+
+- `certifi` is a dependency now. `ssl.create_default_context()` reads the
+  platform certificate store, which is the right answer on Windows and on a
+  normal Linux install and the wrong one inside a frozen bundle on macOS: OpenSSL
+  looks in the paths it was *built* against, they belong to the CI runner, and a
+  perfectly good connection fails verification. It is imported optionally, so a
+  copy installed without it falls back to the platform store rather than
+  failing — and nothing anywhere disables verification.
+
+- `CYCLOIDGEN_NO_UPDATE_CHECK` turns the whole thing off, by every path including
+  the menu, which stays visible and greyed out saying why. It exists for the same
+  reason `CYCLOIDGEN_SETTINGS` does: whoever ships a copy may have a better
+  answer than we do about how it gets updated, and a distribution whose users
+  update through their package manager should not be second-guessed by the
+  application.
+
 ## 7.7.0
 
 **Numbers** — none move. A design with no duty cycle analyses exactly as it did:
