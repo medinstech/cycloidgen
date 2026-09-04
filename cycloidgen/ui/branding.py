@@ -27,9 +27,10 @@ from __future__ import annotations
 import colorsys
 from dataclasses import dataclass
 from functools import lru_cache
-from pathlib import Path
 
 from PySide6.QtGui import QFont, QIcon, QPixmap
+
+from .paths import ASSETS, asset
 
 __all__ = [
     "BRAND_BLUE",
@@ -67,8 +68,6 @@ RELEASES_URL = f"{PROJECT_URL}/releases"
 BRAND_BLUE = "#0d00ff"
 #: The near-white the brand uses behind the mark; a hair cooler than paper.
 BRAND_PAPER = "#f6f5ff"
-
-_ASSETS = Path(__file__).resolve().parent / "assets"
 
 
 # ------------------------------------------------------------------- colour --
@@ -210,24 +209,7 @@ def palette(mode: str) -> Palette:
     raise ValueError(f"unknown appearance mode {mode!r}")
 
 
-# ------------------------------------------------------------------ assets --
-
-
-def asset(name: str) -> Path:
-    path = _ASSETS / name
-    if not path.exists():
-        # Two generators write into this folder and they are not interchangeable:
-        # the brand assets are trimmed from masters that are not in the tree,
-        # the icon is drawn from the profile equations.  Naming the wrong one
-        # sends whoever hit this looking for logos they were never given.
-        tool = "make_icon" if _is_app_icon(name) else "make_assets"
-        raise FileNotFoundError(f"missing asset {name!r}; run tools/{tool}.py")
-    return path
-
-
-def _is_app_icon(name: str) -> bool:
-    return name.startswith("icon-") or name.endswith(".ico")
-
+# ------------------------------------------------------------------- fonts --
 
 #: Monospace families in preference order, first one present wins.  Numbers in
 #: a proportional face do not line up, and a column of unaligned magnitudes is a
@@ -256,6 +238,9 @@ def mono_font(point_size: int | None = None) -> QFont:
     return font
 
 
+# ---------------------------------------------------------------- pictures --
+
+
 @lru_cache(maxsize=8)
 def window_icon() -> QIcon:
     """The application's own icon: the disc, not the company mark.
@@ -268,7 +253,7 @@ def window_icon() -> QIcon:
     """
     icon = QIcon()
     for name in ("cycloidgen.ico", "icon-256.png"):
-        candidate = _ASSETS / name
+        candidate = ASSETS / name
         if candidate.exists():
             icon.addFile(str(candidate))
     return icon
@@ -332,9 +317,9 @@ def stylesheet(mode: str = "light") -> str:
     p = palette(mode)
     # Qt stylesheets take forward slashes on every platform, including Windows.
     tint = "dark" if p.is_dark else "light"
-    down = (_ASSETS / f"chevron-down-{tint}.png").as_posix()
-    up = (_ASSETS / f"chevron-up-{tint}.png").as_posix()
-    tick = (_ASSETS / "tick.png").as_posix()
+    down = (ASSETS / f"chevron-down-{tint}.png").as_posix()
+    up = (ASSETS / f"chevron-up-{tint}.png").as_posix()
+    tick = (ASSETS / "tick.png").as_posix()
     # A hover that is not a selection: half a step, so a row under the pointer
     # and a row that is actually chosen do not look the same.
     hover = mix(p.raised, p.accent_wash, 0.55)

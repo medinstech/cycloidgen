@@ -105,6 +105,35 @@ def test_pdf_is_produced(spec, tmp_path):
     assert len(raw) > 50_000
 
 
+def test_the_letterhead_survives_a_machine_with_no_qt():
+    """The dossier is written headless more often than not - CI, a notebook, a
+    ``python -m cycloidgen --out`` run - and it used to lose its wordmark there
+    and say nothing about it, because the asset *path* was looked up through a
+    module that imports PySide6 in order to paint with.  One design in, two
+    different PDFs out, decided by whether Qt happened to be installed.  The
+    difference only shows where PySide6 cannot be imported at all, so that is
+    what the subprocess arranges.
+    """
+    import subprocess
+    import sys
+
+    code = """
+import sys
+class Block:
+    def find_spec(self, name, path=None, target=None):
+        if name.split('.')[0] == 'PySide6':
+            raise ImportError('no Qt on this machine')
+sys.meta_path.insert(0, Block())
+from cycloidgen.report.build import _letterhead
+print(type(_letterhead()).__name__, 'PySide6' in sys.modules)
+"""
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                         text=True, check=True)
+    assert out.stdout.split() == ["Image", "False"], (
+        f"headless letterhead came back as {out.stdout.strip()!r}; a Spacer "
+        "means the wordmark was dropped for want of a toolkit")
+
+
 def test_export_bundle_writes_everything(spec, tmp_path):
     from cycloidgen.export import write_bundle
     files = write_bundle(spec, tmp_path / "bundle")

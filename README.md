@@ -59,7 +59,7 @@
   what motor you have and let it pick the reduction: a motor is a torque-speed
   curve, not the number on its label, and what it can turn is what the drive is
   worth.
-- **Nothing is asserted that is not verified.** 1,172 tests, and where two parts
+- **Nothing is asserted that is not verified.** 1,177 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -787,7 +787,7 @@ cycloidgen/
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar), updates (the check, and asking before it
                 runs)
-tests/          1,172 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          1,177 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -803,7 +803,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-1,172 tests, about 520 s. Most of that is CadQuery writing solids; the pure
+1,177 tests, about 520 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own
@@ -1038,7 +1038,7 @@ Also: [CHANGELOG.md](https://github.com/medinstech/cycloidgen/blob/main/CHANGELO
 Apache-2.0. Copyright 2026 Medinstech. See [LICENSE](https://github.com/medinstech/cycloidgen/blob/main/LICENSE).
 
 The Medinstech name and logos under `cycloidgen/ui/assets/` are trademarks and
-are **not** covered by that licence — see [NOTICE](https://github.com/medinstech/cycloidgen/blob/main/NOTICE). They load through a
+are **not** covered by that licence — see [NOTICE](https://github.com/medinstech/cycloidgen/blob/main/NOTICE). They are declared in a
 single module (`cycloidgen/ui/branding.py`) so that replacing them in a fork is
 one obvious change. The application icon is not one of them: it is a cycloidal
 disc drawn from the profile equations by `tools/make_icon.py`, it is Apache-2.0

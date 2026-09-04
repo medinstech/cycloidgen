@@ -282,10 +282,26 @@ def test_cli_search_that_finds_nothing_says_why(capsys):
     assert "what stopped them" in capsys.readouterr().err
 
 
-def test_cli_rejects_an_unknown_material(capsys):
+@pytest.mark.parametrize("flag", ["--disc-material", "--pin-material",
+                                  "--housing-material"])
+def test_cli_rejects_an_unknown_material(capsys, flag):
+    """All three, not just the disc.  The other two used to reach pydantic and
+    come back as a validation traceback raised inside the search - a wall of
+    frames about a design nobody asked for, for one mistyped word."""
     from cycloidgen.__main__ import main
-    assert main(["--optimise", "--disc-material", "unobtainium"]) == 2
-    assert "unknown material" in capsys.readouterr().err
+    assert main(["--optimise", flag, "unobtainium"]) == 2
+    err = capsys.readouterr().err
+    assert "unknown material" in err and flag in err
+    assert "Steel 1045" in err          # the message carries the whole list
+
+
+def test_cli_rejects_an_unknown_process(capsys):
+    """`Process` is an enum, so an unrecognised name used to raise ValueError
+    from the constructor with nothing around it to say what the choices were."""
+    from cycloidgen.__main__ import main
+    assert main(["--optimise", "--process", "CNC machining"]) == 2
+    err = capsys.readouterr().err
+    assert "unknown process" in err and "CNC machined" in err
 
 
 def test_reset_starts_a_fresh_stack():

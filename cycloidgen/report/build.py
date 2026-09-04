@@ -307,14 +307,18 @@ def _letterhead():
     """The wordmark above the title, sized off its own aspect ratio.
 
     Falls back to nothing if the asset is missing: a report that refuses to
-    generate because a logo moved would be a poor trade.
+    generate because a logo moved would be a poor trade.  The lookup comes from
+    ``ui.paths`` rather than ``ui.branding`` because that one imports PySide6,
+    and a headless run would then take this fallback for a file that is sitting
+    right there - a PDF that quietly differs depending on whether the machine
+    happens to have Qt on it.
     """
     from reportlab.platypus import Spacer
 
     try:
-        from ..ui.branding import asset
+        from ..ui.paths import asset
         path = asset("wordmark-blue.png")
-    except Exception:
+    except FileNotFoundError:
         return Spacer(1, 0)
 
     from PIL import Image as PILImage

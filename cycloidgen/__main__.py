@@ -195,9 +195,25 @@ def _search(args) -> tuple[int, object | None]:
         ratio_band,
     )
 
-    if args.disc_material not in MATERIALS:
-        print(f"unknown material {args.disc_material!r}; choose from "
-              + ", ".join(MATERIALS), file=sys.stderr)
+    # Every name a flag hands to `Requirements` is checked here, and all four
+    # of them rather than just the disc: unchecked, they arrive as a pydantic
+    # error or an enum ValueError raised several frames inside the search, so
+    # what the caller gets for one mistyped word is a traceback about a design
+    # they never asked for.  Both lists are read off the definitions rather
+    # than spelled out again, so a material added to `MATERIALS` is not one
+    # this refuses, and the message is the whole list rather than a pointer to
+    # where it might be written down.
+    for flag, name in (("--disc-material", args.disc_material),
+                       ("--pin-material", args.pin_material),
+                       ("--housing-material", args.housing_material)):
+        if name not in MATERIALS:
+            print(f"unknown material {name!r} for {flag}; choose from "
+                  + ", ".join(MATERIALS), file=sys.stderr)
+            return 2, None
+
+    if args.process not in {p.value for p in Process}:
+        print(f"unknown process {args.process!r}; choose from "
+              + ", ".join(p.value for p in Process), file=sys.stderr)
         return 2, None
 
     # The motor comes off a design file rather than off eight more flags.  A
@@ -351,9 +367,14 @@ def main(argv: list[str] | None = None) -> int:
                         help="axial length limit, mm (default 60)")
     search.add_argument("--process", default="FDM 3D print",
                         help="manufacturing process (default 'FDM 3D print')")
-    search.add_argument("--disc-material", default="PLA")
-    search.add_argument("--pin-material", default="Steel 1045")
-    search.add_argument("--housing-material", default="PLA")
+    search.add_argument("--disc-material", default="PLA",
+                        help="disc material (default PLA); passing an unknown "
+                             "name prints the choices, as it does for the pins "
+                             "and the housing")
+    search.add_argument("--pin-material", default="Steel 1045",
+                        help="ring and output pin material (default 'Steel 1045')")
+    search.add_argument("--housing-material", default="PLA",
+                        help="housing material (default PLA)")
     search.add_argument("--rollers", action="store_true",
                         help="ring and output pins carry rolling elements")
     search.add_argument("--discs", type=int, default=0, choices=(0, 1, 2, 3),
